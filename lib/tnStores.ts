@@ -29,10 +29,12 @@ function storesFilePath(sfUserId: string): string {
 
 function readRaw(sfUserId: string): StoresFile {
   const file = storesFilePath(sfUserId);
+  console.log("[tnStores] readRaw path:", file, "exists:", fs.existsSync(file));
   if (!fs.existsSync(file)) return { active: null, stores: {} };
   try {
     return JSON.parse(fs.readFileSync(file, "utf-8")) as StoresFile;
-  } catch {
+  } catch (e) {
+    console.log("[tnStores] readRaw error:", e);
     return { active: null, stores: {} };
   }
 }
