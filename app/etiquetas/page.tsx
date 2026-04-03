@@ -79,8 +79,15 @@ export default function EtiquetasPage() {
       const res = await fetch("/api/etiquetas", { method: "POST", body: form });
 
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? "Error del servidor");
+        let errorMsg = "Error del servidor";
+        try {
+          const body = await res.json();
+          errorMsg = body.error ?? errorMsg;
+        } catch {
+          // response is not JSON (e.g. empty body or HTML error page)
+          errorMsg = `Error del servidor (HTTP ${res.status})`;
+        }
+        throw new Error(errorMsg);
       }
 
       const blob = await res.blob();
