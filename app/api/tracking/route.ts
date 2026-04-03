@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import path from "path";
 
 export const runtime = "nodejs";
@@ -86,11 +86,30 @@ export async function POST(req: NextRequest) {
     const pdfB64    = pdfBuffer.toString("base64");
     const scriptPath = path.join(process.cwd(), "scripts", "extract_tracking.py");
 
-    const raw = execSync(`python "${scriptPath}"`, {
-      input: JSON.stringify({ pdf_b64: pdfB64 }),
-      encoding: "utf-8",
-      maxBuffer: 50 * 1024 * 1024,
-    }).trim();
+    let raw = "";
+    let pyError = "";
+    for (const cmd of ["python3", "python"]) {
+      const result = spawnSync(cmd, [scriptPath], {
+        input: JSON.stringify({ pdf_b64: pdfB64 }),
+        encoding: "utf-8",
+        maxBuffer: 50 * 1024 * 1024,
+      });
+      if (result.error) continue;
+      if (result.status !== 0) {
+        pyError = (result.stderr ?? "").trim() || `código ${result.status}`;
+        break;
+      }
+      raw = (result.stdout ?? "").trim();
+      pyError = "";
+      break;
+    }
+
+    if (pyError) {
+      return NextResponse.json({ error: `Error en el script Python: ${pyError}` }, { status: 500 });
+    }
+    if (!raw) {
+      return NextResponse.json({ error: "Python no está instalado en el servidor" }, { status: 500 });
+    }
 
     const entries: TrackingEntry[] = JSON.parse(raw);
     return NextResponse.json({ entries });

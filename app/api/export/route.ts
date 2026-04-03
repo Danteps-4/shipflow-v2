@@ -1,8 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import path from "path";
 
 export const runtime = "nodejs";
+
+function runPython(scriptPath: string, inputJson: string): { b64: string } | { error: string } {
+  for (const cmd of ["python3", "python"]) {
+    const result = spawnSync(cmd, [scriptPath], {
+      input: inputJson,
+      encoding: "utf-8",
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 30_000,
+    });
+
+    if (result.error) continue; // command not found, try next
+
+    if (result.status !== 0) {
+      const stderr = (result.stderr ?? "").trim();
+      return { error: `Error en el script Python: ${stderr || `código ${result.status}`}` };
+    }
+
+    const b64 = (result.stdout ?? "").trim();
+    if (!b64) return { error: "El script no generó ningún resultado" };
+    return { b64 };
+  }
+  return { error: "Python no está instalado en el servidor (se requiere python3 con openpyxl)" };
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,14 +41,13 @@ export async function POST(req: NextRequest) {
 
     const input = JSON.stringify({ ...body, template_path: templatePath });
 
-    const b64 = execSync(`python "${scriptPath}"`, {
-      input,
-      encoding: "utf-8",
-      maxBuffer: 50 * 1024 * 1024, // 50 MB
-      timeout: 30_000,
-    }).trim();
+    const pyResult = runPython(scriptPath, input);
+    if ("error" in pyResult) {
+      console.error("[/api/export]", pyResult.error);
+      return NextResponse.json({ error: pyResult.error }, { status: 500 });
+    }
 
-    const buffer = Buffer.from(b64, "base64");
+    const buffer = Buffer.from(pyResult.b64, "base64");
 
     return new NextResponse(buffer, {
       status: 200,
