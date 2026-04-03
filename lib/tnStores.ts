@@ -6,6 +6,9 @@ import fs from "fs";
 import path from "path";
 import { DATA_DIR } from "./dataDir";
 
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
 export interface StoreInfo {
   access_token: string;
   user_id: number;

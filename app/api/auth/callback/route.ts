@@ -7,6 +7,8 @@ export async function GET(req: NextRequest) {
   const code      = req.nextUrl.searchParams.get("code");
   const sfUserId  = req.nextUrl.searchParams.get("state") ?? "";
 
+  console.log("[callback] code:", !!code, "sfUserId from state:", sfUserId);
+
   if (!code) return NextResponse.redirect(new URL("/?error=missing_code", req.url));
   if (!sfUserId) return NextResponse.redirect(new URL("/?error=missing_state", req.url));
 
@@ -44,6 +46,7 @@ export async function GET(req: NextRequest) {
   } catch { /* keep default name */ }
 
   addStore(sfUserId, { access_token, user_id, store_name, connected_at: new Date().toISOString() });
+  console.log("[callback] store saved for sfUserId:", sfUserId, "tn user_id:", user_id);
 
   // Use TN_REDIRECT_URI to derive the public base URL (avoids Railway's internal localhost:8080)
   const base = process.env.TN_REDIRECT_URI

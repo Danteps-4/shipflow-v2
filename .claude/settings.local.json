@@ -31,7 +31,9 @@
       "Read(//c/Users/Usuario/Desktop/prueba envios andreani/web_app_claude_code/**)",
       "Bash(done)",
       "Bash(sed -i 's|import StoreSwitcher from \"\"@/components/StoreSwitcher\"\";|import StoreSwitcher from \"\"@/components/StoreSwitcher\"\";\\\\nimport UserMenu from \"\"@/components/UserMenu\"\";|' \"$f\")",
-      "Bash(sed -i 's|<div style={{ marginLeft: \"\"auto\"\" }}><StoreSwitcher /></div>|<div style={{ marginLeft: \"\"auto\"\", display: \"\"flex\"\", alignItems: \"\"center\"\", gap: \"\"0.75rem\"\" }}><StoreSwitcher /><UserMenu /></div>|' \"$f\")"
+      "Bash(sed -i 's|<div style={{ marginLeft: \"\"auto\"\" }}><StoreSwitcher /></div>|<div style={{ marginLeft: \"\"auto\"\", display: \"\"flex\"\", alignItems: \"\"center\"\", gap: \"\"0.75rem\"\" }}><StoreSwitcher /><UserMenu /></div>|' \"$f\")",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(npx --yes kill-port 3000 3001 8080)"
     ]
   }
 }
