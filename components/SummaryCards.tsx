@@ -9,14 +9,18 @@ interface SummaryCardsProps {
 interface CardProps {
   label: string;
   value: number;
-  color: string;
+  icon: string;
+  valueClass?: string;
 }
 
-function Card({ label, value, color }: CardProps) {
+function StatCard({ label, value, icon, valueClass = "" }: CardProps) {
   return (
-    <div className={`rounded-xl p-4 border ${color}`}>
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="text-sm text-gray-600 mt-1">{label}</p>
+    <div className="sf-stat-card">
+      <div style={{ fontSize: "1.5rem", marginBottom: "0.5rem", color: "var(--text-muted)" }}>
+        <i className={icon} />
+      </div>
+      <div className={`sf-stat-value ${valueClass}`}>{value}</div>
+      <div className="sf-stat-label">{label}</div>
     </div>
   );
 }
@@ -29,15 +33,16 @@ export default function SummaryCards({
   totalErrores,
 }: SummaryCardsProps) {
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-      <Card label="Filas leídas" value={totalFilas} color="border-gray-200 bg-gray-50" />
-      <Card label="Órdenes únicas" value={ordenesUnicas} color="border-blue-200 bg-blue-50" />
-      <Card label="A domicilio" value={totalDomicilio} color="border-green-200 bg-green-50" />
-      <Card label="A sucursal" value={totalSucursal} color="border-purple-200 bg-purple-50" />
-      <Card
+    <div className="sf-summary-grid">
+      <StatCard label="Filas leídas"    value={totalFilas}      icon="fas fa-list"        />
+      <StatCard label="Órdenes únicas"  value={ordenesUnicas}   icon="fas fa-cube"        />
+      <StatCard label="A domicilio"     value={totalDomicilio}  icon="fas fa-house"       valueClass="success" />
+      <StatCard label="A sucursal"      value={totalSucursal}   icon="fas fa-building"    valueClass="" />
+      <StatCard
         label="Con errores"
         value={totalErrores}
-        color={totalErrores > 0 ? "border-red-200 bg-red-50" : "border-gray-200 bg-gray-50"}
+        icon="fas fa-triangle-exclamation"
+        valueClass={totalErrores > 0 ? "error" : ""}
       />
     </div>
   );

@@ -9,15 +9,17 @@ import { findColumn, slugify } from "./normalizers";
 export const COLUMN_CANDIDATES = {
   numeroOrden: ["Número de orden", "Numero de orden", "Nro de orden", "Order number"],
   nombreEnvio: ["Nombre para el envío", "Nombre para el envio", "Nombre envio"],
-  dni: ["DNI/CUIT", "DNI", "CUIT", "DNI / CUIT"],
+  dni: ["DNI / CUIT", "DNI/CUIT", "DNI", "CUIT"],
   email: ["Email", "E-mail", "Correo"],
-  telefono: ["Teléfono para el envío", "Telefono para el envio", "Teléfono", "Telefono"],
+  telefonoEnvio: ["Teléfono para el envío", "Telefono para el envio", "Teléfono envío", "Telefono envio"],
+  telefonoComprador: ["Teléfono", "Telefono", "Teléfono del comprador", "Telefono del comprador", "Tel", "Celular", "Cel"],
   medioEnvio: ["Medio de envío", "Medio de envio", "Tipo de envío", "Tipo de envio"],
   direccion: ["Dirección", "Direccion", "Calle", "Dirección de entrega"],
   numero: ["Número", "Numero", "Nro", "Número de puerta"],
   piso: ["Piso"],
-  localidad: ["Ciudad", "Localidad", "Ciudad/Localidad"],
-  provincia: ["Provincia"],
+  ciudad: ["Ciudad"],
+  localidad: ["Localidad", "Ciudad/Localidad", "Ciudad"],
+  provincia: ["Provincia o estado", "Provincia", "Estado"],
   codigoPostal: ["Código postal", "Codigo postal", "CP", "Cod. Postal"],
   sucursal: ["Sucursal", "Punto de retiro", "Sucursal Andreani"],
 };
@@ -39,7 +41,8 @@ export function parseCsv(csvContent: string): ParseResult {
   const result = Papa.parse<TiendaNubeRow>(csvContent, {
     header: true,
     skipEmptyLines: true,
-    transformHeader: (header) => header.trim(), // limpia espacios en encabezados
+    delimiter: "",       // auto-detecta separador (coma o punto y coma)
+    transformHeader: (header) => header.trim(),
   });
 
   const headers = result.meta.fields ?? [];

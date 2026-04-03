@@ -1,4 +1,6 @@
-import { AndreaniDomicilio, AndreaniSucursal, ValidationError } from "@/types/orders";
+"use client";
+
+import { AndreaniDomicilio, AndreaniSucursal, ValidationError, GroupedOrder } from "@/types/orders";
 
 type RowType = AndreaniDomicilio | AndreaniSucursal;
 
@@ -6,70 +8,159 @@ interface PreviewTableProps {
   data: RowType[];
   errores: ValidationError[];
   tipo: "domicilio" | "sucursal";
+  groupedOrders: GroupedOrder[];
+  onEdit?: (order: GroupedOrder, error: ValidationError) => void;
 }
 
-export default function PreviewTable({ data, errores, tipo }: PreviewTableProps) {
+export default function PreviewTable({ data, errores, tipo, groupedOrders, onEdit }: PreviewTableProps) {
   if (data.length === 0) {
     return (
-      <div className="text-center py-12 text-gray-400">
-        No hay pedidos de este tipo en el archivo.
+      <div className="sf-empty">
+        <i className="fas fa-inbox sf-empty-icon" />
+        <p style={{ fontWeight: 600, color: "var(--text-muted)" }}>No hay pedidos de este tipo</p>
       </div>
     );
   }
 
-  // Set de órdenes con error para marcarlas
   const errorSet = new Set(errores.filter((e) => e.tipo === tipo).map((e) => e.numeroOrden));
-
-  const columns = Object.keys(data[0]) as string[];
+  const groupedMap = new Map(groupedOrders.map((g) => [g.numeroOrden, g]));
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-gray-200">
-      <table className="min-w-full text-xs">
+    <div className="sf-table-wrap">
+      <table className="sf-table">
         <thead>
-          <tr className="bg-gray-100 text-gray-600 uppercase tracking-wide">
-            <th className="px-3 py-2 text-left font-semibold whitespace-nowrap sticky left-0 bg-gray-100 z-10">
-              Estado
-            </th>
-            {columns.map((col) => (
-              <th key={col} className="px-3 py-2 text-left font-semibold whitespace-nowrap">
-                {col}
-              </th>
-            ))}
+          <tr>
+            <th className="sticky-col">Estado</th>
+            <th>Orden</th>
+            <th>Cliente</th>
+            <th>Dirección</th>
+            <th>Ciudad</th>
+            <th>{tipo === "domicilio" ? "Provincia / Localidad / CP" : "Sucursal"}</th>
           </tr>
         </thead>
         <tbody>
           {data.map((row, i) => {
             const numeroInterno = (row as AndreaniDomicilio)["Numero Interno"];
             const hasError = errorSet.has(numeroInterno);
+            const rowClass = hasError ? "row-error" : i % 2 === 0 ? "row-even" : "row-odd";
+            const grouped = groupedMap.get(numeroInterno);
+            const d = row as AndreaniDomicilio;
+            const s = row as AndreaniSucursal;
+
+            const cliente = [d["Nombre"], d["Apellido"]].filter(Boolean).join(" ");
+            const direccionLinea = tipo === "domicilio"
+              ? [d["Calle"], d["Número"]].filter(Boolean).join(" ")
+              : [grouped?.direccion, grouped?.numeroDireccion].filter(Boolean).join(" ");
+
+            // Subtexto: datos originales del cliente (localidad, provincia, CP)
+            const rawSubtexto = tipo === "domicilio"
+              ? [grouped?.rawLocalidad, grouped?.rawProvincia, grouped?.rawCodigoPostal]
+                  .filter(Boolean).join(", ")
+              : "";
+
+            // Ciudad: columna Ciudad del CSV
+            const ciudadRaw = grouped?.ciudad ?? "";
+
+            // Selección final
+            const seleccion = tipo === "domicilio"
+              ? d["Provincia / Localidad / CP"]
+              : s["Sucursal"];
+
+            // Validation error for this row (may be undefined if no error)
+            const rowError = errores.find((e) => e.numeroOrden === numeroInterno && e.tipo === tipo);
+
+            function handleEdit() {
+              if (!grouped || !onEdit) return;
+              const error: ValidationError = rowError ?? {
+                numeroOrden: numeroInterno,
+                campos: [],
+                tipo,
+              };
+              onEdit(grouped, error);
+            }
+
             return (
-              <tr
-                key={i}
-                className={`border-t border-gray-100 ${
-                  hasError ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-gray-50"
-                }`}
-              >
-                <td className={`px-3 py-2 sticky left-0 z-10 ${hasError ? "bg-red-50" : i % 2 === 0 ? "bg-white" : "bg-gray-50"}`}>
-                  {hasError ? (
-                    <span className="inline-flex items-center gap-1 text-red-600 font-medium">
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                      Error
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-green-600 font-medium">
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                      </svg>
-                      OK
-                    </span>
+              <tr key={i} className={rowClass}>
+                {/* Estado + editar */}
+                <td className="sticky-col">
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "nowrap" }}>
+                    {hasError ? (
+                      <span className="sf-badge sf-badge-error">
+                        <i className="fas fa-circle-exclamation" /> Error
+                      </span>
+                    ) : (
+                      <span className="sf-badge sf-badge-ok">
+                        <i className="fas fa-circle-check" /> OK
+                      </span>
+                    )}
+                    {onEdit && (
+                      <button
+                        onClick={handleEdit}
+                        title="Editar pedido"
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--text-muted)",
+                          padding: "2px 4px",
+                          borderRadius: "4px",
+                          lineHeight: 1,
+                          fontSize: "0.8rem",
+                          flexShrink: 0,
+                          transition: "color 0.15s",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent-color)")}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+                      >
+                        <i className="fas fa-pen" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+
+                {/* Orden */}
+                <td style={{ fontFamily: "monospace", fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {numeroInterno}
+                </td>
+
+                {/* Cliente */}
+                <td style={{ whiteSpace: "nowrap" }}>{cliente || "—"}</td>
+
+                {/* Dirección */}
+                <td>
+                  <div style={{ fontWeight: 500 }}>{direccionLinea || "—"}</div>
+                  {rawSubtexto && (
+                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                      {rawSubtexto}
+                    </div>
                   )}
                 </td>
-                {columns.map((col) => (
-                  <td key={col} className="px-3 py-2 whitespace-nowrap text-gray-700 max-w-[200px] truncate">
-                    {String((row as unknown as Record<string, unknown>)[col] ?? "")}
-                  </td>
-                ))}
+
+                {/* Ciudad */}
+                <td style={{ fontSize: "0.82rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                  {ciudadRaw || "—"}
+                </td>
+
+                {/* Selección */}
+                <td className="col-seleccion">
+                  {seleccion ? (
+                    <span style={{
+                      display: "inline-flex",
+                      alignItems: "flex-start",
+                      gap: "0.3rem",
+                      fontSize: "0.78rem",
+                      fontWeight: 600,
+                      color: "var(--success-color)",
+                      whiteSpace: "normal",
+                      wordBreak: "break-word",
+                    }}>
+                      <i className="fas fa-star" style={{ fontSize: "0.65rem", marginTop: "3px", flexShrink: 0 }} />
+                      {seleccion}
+                    </span>
+                  ) : (
+                    <span style={{ color: "var(--error-color)", fontSize: "0.78rem" }}>—</span>
+                  )}
+                </td>
               </tr>
             );
           })}

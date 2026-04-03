@@ -70,24 +70,27 @@ export function normalizeCodigoPostal(value: string): string {
 }
 
 // Map de normalización de provincias
+// Los valores deben coincidir EXACTAMENTE con los nombres en la lista de Andreani
 const PROVINCIA_MAP: Record<string, string> = {
-  "capital federal": "CIUDAD AUTONOMA DE BUENOS AIRES",
-  "ciudad autonoma de buenos aires": "CIUDAD AUTONOMA DE BUENOS AIRES",
-  "ciudad de buenos aires": "CIUDAD AUTONOMA DE BUENOS AIRES",
-  "caba": "CIUDAD AUTONOMA DE BUENOS AIRES",
-  "cordoba": "CORDOBA",
-  "córdoba": "CORDOBA",
+  // CABA — Andreani usa "CAPITAL FEDERAL"
+  "capital federal": "CAPITAL FEDERAL",
+  "ciudad autonoma de buenos aires": "CAPITAL FEDERAL",
+  "ciudad de buenos aires": "CAPITAL FEDERAL",
+  "caba": "CAPITAL FEDERAL",
+  // Buenos Aires
   "buenos aires": "BUENOS AIRES",
   "gran buenos aires": "BUENOS AIRES",
   "pcia. de buenos aires": "BUENOS AIRES",
   "pcia de buenos aires": "BUENOS AIRES",
   "provincia de buenos aires": "BUENOS AIRES",
+  "bs as": "BUENOS AIRES",
+  "bs. as.": "BUENOS AIRES",
+  // Resto — sin acentos, tal como aparecen en Andreani
+  "cordoba": "CORDOBA",
   "santa fe": "SANTA FE",
   "entre rios": "ENTRE RIOS",
-  "entre ríos": "ENTRE RIOS",
   "mendoza": "MENDOZA",
   "tucuman": "TUCUMAN",
-  "tucumán": "TUCUMAN",
   "salta": "SALTA",
   "misiones": "MISIONES",
   "chaco": "CHACO",
@@ -96,9 +99,7 @@ const PROVINCIA_MAP: Record<string, string> = {
   "san juan": "SAN JUAN",
   "jujuy": "JUJUY",
   "rio negro": "RIO NEGRO",
-  "río negro": "RIO NEGRO",
   "neuquen": "NEUQUEN",
-  "neuquén": "NEUQUEN",
   "formosa": "FORMOSA",
   "chubut": "CHUBUT",
   "san luis": "SAN LUIS",
@@ -122,6 +123,30 @@ export function normalizeProvincia(value: string): string {
 // -------------------------------------------------------------------
 export function normalizeLocalidad(value: string): string {
   return normalizeStr(value).toUpperCase();
+}
+
+// -------------------------------------------------------------------
+// Sanitiza un campo de texto para el Excel de Andreani.
+// Andreani rechaza ciertos caracteres en los campos del Excel:
+//   - Guión/dash (-)       → se reemplaza por espacio
+//   - Grado/barrio (°)     → se elimina  (Bº → B)
+//   - Barra (/)            → se reemplaza por espacio
+//   - Apóstrofe (' y `)    → se elimina  (O'Brien → OBrien)
+//   - Comillas (" y « »)   → se elimina
+//   - Almohadilla (#)      → se elimina
+//   - Paréntesis ( )       → se reemplaza por espacio
+//   - Punto y coma (;)     → se reemplaza por espacio
+//   - Barra invertida (\)  → se reemplaza por espacio
+//   - Pipe (|)             → se reemplaza por espacio
+// Letras, números, espacios, puntos y acentos/ñ se conservan.
+// -------------------------------------------------------------------
+export function sanitizeAndreani(value: string): string {
+  if (!value) return value;
+  return value
+    .replace(/[-/\\|;()\[\]{}]/g, " ")  // reemplaza separadores por espacio
+    .replace(/[°'""`«»#]/g, "")          // elimina caracteres decorativos/inválidos
+    .replace(/\s{2,}/g, " ")             // colapsa espacios dobles
+    .trim();
 }
 
 // -------------------------------------------------------------------

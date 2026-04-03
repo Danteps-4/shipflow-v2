@@ -1,7 +1,37 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)"
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --no-src-dir --import-alias \"@/*\" --yes)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(mv next.config.ts next.config.mjs)",
+      "Bash(echo \"/** @type {import\\(''next''\\).NextConfig} */:*)",
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?|css|json|html\\)$\")",
+      "Bash(python \"C:/Users/Usuario/Desktop/prueba envios andreani/web_app_claude_code/read_excel.py\")",
+      "Bash(py --version)",
+      "Bash(C:/Python310/python.exe \"C:/Users/Usuario/Desktop/prueba envios andreani/read_excel.py\")",
+      "Read(//c/Users/Usuario/Desktop/**)",
+      "Bash(C:/Python310/python.exe \"C:/Users/Usuario/Desktop/prueba envios andreani/read_excel2.py\")",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(python generate_ts.py)",
+      "Bash(ls \"C:/Users/Usuario/Desktop/\"*.xlsx)",
+      "Bash(ls -lh \"C:\\\\Users\\\\Usuario\\\\Desktop\\\\prueba envios andreani\\\\web_app\"/*.xlsx)",
+      "Bash(ls \"C:/Users/Usuario/Desktop/prueba envios andreani/web_app_claude_code/\"*.xlsx)",
+      "Bash(npm run:*)",
+      "Bash(python -c \"import fitz; print\\(fitz.__version__\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python -c \"import PyPDF2; import reportlab; print\\(''OK''\\)\")",
+      "Bash(netstat -ano)",
+      "Bash(node -e \"require\\(''bcryptjs''\\); require\\(''jose''\\); console.log\\(''ok''\\)\")",
+      "Bash(node -e \"require\\(''bcryptjs''\\); console.log\\(''bcryptjs ok''\\)\")",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Read(//c/Users/Usuario/Desktop/prueba envios andreani/web_app_claude_code/**)",
+      "Bash(done)",
+      "Bash(sed -i 's|import StoreSwitcher from \"\"@/components/StoreSwitcher\"\";|import StoreSwitcher from \"\"@/components/StoreSwitcher\"\";\\\\nimport UserMenu from \"\"@/components/UserMenu\"\";|' \"$f\")",
+      "Bash(sed -i 's|<div style={{ marginLeft: \"\"auto\"\" }}><StoreSwitcher /></div>|<div style={{ marginLeft: \"\"auto\"\", display: \"\"flex\"\", alignItems: \"\"center\"\", gap: \"\"0.75rem\"\" }}><StoreSwitcher /><UserMenu /></div>|' \"$f\")"
     ]
   }
 }

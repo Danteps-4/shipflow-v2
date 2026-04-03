@@ -17,13 +17,19 @@ export interface GroupedOrder {
   email: string;
   telefono: string;
   medioEnvio: string;
-  // Campos de domicilio
+  // Campos de domicilio (normalizados)
   direccion: string;
   numeroDireccion: string;
   piso: string;
   localidad: string;
   provincia: string;
   codigoPostal: string;
+  // Columna Ciudad del CSV (separada de Localidad)
+  ciudad: string;
+  // Valores crudos del CSV (para mostrar comparativa en la UI)
+  rawLocalidad: string;
+  rawProvincia: string;
+  rawCodigoPostal: string;
   // Para envíos a sucursal
   sucursal: string;
 }
@@ -83,7 +89,56 @@ export interface ValidationError {
 }
 
 // -------------------------------------------------------------------
-// Resultado completo del procesamiento
+// ── Tienda Nube REST API order types ─────────────────────────────
+
+export interface TnProduct {
+  name: string;
+  sku: string | null;
+  quantity: number;
+  variant_name: string | null;
+}
+
+export interface TnShippingAddress {
+  name:       string;
+  first_name?: string;
+  last_name?:  string;
+  phone?:      string;
+  address:    string;
+  number?:    string;
+  floor?:     string;
+  apartment?: string;
+  locality?:  string;
+  city:       string;
+  province:   string | { id: number; name: string; code?: string };
+  zipcode:    string;
+}
+
+export interface TnOrder {
+  id: number;
+  number: number;
+  created_at: string;
+  contact_name: string;
+  contact_email: string;
+  contact_phone?: string;
+  contact_identification?: string | null;
+  status: "open" | "closed" | "cancelled";
+  payment_status: "paid" | "pending" | "voided" | "refunded" | "abandoned";
+  shipping_status: "unshipped" | "unpacked" | "packed" | "shipped" | "delivered";
+  total: string;
+  currency: string;
+  products: TnProduct[];
+  shipping_address: TnShippingAddress | null;
+  shipping_option:  string | { id?: number; name?: string; code?: string } | null;
+  shipping_carrier_name?: string | null;
+  fulfillments: unknown[];
+}
+
+export interface OrdersApiResponse {
+  orders: TnOrder[];
+  total: number;
+}
+
+// ── Resultado completo del procesamiento ─────────────────────────
 // -------------------------------------------------------------------
 export interface ProcessingResult {
   totalFilas: number;
@@ -91,4 +146,6 @@ export interface ProcessingResult {
   domicilio: AndreaniDomicilio[];
   sucursal: AndreaniSucursal[];
   errores: ValidationError[];
+  // Órdenes agrupadas con raw data para comparativas en la UI
+  groupedOrders: GroupedOrder[];
 }

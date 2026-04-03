@@ -5,7 +5,8 @@ import {
   ValidationError,
   ProcessingResult,
 } from "@/types/orders";
-import { splitNombreApellido } from "./normalizers";
+import { splitNombreApellido, sanitizeAndreani } from "./normalizers";
+import { matchProvLocCp, matchSucursal } from "./andreaniMatcher";
 
 // -------------------------------------------------------------------
 // Valores fijos para todos los pedidos (según reglas de negocio)
@@ -38,7 +39,6 @@ function validarDomicilio(order: GroupedOrder): string[] {
   if (!order.telefono) errores.push("Falta teléfono");
   if (!order.direccion) errores.push("Falta dirección");
   if (!order.numeroDireccion) errores.push("Falta número de puerta");
-  if (!order.localidad) errores.push("Falta localidad/ciudad");
   if (!order.provincia) errores.push("Falta provincia");
   if (!order.codigoPostal) errores.push("Falta código postal");
   return errores;
@@ -60,9 +60,12 @@ function validarSucursal(order: GroupedOrder): string[] {
 // -------------------------------------------------------------------
 function toDomicilio(order: GroupedOrder): AndreaniDomicilio {
   const { nombre, apellido } = splitNombreApellido(order.nombreEnvio);
-  const provinciaLocalidadCp = [order.provincia, order.localidad, order.codigoPostal]
-    .filter(Boolean)
-    .join(" / ");
+  // Prefer Ciudad (clean city name) over Localidad (often a neighborhood/barrio)
+  const provinciaLocalidadCp = matchProvLocCp(
+    order.provincia,
+    order.ciudad || order.localidad,
+    order.codigoPostal
+  );
 
   return {
     "Paquete Guardado": FIXED_VALUES.paqueteGuardado,
@@ -72,15 +75,15 @@ function toDomicilio(order: GroupedOrder): AndreaniDomicilio {
     "Profundidad (cm)": FIXED_VALUES.profundidad,
     "Valor declarado ($ c/IVA)": FIXED_VALUES.valorDeclarado,
     "Numero Interno": order.numeroOrden,
-    "Nombre": nombre,
-    "Apellido": apellido,
+    "Nombre":   sanitizeAndreani(nombre),
+    "Apellido": sanitizeAndreani(apellido),
     "DNI": order.dni,
     "Email": order.email,
     "Celular código": FIXED_VALUES.celularCodigo,
     "Celular número": order.telefono,
-    "Calle": order.direccion,
-    "Número": order.numeroDireccion,
-    "Piso": order.piso,
+    "Calle":    sanitizeAndreani(order.direccion),
+    "Número":   sanitizeAndreani(order.numeroDireccion),
+    "Piso":     sanitizeAndreani(order.piso),
     "Departamento": FIXED_VALUES.departamento,
     "Provincia / Localidad / CP": provinciaLocalidadCp,
     "Observaciones": FIXED_VALUES.observaciones,
@@ -101,13 +104,13 @@ function toSucursal(order: GroupedOrder): AndreaniSucursal {
     "Profundidad (cm)": FIXED_VALUES.profundidad,
     "Valor declarado ($ c/IVA)": FIXED_VALUES.valorDeclarado,
     "Numero Interno": order.numeroOrden,
-    "Nombre": nombre,
-    "Apellido": apellido,
+    "Nombre":   sanitizeAndreani(nombre),
+    "Apellido": sanitizeAndreani(apellido),
     "DNI": order.dni,
     "Email": order.email,
     "Celular código": FIXED_VALUES.celularCodigo,
     "Celular número": order.telefono,
-    "Sucursal": order.sucursal,
+    "Sucursal": matchSucursal(order.sucursal),
   };
 }
 
@@ -115,7 +118,7 @@ function toSucursal(order: GroupedOrder): AndreaniSucursal {
 // Función principal: transforma una lista de órdenes agrupadas
 // al resultado final de procesamiento
 // -------------------------------------------------------------------
-export function transformOrders(orders: GroupedOrder[]): Omit<ProcessingResult, "totalFilas" | "ordenesUnicas"> {
+export function transformOrders(orders: GroupedOrder[]): Omit<ProcessingResult, "totalFilas" | "ordenesUnicas" | "groupedOrders"> {
   const domicilio: AndreaniDomicilio[] = [];
   const sucursal: AndreaniSucursal[] = [];
   const errores: ValidationError[] = [];
@@ -130,9 +133,10 @@ export function transformOrders(orders: GroupedOrder[]): Omit<ProcessingResult, 
           campos: camposConError,
           tipo: "sucursal",
         });
+        // Con errores: NO se incluye en el Excel
+      } else {
+        sucursal.push(toSucursal(order));
       }
-      // Siempre generamos el registro aunque tenga errores
-      sucursal.push(toSucursal(order));
     } else {
       // --- Pedido a domicilio ---
       const camposConError = validarDomicilio(order);
@@ -142,8 +146,10 @@ export function transformOrders(orders: GroupedOrder[]): Omit<ProcessingResult, 
           campos: camposConError,
           tipo: "domicilio",
         });
+        // Con errores: NO se incluye en el Excel
+      } else {
+        domicilio.push(toDomicilio(order));
       }
-      domicilio.push(toDomicilio(order));
     }
   }
 

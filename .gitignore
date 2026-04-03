@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# datos de usuarios y tiendas (generados en runtime, NO subir al repo)
+users.json
+stores_*.json
+tokens.json
+stores.json
