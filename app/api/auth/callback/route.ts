@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addStore } from "@/lib/tnStores";
+import { getSessionUserId } from "@/lib/getSessionUser";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const code      = req.nextUrl.searchParams.get("code");
-  const sfUserId  = req.nextUrl.searchParams.get("state") ?? "";
+  const code     = req.nextUrl.searchParams.get("code");
+  const sfUserId = await getSessionUserId(req);
 
-  console.log("[callback] code:", !!code, "sfUserId from state:", sfUserId);
+  console.log("[callback] code:", !!code, "sfUserId from session:", sfUserId);
 
-  if (!code) return NextResponse.redirect(new URL("/?error=missing_code", req.url));
-  if (!sfUserId) return NextResponse.redirect(new URL("/?error=missing_state", req.url));
+  if (!code)     return NextResponse.redirect(new URL("/?error=missing_code", req.url));
+  if (!sfUserId) return NextResponse.redirect(new URL("/login?error=session_expired", req.url));
 
   const tokenRes = await fetch("https://www.tiendanube.com/apps/authorize/token", {
     method: "POST",
