@@ -45,5 +45,9 @@ export async function GET(req: NextRequest) {
 
   addStore(sfUserId, { access_token, user_id, store_name, connected_at: new Date().toISOString() });
 
-  return NextResponse.redirect(new URL("/orders", req.url));
+  // Use TN_REDIRECT_URI to derive the public base URL (avoids Railway's internal localhost:8080)
+  const base = process.env.TN_REDIRECT_URI
+    ? new URL(process.env.TN_REDIRECT_URI).origin
+    : new URL(req.url).origin;
+  return NextResponse.redirect(new URL("/orders", base));
 }
