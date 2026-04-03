@@ -3,6 +3,7 @@ import { getStoresState } from "@/lib/tnStores";
 import { getSessionUserId } from "@/lib/getSessionUser";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const sfUserId = await getSessionUserId(req);
