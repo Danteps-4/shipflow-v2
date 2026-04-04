@@ -119,10 +119,17 @@ export async function POST(req: NextRequest) {
   const { entries }: { entries: TrackingEntry[] } = await req.json();
   const results: TrackingResult[] = [];
 
-  for (const entry of entries) {
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const DELAY_MS = 600; // TN rate limit: ~2 req/s, usamos 600 ms entre pedidos
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    if (i > 0) await sleep(DELAY_MS);
     try {
-      const realId       = await lookupRealId(tokens.user_id, tokens.access_token, entry.order);
+      const realId        = await lookupRealId(tokens.user_id, tokens.access_token, entry.order);
+      await sleep(DELAY_MS);
       const fulfillmentId = await getFulfillmentId(tokens.user_id, tokens.access_token, realId);
+      await sleep(DELAY_MS);
       const { status, body } = await patchTracking(tokens.user_id, tokens.access_token, realId, fulfillmentId, entry.tracking);
 
       if (status === 200 || status === 201) {
