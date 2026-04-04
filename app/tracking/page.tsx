@@ -311,9 +311,16 @@ export default function TrackingPage() {
                                 </span>
                               )}
                               {r?.status === "error" && (
-                                <span className="sf-badge sf-badge-error" title={r.detail}>
-                                  <i className="fas fa-circle-exclamation" /> Error
-                                </span>
+                                <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", alignItems: "flex-start" }}>
+                                  <span className="sf-badge sf-badge-error">
+                                    <i className="fas fa-circle-exclamation" /> Error
+                                  </span>
+                                  {r.detail && (
+                                    <span style={{ fontSize: "0.68rem", color: "var(--error-color)", maxWidth: 260, lineHeight: 1.3 }}>
+                                      {r.detail}
+                                    </span>
+                                  )}
+                                </div>
                               )}
                               {!r && <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>—</span>}
                             </td>
