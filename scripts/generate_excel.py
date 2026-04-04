@@ -30,24 +30,23 @@ def limpiar_numero_calle(valor):
 def limpiar_piso(valor):
     """
     Piso: quita caracteres inválidos para Andreani.
-    - Si el campo está vacío, es '-', 'S/N' etc → vacío
-    - Si tiene texto libre como '2do B - Porteria' → queda solo '2do B'
-      (todo lo que viene después de un '-' o '/' se descarta)
-    - Remueve los caracteres '-' y '/' que queden sueltos
+    - Si el campo está vacío, es '-', 'S/N', '*' etc → vacío
+    - Trunca en el primer separador seguido de texto libre
+      (ej: "2do B - Porteria" → "2do B", "PB/Planta Baja" → "PB")
+    - Solo conserva letras, dígitos y espacios (Andreani rechaza *, #, /, etc.)
     """
     if valor is None:
         return ""
     s = str(valor).strip()
-    if s in ("-", "S/N", "s/n", "SN", "sn", "0", ""):
+    if s in ("-", "S/N", "s/n", "SN", "sn", "0", "", "*"):
         return ""
     # Truncar en el primer '-' o '/' que actúe como separador de texto libre
-    # (ej: "2do B - Porteria" → "2do B", "PB/Planta Baja" → "PB")
     import re
     match = re.search(r'\s*[-/]\s*[a-zA-Z]', s)
     if match:
         s = s[:match.start()].strip()
-    # Eliminar cualquier '-' o '/' residual
-    s = s.replace("-", "").replace("/", "").strip()
+    # Conservar solo letras, dígitos y espacios (elimina *, #, -, /, etc.)
+    s = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚüÜñÑ ]', '', s).strip()
     return s
 
 
