@@ -31,6 +31,7 @@ const ADDRESS_DB: Record<string, string> = {
   // ── CAPITAL FEDERAL ──────────────────────────────────────────────────────────
   "av cabildo 1386|capital federal":                "BELGRANO (AV CABILDO)",
   "av belgrano 1211|capital federal":               "MONSERRAT (AV BELGRANO)",
+  "av corrientes 455|capital federal":              "MICROCENTRO (AV CORRIENTES)",
 
   // ── BUENOS AIRES ────────────────────────────────────────────────────────────
   "pres juan domingo peron 1237|buenos aires":      "TRENQUE LAUQUEN (PRES J D PERON)",
@@ -47,6 +48,9 @@ const ADDRESS_DB: Record<string, string> = {
 
   // ── TUCUMAN ─────────────────────────────────────────────────────────────────
   "gral jose de san martin 1175|tucuman":           "TUCUMAN (CENTRO)",
+
+  // ── SALTA ────────────────────────────────────────────────────────────────────
+  "cerro los tres zorritos 600|salta":              "SALTA (CIRC. OESTE)",
 
   // ── Agregar nuevas entradas abajo ──────────────────────────────────────────
   //  "calle numero|provincia": "NOMBRE ANDREANI (ZONA)",
