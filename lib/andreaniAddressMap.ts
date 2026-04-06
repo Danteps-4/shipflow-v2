@@ -36,6 +36,7 @@ const ADDRESS_DB: Record<string, string> = {
   // ── BUENOS AIRES ────────────────────────────────────────────────────────────
   "pres juan domingo peron 1237|buenos aires":      "TRENQUE LAUQUEN (PRES J D PERON)",
   "mendoza 2552|buenos aires":                      "SAN JUSTO (CENTRO)",
+  "av constitucion 4632|buenos aires":              "MAR DEL PLATA (AV CONSTITUCION)",
 
   // ── MISIONES ────────────────────────────────────────────────────────────────
   "colon 1647|misiones":                            "POSADAS (CENTRO)",
