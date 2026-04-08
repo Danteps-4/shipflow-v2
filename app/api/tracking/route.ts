@@ -93,8 +93,19 @@ export async function POST(req: NextRequest) {
         input: JSON.stringify({ pdf_b64: pdfB64 }),
         encoding: "utf-8",
         maxBuffer: 50 * 1024 * 1024,
+        timeout: 25_000,
       });
-      if (result.error) continue;
+      if (result.error) {
+        if ((result.error as NodeJS.ErrnoException).code === "ENOENT") continue; // comando no existe
+        pyError = result.signal === "SIGTERM"
+          ? "El PDF es demasiado grande o complejo. Probá con menos páginas."
+          : result.error.message;
+        break;
+      }
+      if (result.signal) {
+        pyError = "El procesamiento del PDF tardó demasiado (timeout). Probá con menos páginas.";
+        break;
+      }
       if (result.status !== 0) {
         pyError = (result.stderr ?? "").trim() || `código ${result.status}`;
         break;
@@ -105,7 +116,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (pyError) {
-      return NextResponse.json({ error: `Error en el script Python: ${pyError}` }, { status: 500 });
+      return NextResponse.json({ error: pyError }, { status: 500 });
     }
     if (!raw) {
       return NextResponse.json({ error: "Python no está instalado en el servidor" }, { status: 500 });
