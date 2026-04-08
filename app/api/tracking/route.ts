@@ -69,6 +69,10 @@ async function patchTracking(
 // ── Route handler ────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const ct = req.headers.get("content-type") ?? "";
+  const cl = req.headers.get("content-length") ?? "?";
+  console.log("[tracking] POST recibido — content-type:", ct, "content-length:", cl);
+
   const sfUserId = await getSessionUserId(req);
   const tokens = sfUserId ? readTokens(sfUserId) : null;
   if (!tokens) {
@@ -76,15 +80,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Accept either JSON (preview only) or FormData (full process)
-  const ct = req.headers.get("content-type") ?? "";
 
   // ── EXTRACT: PDF → tracking entries ─────────────────────────────
   if (ct.includes("multipart/form-data")) {
+    console.log("[tracking] leyendo formData...");
     const form    = await req.formData();
     const pdfFile = form.get("pdf") as File;
+    console.log("[tracking] pdfFile:", pdfFile?.name, pdfFile?.size, "bytes");
     if (!pdfFile) return NextResponse.json({ error: "Falta PDF" }, { status: 400 });
 
     const pdfBuffer  = Buffer.from(await pdfFile.arrayBuffer());
+    console.log("[tracking] pdfBuffer:", pdfBuffer.length, "bytes");
     const scriptPath = path.join(process.cwd(), "scripts", "extract_tracking.py");
 
     // Write PDF to a temp file to avoid large stdin pipe issues
