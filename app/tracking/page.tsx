@@ -65,13 +65,9 @@ export default function TrackingPage() {
     setResults(null);
 
     try {
-      const arrayBuffer = await pdfFile.arrayBuffer();
-      const pdfB64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-      const res = await fetch("/api/tracking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pdf_b64: pdfB64 }),
-      });
+      const form = new FormData();
+      form.append("pdf", pdfFile);
+      const res = await fetch("/api/tracking", { method: "POST", body: form });
       if (!res.ok) throw new Error((await res.json()).error ?? "Error al extraer");
       const { entries: e } = await res.json();
       setEntries(e);

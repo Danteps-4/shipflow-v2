@@ -81,19 +81,15 @@ export async function POST(req: NextRequest) {
 
   // Accept either JSON (preview only) or FormData (full process)
 
-  // ── PARSE BODY ───────────────────────────────────────────────────
-  // Both extract (pdf_b64) and send (entries) use application/json
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Body inválido" }, { status: 400 });
-  }
-
   // ── EXTRACT: PDF → tracking entries ─────────────────────────────
-  if (body.pdf_b64 !== undefined) {
-    console.log("[tracking] extrayendo desde pdf_b64, longitud:", (body.pdf_b64 as string)?.length);
-    const pdfBuffer  = Buffer.from(body.pdf_b64 as string, "base64");
+  if (ct.includes("multipart/form-data")) {
+    console.log("[tracking] leyendo formData...");
+    const form    = await req.formData();
+    const pdfFile = form.get("pdf") as File;
+    console.log("[tracking] pdfFile:", pdfFile?.name, pdfFile?.size, "bytes");
+    if (!pdfFile) return NextResponse.json({ error: "Falta PDF" }, { status: 400 });
+
+    const pdfBuffer  = Buffer.from(await pdfFile.arrayBuffer());
     console.log("[tracking] pdfBuffer:", pdfBuffer.length, "bytes");
     const scriptPath = path.join(process.cwd(), "scripts", "extract_tracking.py");
 
@@ -143,14 +139,11 @@ export async function POST(req: NextRequest) {
   }
 
   // ── SEND: entries → Tienda Nube ──────────────────────────────────
-  const entries = body.entries as TrackingEntry[];
-  if (!Array.isArray(entries)) {
-    return NextResponse.json({ error: "Payload inválido" }, { status: 400 });
-  }
+  const { entries }: { entries: TrackingEntry[] } = await req.json();
   const results: TrackingResult[] = [];
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  const DELAY_MS = 600;
+  const DELAY_MS = 600; // TN rate limit: ~2 req/s, usamos 600 ms entre pedidos
 
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
@@ -160,12 +153,12 @@ export async function POST(req: NextRequest) {
       await sleep(DELAY_MS);
       const fulfillmentId = await getFulfillmentId(tokens.user_id, tokens.access_token, realId);
       await sleep(DELAY_MS);
-      const { status, body: respBody } = await patchTracking(tokens.user_id, tokens.access_token, realId, fulfillmentId, entry.tracking);
+      const { status, body } = await patchTracking(tokens.user_id, tokens.access_token, realId, fulfillmentId, entry.tracking);
 
       if (status === 200 || status === 201) {
         results.push({ ...entry, status: "success" });
       } else {
-        results.push({ ...entry, status: "error", detail: `HTTP ${status}: ${respBody}` });
+        results.push({ ...entry, status: "error", detail: `HTTP ${status}: ${body}` });
       }
     } catch (err: unknown) {
       results.push({ ...entry, status: "error", detail: err instanceof Error ? err.message : String(err) });
