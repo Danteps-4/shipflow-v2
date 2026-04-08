@@ -31,5 +31,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon\\.ico).*)"],
+  // Excluye assets estaticos Y todas las rutas /api/* del middleware.
+  // Las rutas API hacen su propia verificacion de auth con getSessionUserId.
+  matcher: ["/((?!_next/static|_next/image|favicon\\.ico|api/).*)"],
 };
