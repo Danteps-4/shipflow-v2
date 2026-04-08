@@ -30,7 +30,12 @@ def extract_tracking(pdf_bytes: bytes) -> list:
     return results
 
 if __name__ == "__main__":
-    data      = json.loads(sys.stdin.buffer.read().decode("utf-8"))
-    pdf_bytes = base64.b64decode(data["pdf_b64"])
-    results   = extract_tracking(pdf_bytes)
+    # Accept a file path as argument (avoids large stdin pipe)
+    if len(sys.argv) > 1:
+        with open(sys.argv[1], "rb") as f:
+            pdf_bytes = f.read()
+    else:
+        data      = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+        pdf_bytes = base64.b64decode(data["pdf_b64"])
+    results = extract_tracking(pdf_bytes)
     sys.stdout.write(json.dumps(results))

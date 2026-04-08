@@ -3,6 +3,8 @@ import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { spawnSync } from "child_process";
 import path from "path";
+import os from "os";
+import fs from "fs";
 
 export const runtime = "nodejs";
 
@@ -82,37 +84,41 @@ export async function POST(req: NextRequest) {
     const pdfFile = form.get("pdf") as File;
     if (!pdfFile) return NextResponse.json({ error: "Falta PDF" }, { status: 400 });
 
-    const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
-    const pdfB64    = pdfBuffer.toString("base64");
+    const pdfBuffer  = Buffer.from(await pdfFile.arrayBuffer());
     const scriptPath = path.join(process.cwd(), "scripts", "extract_tracking.py");
+
+    // Write PDF to a temp file to avoid large stdin pipe issues
+    const tmpPath = path.join(os.tmpdir(), `tracking_${Date.now()}.pdf`);
+    fs.writeFileSync(tmpPath, pdfBuffer);
 
     let raw = "";
     let pyError = "";
-    for (const cmd of ["python3", "python"]) {
-      const result = spawnSync(cmd, [scriptPath], {
-        input: JSON.stringify({ pdf_b64: pdfB64 }),
-        encoding: "utf-8",
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: 25_000,
-      });
-      if (result.error) {
-        if ((result.error as NodeJS.ErrnoException).code === "ENOENT") continue; // comando no existe
-        pyError = result.signal === "SIGTERM"
-          ? "El PDF es demasiado grande o complejo. Probá con menos páginas."
-          : result.error.message;
+    try {
+      for (const cmd of ["python3", "python"]) {
+        const result = spawnSync(cmd, [scriptPath, tmpPath], {
+          encoding: "utf-8",
+          maxBuffer: 10 * 1024 * 1024,
+          timeout: 25_000,
+        });
+        if (result.error) {
+          if ((result.error as NodeJS.ErrnoException).code === "ENOENT") continue;
+          pyError = result.error.message;
+          break;
+        }
+        if (result.signal) {
+          pyError = "El procesamiento del PDF tardó demasiado. Probá con menos páginas.";
+          break;
+        }
+        if (result.status !== 0) {
+          pyError = (result.stderr ?? "").trim() || `código ${result.status}`;
+          break;
+        }
+        raw = (result.stdout ?? "").trim();
+        pyError = "";
         break;
       }
-      if (result.signal) {
-        pyError = "El procesamiento del PDF tardó demasiado (timeout). Probá con menos páginas.";
-        break;
-      }
-      if (result.status !== 0) {
-        pyError = (result.stderr ?? "").trim() || `código ${result.status}`;
-        break;
-      }
-      raw = (result.stdout ?? "").trim();
-      pyError = "";
-      break;
+    } finally {
+      try { fs.unlinkSync(tmpPath); } catch {}
     }
 
     if (pyError) {
