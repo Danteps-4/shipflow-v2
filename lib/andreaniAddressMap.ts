@@ -53,6 +53,9 @@ const ADDRESS_DB: Record<string, string> = {
   // ── SALTA ────────────────────────────────────────────────────────────────────
   "cerro los tres zorritos 600|salta":              "SALTA (CIRC. OESTE)",
 
+  // ── CHACO ────────────────────────────────────────────────────────────────────
+  "ruta 16 km 17628|chaco":                         "PRES ROQUE SAENZ PEÑA (RUTA 16)",
+
   // ── Agregar nuevas entradas abajo ──────────────────────────────────────────
   //  "calle numero|provincia": "NOMBRE ANDREANI (ZONA)",
 
