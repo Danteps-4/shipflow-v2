@@ -32,6 +32,7 @@ const ADDRESS_DB: Record<string, string> = {
   "av cabildo 1386|capital federal":                "BELGRANO (AV CABILDO)",
   "av belgrano 1211|capital federal":               "MONSERRAT (AV BELGRANO)",
   "av corrientes 455|capital federal":              "MICROCENTRO (AV CORRIENTES)",
+  "av francisco beiro 4740|capital federal":        "VILLA DEVOTO (AV BEIRO)",
 
   // ── BUENOS AIRES ────────────────────────────────────────────────────────────
   "pres juan domingo peron 1237|buenos aires":      "TRENQUE LAUQUEN (PRES J D PERON)",
