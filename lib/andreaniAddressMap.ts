@@ -38,12 +38,14 @@ const ADDRESS_DB: Record<string, string> = {
   "pres juan domingo peron 1237|buenos aires":      "TRENQUE LAUQUEN (PRES J D PERON)",
   "mendoza 2552|buenos aires":                      "SAN JUSTO (CENTRO)",
   "av constitucion 4632|buenos aires":              "MAR DEL PLATA (AV CONSTITUCION)",
+  "granaderos a caballo 4830|buenos aires":         "JOSE C PAZ (CENTRO)",
+
+  // ── SANTA FE ────────────────────────────────────────────────────────────────
+  "san martin 2127|santa fe":                       "ROSARIO (AV SAN MARTIN)",
+  "blvd ovidio lagos 1402|santa fe":                "CASILDA (BLVD LAGOS)",
 
   // ── MISIONES ────────────────────────────────────────────────────────────────
   "colon 1647|misiones":                            "POSADAS (CENTRO)",
-
-  // ── SANTA FE ────────────────────────────────────────────────────────────────
-  "blvd ovidio lagos 1402|santa fe":                "CASILDA (BLVD LAGOS)",
 
   // ── SAN LUIS ────────────────────────────────────────────────────────────────
   "belgrano 452|san luis":                          "VILLA MERCEDES (CENTRO)",
