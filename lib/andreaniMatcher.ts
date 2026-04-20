@@ -194,16 +194,33 @@ export function inferSucursalByStreet(
 export function inferHopSucursal(direccion: string, numero: string): string {
   if (!direccion) return "";
 
-  // Try with address already containing the number (most common)
-  const candidate1 = `PUNTO ANDREANI HOP ${direccion}`;
-  const match1 = sucursalMap.get(slugify(candidate1));
-  if (match1) return match1;
+  function tryHop(addr: string): string {
+    return sucursalMap.get(slugify(`PUNTO ANDREANI HOP ${addr}`)) ?? "";
+  }
 
-  // Try address + separate number
+  // 1. Full address as-is (most common when TN sends "CALLE 123")
+  const m1 = tryHop(direccion);
+  if (m1) return m1;
+
+  // 2. Address + separate number field
   if (numero) {
-    const candidate2 = `PUNTO ANDREANI HOP ${direccion} ${numero}`;
-    const match2 = sucursalMap.get(slugify(candidate2));
-    if (match2) return match2;
+    const m2 = tryHop(`${direccion} ${numero}`);
+    if (m2) return m2;
+  }
+
+  // 3. TN sometimes appends extra text after the number:
+  //    "Carlos Pellegrini 755 Local 5. - Entre Córdoba y Viamonte."
+  //    "LAPRIDA 437 entre Yrigoyen y Manuel Castro"
+  //    Strip everything after the first street number → "Carlos Pellegrini 755"
+  const streetNum = direccion.match(/^([^0-9]*\d+)/)?.[1]?.trim();
+  if (streetNum && streetNum !== direccion.trim()) {
+    const m3 = tryHop(streetNum);
+    if (m3) return m3;
+
+    if (numero) {
+      const m4 = tryHop(`${streetNum} ${numero}`);
+      if (m4) return m4;
+    }
   }
 
   return "";

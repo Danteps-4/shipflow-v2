@@ -39,6 +39,7 @@ const ADDRESS_DB: Record<string, string> = {
   "mendoza 2552|buenos aires":                      "SAN JUSTO (CENTRO)",
   "av constitucion 4632|buenos aires":              "MAR DEL PLATA (AV CONSTITUCION)",
   "granaderos a caballo 4830|buenos aires":         "JOSE C PAZ (CENTRO)",
+  "av pres hipolito yrigoyen 14343|buenos aires":   "BURZACO (AV H YRIGOYEN)",
 
   // ── SANTA FE ────────────────────────────────────────────────────────────────
   "san martin 2127|santa fe":                       "ROSARIO (AV SAN MARTIN)",
