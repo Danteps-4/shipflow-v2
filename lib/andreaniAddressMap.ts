@@ -63,6 +63,9 @@ const ADDRESS_DB: Record<string, string> = {
   // ── CHACO ────────────────────────────────────────────────────────────────────
   "ruta 16 km 17628|chaco":                         "PRES ROQUE SAENZ PEÑA (RUTA 16)",
 
+  // ── SANTIAGO DEL ESTERO ──────────────────────────────────────────────────────
+  "sarmiento 77|santiago del estero":               "SANTIAGO DEL ESTERO (CENTRO)",
+
   // ── Agregar nuevas entradas abajo ──────────────────────────────────────────
   //  "calle numero|provincia": "NOMBRE ANDREANI (ZONA)",
 
