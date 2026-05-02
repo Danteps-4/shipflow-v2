@@ -51,13 +51,7 @@ function validarSucursal(order: GroupedOrder): string[] {
   const errores: string[] = [];
   if (!order.nombreEnvio) errores.push("Falta nombre para el envío");
   if (!order.telefono) errores.push("Falta teléfono");
-  if (!order.sucursal) {
-    const isHop = /hop/i.test(order.rawMedioEnvio ?? "");
-    errores.push(isHop
-      ? "Falta sucursal de retiro (Punto Andreani HOP)"
-      : "Falta sucursal de retiro (Sucursal Andreani)"
-    );
-  }
+  if (!order.sucursal) errores.push("Falta sucursal de retiro");
   return errores;
 }
 
