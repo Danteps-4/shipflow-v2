@@ -32,6 +32,8 @@ export interface GroupedOrder {
   rawCodigoPostal: string;
   // Para envíos a sucursal
   sucursal: string;
+  // Nombre crudo del método de envío (para detectar HOP vs Sucursal cuando falta la sucursal)
+  rawMedioEnvio?: string;
 }
 
 // -------------------------------------------------------------------

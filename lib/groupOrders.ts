@@ -84,6 +84,8 @@ export function groupOrders(
     const rawProvincia    = normalizeStr(getCell(row, columnMap, "provincia"));
     const rawCodigoPostal = normalizeStr(getCell(row, columnMap, "codigoPostal"));
 
+    const rawMedioEnvio = normalizeStr(getCell(row, columnMap, "medioEnvio"));
+
     const order: GroupedOrder = {
       numeroOrden,
       ciudad: normalizeStr(getCell(row, columnMap, "ciudad")),
@@ -94,7 +96,8 @@ export function groupOrders(
         getCell(row, columnMap, "telefonoEnvio"),
         getCell(row, columnMap, "telefonoComprador"),
       )),
-      medioEnvio: normalizeStr(getCell(row, columnMap, "medioEnvio")),
+      medioEnvio: rawMedioEnvio,
+      rawMedioEnvio,
       direccion: normalizeStr(getCell(row, columnMap, "direccion")),
       numeroDireccion: normalizeStr(getCell(row, columnMap, "numero")),
       piso: normalizeStr(getCell(row, columnMap, "piso")),

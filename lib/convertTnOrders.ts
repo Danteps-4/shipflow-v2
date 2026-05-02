@@ -125,6 +125,7 @@ export function convertTnOrders(orders: TnOrder[]): GroupedOrder[] {
     const codigoPostal = normalizeCodigoPostal(cpRaw);
 
     const esSucursal = isSucursalOption(order.shipping_option);
+    const rawMedioEnvio = optionName(order.shipping_option);
     const medioEnvio = esSucursal ? "Punto de retiro" : "Andreani a Domicilio";
 
     const sucursal = esSucursal
@@ -158,6 +159,7 @@ export function convertTnOrders(orders: TnOrder[]): GroupedOrder[] {
       rawLocalidad:     localidadRaw,
       rawProvincia:     provRaw,
       rawCodigoPostal:  cpRaw,
+      rawMedioEnvio,
       sucursal,
     };
   });
