@@ -19,58 +19,69 @@ interface Movimiento {
   created_at: string;
 }
 
-type Tab = "stock" | "movimientos";
+interface KitComponent {
+  component_sku: string;
+  cantidad: number;
+}
 
-const SIDEBAR_NAV = [
-  { href: "/",          icon: "fas fa-house",        label: "Inicio" },
-  { href: "/orders",    icon: "fas fa-receipt",       label: "Pedidos" },
-  { href: "/procesar",  icon: "fas fa-file-excel",    label: "Procesar Pedidos" },
-  { href: "/etiquetas", icon: "fas fa-tags",           label: "Agregar SKU a Etiquetas" },
-  { href: "/tracking",  icon: "fas fa-truck",          label: "Subir Tracking" },
-  { href: "/stock",     icon: "fas fa-boxes-stacking", label: "Stock de Productos" },
-];
+interface KitMap {
+  [kitSku: string]: KitComponent[];
+}
+
+type Tab = "stock" | "movimientos";
 
 export default function StockPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tab, setTab]                 = useState<Tab>("stock");
 
-  // Stock
   const [items, setItems]       = useState<StockItem[]>([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [search, setSearch]     = useState("");
+  const [kits, setKits]         = useState<KitMap>({});
 
   // Modal agregar / editar
   const [modal, setModal]       = useState<{ sku: string; nombre: string; cantidad: number } | null>(null);
   const [isNew, setIsNew]       = useState(false);
   const [saving, setSaving]     = useState(false);
+  const skuInputRef             = useRef<HTMLInputElement>(null);
 
-  // Modal ajuste (+/-)
-  const [ajusteModal, setAjusteModal] = useState<{ sku: string; nombre: string } | null>(null);
-  const [ajusteDelta, setAjusteDelta] = useState("");
+  // Modal ajuste
+  const [ajusteModal, setAjusteModal]   = useState<{ sku: string; nombre: string } | null>(null);
+  const [ajusteDelta, setAjusteDelta]   = useState("");
   const [ajusteMotivo, setAjusteMotivo] = useState("");
-  const [ajustando, setAjustando] = useState(false);
+  const [ajustando, setAjustando]       = useState(false);
+
+  // Modal kit
+  const [kitModal, setKitModal]           = useState<{ sku: string; nombre: string } | null>(null);
+  const [kitComponents, setKitComponents] = useState<KitComponent[]>([]);
+  const [savingKit, setSavingKit]         = useState(false);
 
   // Movimientos
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [movLoading, setMovLoading]   = useState(false);
 
-  const skuInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => { fetchStock(); }, []);
+  useEffect(() => { fetchAll(); }, []);
   useEffect(() => {
     if (tab === "movimientos" && movimientos.length === 0) fetchMovimientos();
   }, [tab]);
 
-  async function fetchStock() {
+  async function fetchAll() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch("/api/stock");
-      if (r.status === 401) { setError("Conectate a Tienda Nube para usar el stock."); return; }
-      if (!r.ok) throw new Error("Error al cargar stock");
-      const { items: data } = await r.json();
+      const [rStock, rKits] = await Promise.all([
+        fetch("/api/stock"),
+        fetch("/api/stock/kits"),
+      ]);
+      if (rStock.status === 401) { setError("Conectate a Tienda Nube para usar el stock."); return; }
+      if (!rStock.ok) throw new Error("Error al cargar stock");
+      const { items: data } = await rStock.json();
       setItems(data);
+      if (rKits.ok) {
+        const { kits: kData } = await rKits.json();
+        setKits(kData ?? {});
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
@@ -90,6 +101,8 @@ export default function StockPage() {
     }
   }
 
+  // ── CRUD stock ────────────────────────────────────────────────────────────
+
   function openNew() {
     setModal({ sku: "", nombre: "", cantidad: 0 });
     setIsNew(true);
@@ -102,28 +115,28 @@ export default function StockPage() {
   }
 
   async function handleSave() {
-    if (!modal) return;
-    if (!modal.sku.trim()) return;
+    if (!modal || !modal.sku.trim()) return;
     setSaving(true);
     try {
-      const r = await fetch("/api/stock", {
+      await fetch("/api/stock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sku: modal.sku.trim().toUpperCase(), nombre: modal.nombre.trim(), cantidad: modal.cantidad }),
       });
-      if (!r.ok) throw new Error();
       setModal(null);
-      await fetchStock();
+      await fetchAll();
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete(sku: string) {
-    if (!confirm(`¿Eliminar el SKU "${sku}" del stock?`)) return;
+    if (!confirm(`¿Eliminar "${sku}" del stock?`)) return;
     await fetch(`/api/stock?sku=${encodeURIComponent(sku)}`, { method: "DELETE" });
-    await fetchStock();
+    await fetchAll();
   }
+
+  // ── Ajuste manual ─────────────────────────────────────────────────────────
 
   async function handleAjuste() {
     if (!ajusteModal) return;
@@ -144,12 +157,58 @@ export default function StockPage() {
       setAjusteModal(null);
       setAjusteDelta("");
       setAjusteMotivo("");
-      await fetchStock();
+      await fetchAll();
       if (tab === "movimientos") await fetchMovimientos();
     } finally {
       setAjustando(false);
     }
   }
+
+  // ── Kits ──────────────────────────────────────────────────────────────────
+
+  function openKitModal(item: StockItem) {
+    const existing = kits[item.sku] ?? [];
+    setKitComponents(existing.length > 0 ? existing : [{ component_sku: "", cantidad: 1 }]);
+    setKitModal({ sku: item.sku, nombre: item.nombre });
+  }
+
+  function addKitRow() {
+    setKitComponents(prev => [...prev, { component_sku: "", cantidad: 1 }]);
+  }
+
+  function removeKitRow(i: number) {
+    setKitComponents(prev => prev.filter((_, idx) => idx !== i));
+  }
+
+  function updateKitRow(i: number, field: keyof KitComponent, value: string | number) {
+    setKitComponents(prev => prev.map((c, idx) =>
+      idx === i ? { ...c, [field]: field === "cantidad" ? Number(value) : String(value).toUpperCase() } : c
+    ));
+  }
+
+  async function handleSaveKit() {
+    if (!kitModal) return;
+    setSavingKit(true);
+    try {
+      const validComponents = kitComponents.filter(c => c.component_sku.trim() && c.cantidad > 0);
+      await fetch("/api/stock/kits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kitSku: kitModal.sku, components: validComponents }),
+      });
+      setKitModal(null);
+      await fetchAll();
+    } finally {
+      setSavingKit(false);
+    }
+  }
+
+  async function handleDeleteKit(sku: string) {
+    await fetch(`/api/stock/kits?sku=${encodeURIComponent(sku)}`, { method: "DELETE" });
+    await fetchAll();
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   const filtered = items.filter(
     i => i.sku.toLowerCase().includes(search.toLowerCase()) ||
@@ -158,6 +217,7 @@ export default function StockPage() {
 
   const totalUnidades = items.reduce((s, i) => s + i.cantidad, 0);
   const sinStock      = items.filter(i => i.cantidad <= 0).length;
+  const totalKits     = Object.keys(kits).length;
 
   function fmtDate(iso: string) {
     return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -175,11 +235,12 @@ export default function StockPage() {
           </button>
         </div>
         <nav className="sf-nav">
-          {SIDEBAR_NAV.map(n => (
-            <a key={n.href} href={n.href} className={n.href === "/stock" ? "active" : ""}>
-              <i className={n.icon} /> {n.label}
-            </a>
-          ))}
+          <a href="/"><i className="fas fa-house" /> Inicio</a>
+          <a href="/orders"><i className="fas fa-receipt" /> Pedidos</a>
+          <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
+          <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
+          <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
+          <a href="/stock" className="active"><i className="fas fa-boxes-stacking" /> Stock de Productos</a>
         </nav>
       </div>
       <div className={`sf-overlay ${sidebarOpen ? "open" : ""}`} onClick={() => setSidebarOpen(false)} />
@@ -203,19 +264,19 @@ export default function StockPage() {
             Stock de Productos
           </h1>
           <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
-            Controlá las cantidades disponibles. El stock se descuenta automáticamente al exportar pedidos.
+            Stock por tienda. Se descuenta automáticamente al exportar pedidos. Los kits descontán sus componentes.
           </p>
 
-          {/* Tarjetas resumen */}
+          {/* Tarjetas */}
           {!loading && !error && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
-              <StatCard value={items.length}  label="SKUs cargados"    icon="fas fa-boxes-stacking" color="var(--primary-color)" />
-              <StatCard value={totalUnidades} label="Unidades totales" icon="fas fa-layer-group"     color="var(--success-color)" />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
+              <StatCard value={items.length}  label="SKUs cargados"    icon="fas fa-boxes-stacking"      color="var(--primary-color)" />
+              <StatCard value={totalUnidades} label="Unidades totales" icon="fas fa-layer-group"          color="var(--success-color)" />
+              <StatCard value={totalKits}     label="Kits definidos"   icon="fas fa-cubes"                color="#a78bfa" />
               <StatCard value={sinStock}      label="Sin stock"        icon="fas fa-triangle-exclamation" color={sinStock > 0 ? "var(--error-color)" : "var(--text-muted)"} />
             </div>
           )}
 
-          {/* Error de autenticación */}
           {error && (
             <div className="sf-alert sf-alert-warning" style={{ marginBottom: "1rem" }}>
               <i className="fas fa-circle-exclamation" style={{ flexShrink: 0 }} />
@@ -237,7 +298,6 @@ export default function StockPage() {
           {/* ── TAB STOCK ── */}
           {tab === "stock" && (
             <>
-              {/* Toolbar */}
               <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap" }}>
                 <input
                   type="search"
@@ -255,6 +315,16 @@ export default function StockPage() {
                   <i className="fas fa-plus" /> Agregar SKU
                 </button>
               </div>
+
+              {/* Leyenda kits */}
+              {totalKits > 0 && (
+                <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginBottom: "0.75rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <span className="sf-badge" style={{ background: "rgba(167,139,250,0.15)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)", fontSize: "0.65rem" }}>
+                    <i className="fas fa-cubes" /> Kit
+                  </span>
+                  = producto que descuenta sus componentes al exportar
+                </div>
+              )}
 
               {loading && (
                 <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
@@ -280,66 +350,129 @@ export default function StockPage() {
                     <thead>
                       <tr>
                         <th>SKU</th>
-                        <th>Nombre del producto</th>
+                        <th>Nombre</th>
                         <th style={{ textAlign: "right" }}>Disponible</th>
                         <th>Actualizado</th>
                         <th style={{ width: "1px" }} />
                       </tr>
                     </thead>
                     <tbody>
-                      {filtered.map((item, i) => (
-                        <tr key={item.sku} className={i % 2 === 0 ? "row-even" : "row-odd"}>
-                          <td>
-                            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{item.sku}</span>
-                          </td>
-                          <td>{item.nombre || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin nombre</span>}</td>
-                          <td style={{ textAlign: "right" }}>
-                            <span style={{
-                              fontWeight: 700,
-                              color: item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)",
-                              fontSize: "1rem",
-                            }}>
-                              {item.cantidad}
-                            </span>
-                            {item.cantidad <= 0 && (
-                              <span className="sf-badge sf-badge-error" style={{ marginLeft: "0.5rem", fontSize: "0.65rem" }}>Sin stock</span>
+                      {filtered.map((item, i) => {
+                        const esKit    = !!kits[item.sku];
+                        const comps    = kits[item.sku] ?? [];
+                        return (
+                          <>
+                            <tr key={item.sku} className={i % 2 === 0 ? "row-even" : "row-odd"}>
+                              <td>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+                                  <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{item.sku}</span>
+                                  {esKit && (
+                                    <span className="sf-badge" style={{ background: "rgba(167,139,250,0.15)", color: "#a78bfa", border: "1px solid rgba(167,139,250,0.3)", fontSize: "0.6rem" }}>
+                                      <i className="fas fa-cubes" /> Kit
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td>{item.nombre || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin nombre</span>}</td>
+                              <td style={{ textAlign: "right" }}>
+                                {esKit ? (
+                                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic" }}>Ver componentes ↓</span>
+                                ) : (
+                                  <>
+                                    <span style={{
+                                      fontWeight: 700,
+                                      color: item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)",
+                                      fontSize: "1rem",
+                                    }}>
+                                      {item.cantidad}
+                                    </span>
+                                    {item.cantidad <= 0 && (
+                                      <span className="sf-badge sf-badge-error" style={{ marginLeft: "0.4rem", fontSize: "0.6rem" }}>Sin stock</span>
+                                    )}
+                                    {item.cantidad > 0 && item.cantidad <= 5 && (
+                                      <span className="sf-badge" style={{ marginLeft: "0.4rem", fontSize: "0.6rem", background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Poco</span>
+                                    )}
+                                  </>
+                                )}
+                              </td>
+                              <td style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(item.updated_at)}</td>
+                              <td>
+                                <div style={{ display: "flex", gap: "0.35rem", whiteSpace: "nowrap" }}>
+                                  {!esKit && (
+                                    <button
+                                      className="sf-btn-edit"
+                                      onClick={() => { setAjusteModal({ sku: item.sku, nombre: item.nombre }); setAjusteDelta(""); setAjusteMotivo(""); }}
+                                      title="Ajustar cantidad"
+                                    >
+                                      <i className="fas fa-plus-minus" />
+                                    </button>
+                                  )}
+                                  <button className="sf-btn-edit" onClick={() => openEdit(item)} title="Editar">
+                                    <i className="fas fa-pen-to-square" />
+                                  </button>
+                                  <button
+                                    className="sf-btn-edit"
+                                    onClick={() => openKitModal(item)}
+                                    title={esKit ? "Editar kit" : "Definir como kit"}
+                                    style={{ color: esKit ? "#a78bfa" : undefined }}
+                                  >
+                                    <i className="fas fa-cubes" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDelete(item.sku)}
+                                    style={{
+                                      background: "none", border: "1px solid rgba(239,68,68,0.3)",
+                                      borderRadius: "var(--radius)", padding: "0.3rem 0.5rem",
+                                      color: "var(--error-color)", cursor: "pointer", fontSize: "0.75rem",
+                                    }}
+                                    title="Eliminar"
+                                  >
+                                    <i className="fas fa-trash" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {/* Fila expandida con componentes del kit */}
+                            {esKit && (
+                              <tr key={`${item.sku}-kit`} className={i % 2 === 0 ? "row-even" : "row-odd"}>
+                                <td colSpan={5} style={{ paddingTop: 0, paddingLeft: "2rem" }}>
+                                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", paddingBottom: "0.5rem" }}>
+                                    {comps.map(c => {
+                                      const compItem = items.find(x => x.sku === c.component_sku);
+                                      const cantDisp = compItem?.cantidad ?? null;
+                                      return (
+                                        <div key={c.component_sku} style={{
+                                          background: "rgba(167,139,250,0.08)",
+                                          border: "1px solid rgba(167,139,250,0.25)",
+                                          borderRadius: "var(--radius)",
+                                          padding: "0.3rem 0.6rem",
+                                          fontSize: "0.75rem",
+                                          display: "flex", alignItems: "center", gap: "0.4rem",
+                                        }}>
+                                          <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{c.component_sku}</span>
+                                          <span style={{ color: "var(--text-muted)" }}>×{c.cantidad}</span>
+                                          {cantDisp !== null && (
+                                            <span style={{ color: cantDisp <= 0 ? "var(--error-color)" : "var(--success-color)", fontWeight: 600 }}>
+                                              ({cantDisp} disponibles)
+                                            </span>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    <button
+                                      onClick={() => handleDeleteKit(item.sku)}
+                                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", padding: "0.2rem 0.4rem" }}
+                                      title="Quitar definición de kit"
+                                    >
+                                      <i className="fas fa-xmark" /> Quitar kit
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
                             )}
-                            {item.cantidad > 0 && item.cantidad <= 5 && (
-                              <span className="sf-badge" style={{ marginLeft: "0.5rem", fontSize: "0.65rem", background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Poco stock</span>
-                            )}
-                          </td>
-                          <td style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(item.updated_at)}</td>
-                          <td>
-                            <div style={{ display: "flex", gap: "0.4rem", whiteSpace: "nowrap" }}>
-                              <button
-                                className="sf-btn-edit"
-                                onClick={() => { setAjusteModal({ sku: item.sku, nombre: item.nombre }); setAjusteDelta(""); setAjusteMotivo(""); }}
-                                title="Ajustar cantidad"
-                              >
-                                <i className="fas fa-plus-minus" /> Ajustar
-                              </button>
-                              <button
-                                className="sf-btn-edit"
-                                onClick={() => openEdit(item)}
-                                title="Editar"
-                              >
-                                <i className="fas fa-pen-to-square" /> Editar
-                              </button>
-                              <button
-                                onClick={() => handleDelete(item.sku)}
-                                style={{
-                                  background: "none", border: "1px solid rgba(239,68,68,0.3)",
-                                  borderRadius: "var(--radius)", padding: "0.3rem 0.6rem",
-                                  color: "var(--error-color)", cursor: "pointer", fontSize: "0.75rem",
-                                }}
-                                title="Eliminar"
-                              >
-                                <i className="fas fa-trash" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                          </>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -383,10 +516,7 @@ export default function StockPage() {
                           <td style={{ fontSize: "0.8rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtDate(m.created_at)}</td>
                           <td><span style={{ fontFamily: "monospace", fontWeight: 600 }}>{m.sku}</span></td>
                           <td style={{ textAlign: "right" }}>
-                            <span style={{
-                              fontWeight: 700,
-                              color: m.cantidad >= 0 ? "var(--success-color)" : "var(--error-color)",
-                            }}>
+                            <span style={{ fontWeight: 700, color: m.cantidad >= 0 ? "var(--success-color)" : "var(--error-color)" }}>
                               {m.cantidad > 0 ? `+${m.cantidad}` : m.cantidad}
                             </span>
                           </td>
@@ -403,7 +533,6 @@ export default function StockPage() {
         </div>
       </main>
 
-      {/* ── FOOTER ── */}
       <footer className="sf-footer">
         <i className="fas fa-rocket" style={{ color: "var(--primary-color)", marginRight: "0.4rem" }} />
         ShipFlow · Procesamiento local · sin servidores · sin login
@@ -419,37 +548,28 @@ export default function StockPage() {
                 <i className={isNew ? "fas fa-plus" : "fas fa-pen-to-square"} />
                 {isNew ? "Agregar SKU" : `Editar ${modal.sku}`}
               </h3>
-              <button className="sf-close-btn" onClick={() => setModal(null)}>
-                <i className="fas fa-times" />
-              </button>
+              <button className="sf-close-btn" onClick={() => setModal(null)}><i className="fas fa-times" /></button>
             </div>
             <div className="sf-modal-body">
               <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
                 <Field label="SKU *">
-                  <input
-                    ref={skuInputRef}
-                    type="text"
-                    className="sf-input"
+                  <input ref={skuInputRef} type="text" className="sf-input"
                     value={modal.sku}
                     onChange={e => setModal({ ...modal, sku: e.target.value.toUpperCase() })}
-                    placeholder="Ej: CAM-001"
+                    placeholder="Ej: ADAPT-BLANCO"
                     disabled={!isNew}
                     style={{ opacity: !isNew ? 0.6 : 1 }}
                   />
                 </Field>
                 <Field label="Nombre del producto">
-                  <input
-                    type="text"
-                    className="sf-input"
+                  <input type="text" className="sf-input"
                     value={modal.nombre}
                     onChange={e => setModal({ ...modal, nombre: e.target.value })}
-                    placeholder="Ej: Remera básica azul"
+                    placeholder="Ej: Adaptador blanco"
                   />
                 </Field>
                 <Field label="Cantidad disponible *">
-                  <input
-                    type="number"
-                    className="sf-input"
+                  <input type="number" className="sf-input"
                     value={modal.cantidad}
                     onChange={e => setModal({ ...modal, cantidad: parseInt(e.target.value) || 0 })}
                     min={0}
@@ -474,32 +594,23 @@ export default function StockPage() {
           <div className="sf-modal" role="dialog" style={{ width: "min(380px, calc(100vw - 2rem))" }}>
             <div className="sf-modal-header">
               <h3 className="sf-modal-title">
-                <i className="fas fa-plus-minus" /> Ajustar stock — {ajusteModal.sku}
+                <i className="fas fa-plus-minus" /> Ajustar — {ajusteModal.sku}
               </h3>
-              <button className="sf-close-btn" onClick={() => setAjusteModal(null)}>
-                <i className="fas fa-times" />
-              </button>
+              <button className="sf-close-btn" onClick={() => setAjusteModal(null)}><i className="fas fa-times" /></button>
             </div>
             <div className="sf-modal-body">
               <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
                 <Field label="Cantidad (+/−)">
-                  <input
-                    type="number"
-                    className="sf-input"
-                    value={ajusteDelta}
+                  <input type="number" className="sf-input" value={ajusteDelta} autoFocus
                     onChange={e => setAjusteDelta(e.target.value)}
-                    placeholder="Ej: +50 o -3"
-                    autoFocus
+                    placeholder="Ej: +50 para sumar, -3 para restar"
                   />
                   <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.25rem" }}>
-                    Positivo para sumar stock, negativo para restar.
+                    Positivo para sumar, negativo para restar.
                   </p>
                 </Field>
                 <Field label="Motivo (opcional)">
-                  <input
-                    type="text"
-                    className="sf-input"
-                    value={ajusteMotivo}
+                  <input type="text" className="sf-input" value={ajusteMotivo}
                     onChange={e => setAjusteMotivo(e.target.value)}
                     placeholder="Ej: Reposición de mercadería"
                   />
@@ -509,7 +620,91 @@ export default function StockPage() {
             <div className="sf-modal-footer">
               <button className="sf-btn sf-btn-secondary" onClick={() => setAjusteModal(null)}>Cancelar</button>
               <button className="sf-btn" onClick={handleAjuste} disabled={ajustando || !ajusteDelta || parseInt(ajusteDelta) === 0}>
-                {ajustando ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Aplicar ajuste</>}
+                {ajustando ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Aplicar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── MODAL: KIT ── */}
+      {kitModal && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setKitModal(null)} />
+          <div className="sf-modal" role="dialog" style={{ width: "min(520px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-cubes" style={{ color: "#a78bfa" }} /> Definir kit — {kitModal.sku}
+              </h3>
+              <button className="sf-close-btn" onClick={() => setKitModal(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body">
+              <p style={{ fontSize: "0.83rem", color: "var(--text-muted)", marginBottom: "1rem" }}>
+                Cuando se venda <strong>{kitModal.nombre || kitModal.sku}</strong>, en lugar de descontar este SKU del stock, se descontarán los siguientes componentes:
+              </p>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {kitComponents.map((comp, i) => (
+                  <div key={i} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      className="sf-input"
+                      value={comp.component_sku}
+                      onChange={e => updateKitRow(i, "component_sku", e.target.value)}
+                      placeholder="SKU del componente"
+                      style={{ flex: 2 }}
+                    />
+                    <input
+                      type="number"
+                      className="sf-input"
+                      value={comp.cantidad}
+                      min={1}
+                      onChange={e => updateKitRow(i, "cantidad", e.target.value)}
+                      style={{ flex: 1, minWidth: 70 }}
+                      title="Cantidad"
+                    />
+                    <button
+                      onClick={() => removeKitRow(i)}
+                      style={{
+                        background: "none", border: "1px solid rgba(239,68,68,0.3)",
+                        borderRadius: "var(--radius)", padding: "0.4rem 0.6rem",
+                        color: "var(--error-color)", cursor: "pointer", fontSize: "0.8rem", flexShrink: 0,
+                      }}
+                    >
+                      <i className="fas fa-xmark" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={addKitRow}
+                style={{
+                  marginTop: "0.75rem", background: "none",
+                  border: "1px dashed var(--border-color)", borderRadius: "var(--radius)",
+                  padding: "0.4rem 0.75rem", color: "var(--text-muted)",
+                  cursor: "pointer", fontSize: "0.8rem", width: "100%",
+                }}
+              >
+                <i className="fas fa-plus" style={{ marginRight: "0.35rem" }} />
+                Agregar componente
+              </button>
+
+              <div style={{
+                marginTop: "1rem", padding: "0.65rem 0.875rem",
+                background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.25)",
+                borderRadius: "var(--radius)", fontSize: "0.78rem", color: "var(--text-muted)",
+              }}>
+                <i className="fas fa-circle-info" style={{ marginRight: "0.4rem", color: "#a78bfa" }} />
+                <strong>Ejemplo:</strong> Si el kit tiene 1× ADAPT-BLANCO y 1× ADAPT-NEGRO, al exportar 2 pedidos de este kit se descontarán 2 unidades de cada componente.
+              </div>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setKitModal(null)}>Cancelar</button>
+              <button className="sf-btn" onClick={handleSaveKit} disabled={savingKit}
+                style={{ background: "linear-gradient(135deg,#a78bfa,#8b5cf6)" }}
+              >
+                {savingKit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar kit</>}
               </button>
             </div>
           </div>
