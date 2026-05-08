@@ -149,21 +149,28 @@ export default function StockPage() {
       const esKit  = !!kits[ajusteModal.sku];
 
       if (esKit) {
-        // Expandir kit: ajustar cada componente por delta × su cantidad en la receta
+        // Ajustar el kit mismo + cada componente por delta × su cantidad en la receta
         const comps = kits[ajusteModal.sku];
-        await Promise.all(comps.map(comp => {
-          const nombre = items.find(x => x.sku === comp.component_sku)?.nombre ?? comp.component_sku;
-          return fetch("/api/stock/movimientos", {
+        await Promise.all([
+          fetch("/api/stock/movimientos", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sku:    comp.component_sku,
-              nombre,
-              delta:  delta * comp.cantidad,
-              motivo: `${motivo} (kit ${ajusteModal.sku})`,
-            }),
-          });
-        }));
+            body: JSON.stringify({ sku: ajusteModal.sku, nombre: ajusteModal.nombre, delta, motivo }),
+          }),
+          ...comps.map(comp => {
+            const nombre = items.find(x => x.sku === comp.component_sku)?.nombre ?? comp.component_sku;
+            return fetch("/api/stock/movimientos", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sku:    comp.component_sku,
+                nombre,
+                delta:  delta * comp.cantidad,
+                motivo: `${motivo} (kit ${ajusteModal.sku})`,
+              }),
+            });
+          }),
+        ]);
       } else {
         await fetch("/api/stock/movimientos", {
           method: "POST",
