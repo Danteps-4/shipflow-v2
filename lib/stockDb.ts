@@ -1,4 +1,4 @@
-import { sql } from "./db";
+import { getDb } from "./db";
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ export interface DeducirResult {
 // ─── Init (CREATE TABLE IF NOT EXISTS) ──────────────────────────────────────
 
 export async function initStockTables(): Promise<void> {
+  const sql = getDb();
   await sql`
     CREATE TABLE IF NOT EXISTS stock (
       user_id    TEXT    NOT NULL,
@@ -60,6 +61,7 @@ export async function initStockTables(): Promise<void> {
 // ─── CRUD ────────────────────────────────────────────────────────────────────
 
 export async function getStock(userId: string): Promise<StockItem[]> {
+  const sql = getDb();
   const rows = await sql`
     SELECT sku, nombre, cantidad, updated_at
     FROM stock
@@ -75,6 +77,7 @@ export async function upsertStockItem(
   nombre: string,
   cantidad: number,
 ): Promise<void> {
+  const sql = getDb();
   await sql`
     INSERT INTO stock (user_id, sku, nombre, cantidad, updated_at)
     VALUES (${userId}, ${sku}, ${nombre}, ${cantidad}, NOW())
@@ -84,11 +87,11 @@ export async function upsertStockItem(
 }
 
 export async function deleteStockItem(userId: string, sku: string): Promise<void> {
+  const sql = getDb();
   await sql`DELETE FROM stock WHERE user_id = ${userId} AND sku = ${sku}`;
 }
 
 // ─── Deducir stock ──────────────────────────────────────────────────────────
-// Descuenta cantidades. Permite stock negativo (solo avisa, no bloquea).
 
 export async function deducirStock(
   userId: string,
@@ -96,6 +99,7 @@ export async function deducirStock(
 ): Promise<DeducirResult> {
   if (!items.length) return { insuficiente: [] };
 
+  const sql = getDb();
   const skus = items.map(i => i.sku);
   const current = await sql`
     SELECT sku, cantidad FROM stock
@@ -111,7 +115,6 @@ export async function deducirStock(
     }
   }
 
-  // Deducir (upsert primero para SKUs nuevos, luego restar)
   for (const item of items) {
     await sql`
       INSERT INTO stock (user_id, sku, nombre, cantidad, updated_at)
@@ -132,7 +135,7 @@ export async function deducirStock(
   return { insuficiente };
 }
 
-// ─── Ajuste manual (suma o resta) ───────────────────────────────────────────
+// ─── Ajuste manual ───────────────────────────────────────────────────────────
 
 export async function ajustarStock(
   userId: string,
@@ -141,6 +144,7 @@ export async function ajustarStock(
   delta: number,
   motivo: string,
 ): Promise<void> {
+  const sql = getDb();
   await sql`
     INSERT INTO stock (user_id, sku, nombre, cantidad, updated_at)
     VALUES (${userId}, ${sku}, ${nombre}, ${Math.max(0, delta)}, NOW())
@@ -156,6 +160,7 @@ export async function ajustarStock(
 // ─── Historial ───────────────────────────────────────────────────────────────
 
 export async function getMovimientos(userId: string, limit = 200): Promise<Movimiento[]> {
+  const sql = getDb();
   const rows = await sql`
     SELECT id, sku, cantidad, motivo, created_at
     FROM movimientos
