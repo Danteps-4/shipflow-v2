@@ -56,6 +56,7 @@ export default function StockPage() {
   const [kitModal, setKitModal]           = useState<{ sku: string; nombre: string } | null>(null);
   const [kitComponents, setKitComponents] = useState<KitComponent[]>([]);
   const [savingKit, setSavingKit]         = useState(false);
+  const [activeSkuRow, setActiveSkuRow]   = useState<number | null>(null);
 
   // Movimientos
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
@@ -165,6 +166,14 @@ export default function StockPage() {
   }
 
   // ── Kits ──────────────────────────────────────────────────────────────────
+
+  function getSkuSuggestions(value: string): StockItem[] {
+    const v = value.trim().toLowerCase();
+    if (!v) return items.slice(0, 10);
+    return items.filter(it =>
+      it.sku.toLowerCase().includes(v) || it.nombre.toLowerCase().includes(v)
+    ).slice(0, 8);
+  }
 
   function openKitModal(item: StockItem) {
     const existing = kits[item.sku] ?? [];
@@ -375,38 +384,33 @@ export default function StockPage() {
                               </td>
                               <td>{item.nombre || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin nombre</span>}</td>
                               <td style={{ textAlign: "right" }}>
-                                {esKit ? (
-                                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontStyle: "italic" }}>Ver componentes ↓</span>
-                                ) : (
-                                  <>
-                                    <span style={{
-                                      fontWeight: 700,
-                                      color: item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)",
-                                      fontSize: "1rem",
-                                    }}>
-                                      {item.cantidad}
-                                    </span>
-                                    {item.cantidad <= 0 && (
-                                      <span className="sf-badge sf-badge-error" style={{ marginLeft: "0.4rem", fontSize: "0.6rem" }}>Sin stock</span>
-                                    )}
-                                    {item.cantidad > 0 && item.cantidad <= 5 && (
-                                      <span className="sf-badge" style={{ marginLeft: "0.4rem", fontSize: "0.6rem", background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Poco</span>
-                                    )}
-                                  </>
+                                <span style={{
+                                  fontWeight: 700,
+                                  color: item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)",
+                                  fontSize: "1rem",
+                                }}>
+                                  {item.cantidad}
+                                </span>
+                                {item.cantidad <= 0 && (
+                                  <span className="sf-badge sf-badge-error" style={{ marginLeft: "0.4rem", fontSize: "0.6rem" }}>Sin stock</span>
+                                )}
+                                {item.cantidad > 0 && item.cantidad <= 5 && (
+                                  <span className="sf-badge" style={{ marginLeft: "0.4rem", fontSize: "0.6rem", background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Poco</span>
+                                )}
+                                {esKit && (
+                                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontStyle: "italic", marginTop: "0.1rem" }}>ver componentes ↓</div>
                                 )}
                               </td>
                               <td style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(item.updated_at)}</td>
                               <td>
                                 <div style={{ display: "flex", gap: "0.35rem", whiteSpace: "nowrap" }}>
-                                  {!esKit && (
-                                    <button
-                                      className="sf-btn-edit"
-                                      onClick={() => { setAjusteModal({ sku: item.sku, nombre: item.nombre }); setAjusteDelta(""); setAjusteMotivo(""); }}
-                                      title="Ajustar cantidad"
-                                    >
-                                      <i className="fas fa-plus-minus" />
-                                    </button>
-                                  )}
+                                  <button
+                                    className="sf-btn-edit"
+                                    onClick={() => { setAjusteModal({ sku: item.sku, nombre: item.nombre }); setAjusteDelta(""); setAjusteMotivo(""); }}
+                                    title="Ajustar cantidad"
+                                  >
+                                    <i className="fas fa-plus-minus" />
+                                  </button>
                                   <button className="sf-btn-edit" onClick={() => openEdit(item)} title="Editar">
                                     <i className="fas fa-pen-to-square" />
                                   </button>
@@ -644,37 +648,77 @@ export default function StockPage() {
               </p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {kitComponents.map((comp, i) => (
-                  <div key={i} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                    <input
-                      type="text"
-                      className="sf-input"
-                      value={comp.component_sku}
-                      onChange={e => updateKitRow(i, "component_sku", e.target.value)}
-                      placeholder="SKU del componente"
-                      style={{ flex: 2 }}
-                    />
-                    <input
-                      type="number"
-                      className="sf-input"
-                      value={comp.cantidad}
-                      min={1}
-                      onChange={e => updateKitRow(i, "cantidad", e.target.value)}
-                      style={{ flex: 1, minWidth: 70 }}
-                      title="Cantidad"
-                    />
-                    <button
-                      onClick={() => removeKitRow(i)}
-                      style={{
-                        background: "none", border: "1px solid rgba(239,68,68,0.3)",
-                        borderRadius: "var(--radius)", padding: "0.4rem 0.6rem",
-                        color: "var(--error-color)", cursor: "pointer", fontSize: "0.8rem", flexShrink: 0,
-                      }}
-                    >
-                      <i className="fas fa-xmark" />
-                    </button>
-                  </div>
-                ))}
+                {kitComponents.map((comp, i) => {
+                  const suggestions = getSkuSuggestions(comp.component_sku);
+                  return (
+                    <div key={i} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                      {/* SKU con autocomplete */}
+                      <div style={{ flex: 2, position: "relative" }}>
+                        <input
+                          type="text"
+                          className="sf-input"
+                          value={comp.component_sku}
+                          onChange={e => { updateKitRow(i, "component_sku", e.target.value); setActiveSkuRow(i); }}
+                          onFocus={() => setActiveSkuRow(i)}
+                          onBlur={() => setTimeout(() => setActiveSkuRow(null), 160)}
+                          placeholder="SKU del componente"
+                          style={{ width: "100%" }}
+                          autoComplete="off"
+                        />
+                        {activeSkuRow === i && suggestions.length > 0 && (
+                          <div style={{
+                            position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0, zIndex: 200,
+                            background: "var(--card-bg, #1e293b)", border: "1px solid var(--border-color)",
+                            borderRadius: "var(--radius)", maxHeight: 200, overflowY: "auto",
+                            boxShadow: "0 6px 18px rgba(0,0,0,0.4)",
+                          }}>
+                            {suggestions.map(it => (
+                              <button
+                                key={it.sku}
+                                type="button"
+                                onMouseDown={() => { updateKitRow(i, "component_sku", it.sku); setActiveSkuRow(null); }}
+                                style={{
+                                  display: "flex", width: "100%", textAlign: "left", alignItems: "center",
+                                  padding: "0.45rem 0.75rem", background: "none", border: "none",
+                                  color: "var(--text-color)", cursor: "pointer", fontSize: "0.82rem",
+                                  borderBottom: "1px solid rgba(255,255,255,0.05)", gap: "0.5rem",
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                              >
+                                <span style={{ fontFamily: "monospace", fontWeight: 700, flexShrink: 0 }}>{it.sku}</span>
+                                {it.nombre && <span style={{ color: "var(--text-muted)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.nombre}</span>}
+                                <span style={{ marginLeft: "auto", fontWeight: 700, flexShrink: 0, color: it.cantidad <= 0 ? "var(--error-color)" : it.cantidad <= 5 ? "#f59e0b" : "var(--success-color)" }}>
+                                  {it.cantidad} uds.
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <input
+                        type="number"
+                        className="sf-input"
+                        value={comp.cantidad}
+                        min={1}
+                        onChange={e => updateKitRow(i, "cantidad", e.target.value)}
+                        style={{ flex: 1, minWidth: 70 }}
+                        title="Cantidad"
+                      />
+                      <button
+                        onClick={() => removeKitRow(i)}
+                        style={{
+                          background: "none", border: "1px solid rgba(239,68,68,0.3)",
+                          borderRadius: "var(--radius)", padding: "0.4rem 0.6rem",
+                          color: "var(--error-color)", cursor: "pointer", fontSize: "0.8rem", flexShrink: 0,
+                          marginTop: "1px",
+                        }}
+                      >
+                        <i className="fas fa-xmark" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
 
               <button
