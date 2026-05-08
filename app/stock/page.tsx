@@ -145,16 +145,33 @@ export default function StockPage() {
     if (isNaN(delta) || delta === 0) return;
     setAjustando(true);
     try {
-      await fetch("/api/stock/movimientos", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sku: ajusteModal.sku,
-          nombre: ajusteModal.nombre,
-          delta,
-          motivo: ajusteMotivo.trim() || (delta > 0 ? "Carga manual" : "Descuento manual"),
-        }),
-      });
+      const motivo = ajusteMotivo.trim() || (delta > 0 ? "Carga manual" : "Descuento manual");
+      const esKit  = !!kits[ajusteModal.sku];
+
+      if (esKit) {
+        // Expandir kit: ajustar cada componente por delta × su cantidad en la receta
+        const comps = kits[ajusteModal.sku];
+        await Promise.all(comps.map(comp => {
+          const nombre = items.find(x => x.sku === comp.component_sku)?.nombre ?? comp.component_sku;
+          return fetch("/api/stock/movimientos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sku:    comp.component_sku,
+              nombre,
+              delta:  delta * comp.cantidad,
+              motivo: `${motivo} (kit ${ajusteModal.sku})`,
+            }),
+          });
+        }));
+      } else {
+        await fetch("/api/stock/movimientos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sku: ajusteModal.sku, nombre: ajusteModal.nombre, delta, motivo }),
+        });
+      }
+
       setAjusteModal(null);
       setAjusteDelta("");
       setAjusteMotivo("");
@@ -595,7 +612,7 @@ export default function StockPage() {
       {ajusteModal && (
         <>
           <div className="sf-modal-backdrop" onClick={() => setAjusteModal(null)} />
-          <div className="sf-modal" role="dialog" style={{ width: "min(380px, calc(100vw - 2rem))" }}>
+          <div className="sf-modal" role="dialog" style={{ width: "min(400px, calc(100vw - 2rem))" }}>
             <div className="sf-modal-header">
               <h3 className="sf-modal-title">
                 <i className="fas fa-plus-minus" /> Ajustar — {ajusteModal.sku}
@@ -603,6 +620,21 @@ export default function StockPage() {
               <button className="sf-close-btn" onClick={() => setAjusteModal(null)}><i className="fas fa-times" /></button>
             </div>
             <div className="sf-modal-body">
+              {kits[ajusteModal.sku] && (
+                <div style={{
+                  marginBottom: "1rem", padding: "0.6rem 0.875rem",
+                  background: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.25)",
+                  borderRadius: "var(--radius)", fontSize: "0.78rem", color: "var(--text-muted)",
+                }}>
+                  <i className="fas fa-cubes" style={{ marginRight: "0.4rem", color: "#a78bfa" }} />
+                  <strong style={{ color: "#a78bfa" }}>Kit:</strong> el ajuste se aplica a los componentes, no al kit en sí.
+                  {kits[ajusteModal.sku].map(c => (
+                    <span key={c.component_sku} style={{ display: "inline-block", marginLeft: "0.5rem", fontFamily: "monospace" }}>
+                      {c.component_sku} ×{c.cantidad}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
                 <Field label="Cantidad (+/−)">
                   <input type="number" className="sf-input" value={ajusteDelta} autoFocus
