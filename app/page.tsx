@@ -39,7 +39,7 @@ const TOOLS = [
   },
   {
     href: "/stock",
-    icon: "fas fa-boxes-stacking",
+    icon: "fas fa-warehouse",
     color: "#ec4899",
     title: "Stock de Productos",
     description: "Controlá el stock de tus productos. Se descuenta automáticamente al exportar pedidos y te avisa cuando hay quiebre de stock.",
@@ -67,7 +67,7 @@ export default function HomePage() {
           <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
           <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
-          <a href="/stock"><i className="fas fa-boxes-stacking" /> Stock de Productos</a>
+          <a href="/stock"><i className="fas fa-warehouse" /> Stock de Productos</a>
         </nav>
       </div>
 

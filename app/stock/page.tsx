@@ -273,7 +273,7 @@ export default function StockPage() {
           <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
           <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
-          <a href="/stock" className="active"><i className="fas fa-boxes-stacking" /> Stock de Productos</a>
+          <a href="/stock" className="active"><i className="fas fa-warehouse" /> Stock de Productos</a>
         </nav>
       </div>
       <div className={`sf-overlay ${sidebarOpen ? "open" : ""}`} onClick={() => setSidebarOpen(false)} />
@@ -303,7 +303,7 @@ export default function StockPage() {
           {/* Tarjetas */}
           {!loading && !error && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem", marginBottom: "1.5rem" }}>
-              <StatCard value={items.length}  label="SKUs cargados"    icon="fas fa-boxes-stacking"      color="var(--primary-color)" />
+              <StatCard value={items.length}  label="SKUs cargados"    icon="fas fa-warehouse"      color="var(--primary-color)" />
               <StatCard value={totalUnidades} label="Unidades totales" icon="fas fa-layer-group"          color="var(--success-color)" />
               <StatCard value={totalKits}     label="Kits definidos"   icon="fas fa-cubes"                color="#a78bfa" />
               <StatCard value={sinStock}      label="Sin stock"        icon="fas fa-triangle-exclamation" color={sinStock > 0 ? "var(--error-color)" : "var(--text-muted)"} />
@@ -320,7 +320,7 @@ export default function StockPage() {
           {/* Tabs */}
           <div className="sf-tabs" style={{ marginBottom: "1rem" }}>
             <button className={`sf-tab ${tab === "stock" ? "active" : ""}`} onClick={() => setTab("stock")}>
-              <i className="fas fa-boxes-stacking" /> Stock actual
+              <i className="fas fa-warehouse" /> Stock actual
               {items.length > 0 && <span className="sf-tab-badge">{items.length}</span>}
             </button>
             <button className={`sf-tab ${tab === "movimientos" ? "active" : ""}`} onClick={() => setTab("movimientos")}>
@@ -367,7 +367,7 @@ export default function StockPage() {
 
               {!loading && !error && filtered.length === 0 && (
                 <div className="sf-empty">
-                  <i className="fas fa-boxes-stacking sf-empty-icon" />
+                  <i className="fas fa-warehouse sf-empty-icon" />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
                     {search ? "No se encontraron resultados" : "No hay productos cargados"}
                   </p>
