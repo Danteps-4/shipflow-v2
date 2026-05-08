@@ -1,4 +1,4 @@
-import { TiendaNubeRow, GroupedOrder } from "@/types/orders";
+import { TiendaNubeRow, GroupedOrder, ProductoOrden } from "@/types/orders";
 import { ParseResult, getCell } from "./parseCsv";
 import {
   normalizeStr,
@@ -76,13 +76,44 @@ export function groupOrders(
     const numeroOrden = normalizeStr(getCell(row, columnMap, "numeroOrden"));
     if (!numeroOrden) continue;
 
-    // Si ya procesamos esta orden, saltamos (evitamos duplicados)
-    if (orderMap.has(numeroOrden)) continue;
+    // Si ya existe la orden, solo acumulamos productos adicionales
+    if (orderMap.has(numeroOrden)) {
+      const existing = orderMap.get(numeroOrden)!;
+      const sku = normalizeStr(getCell(row, columnMap, "skuProducto")).toUpperCase();
+      if (sku) {
+        const nombre   = normalizeStr(getCell(row, columnMap, "nombreProducto"));
+        const variante = normalizeStr(getCell(row, columnMap, "varianteProducto"));
+        const cantStr  = normalizeStr(getCell(row, columnMap, "cantidadProducto"));
+        const cant     = Math.max(1, parseInt(cantStr) || 1);
+        const nombreCompleto = variante ? `${nombre} - ${variante}` : nombre;
+        const prods = existing.productos ?? [];
+        const prev = prods.find(p => p.sku === sku);
+        if (prev) {
+          prev.cantidad += cant;
+        } else {
+          prods.push({ sku, nombre: nombreCompleto, cantidad: cant });
+        }
+        existing.productos = prods;
+      }
+      continue;
+    }
 
     // Guardar valores crudos antes de normalizar (para comparativa en la UI)
     const rawLocalidad    = normalizeStr(getCell(row, columnMap, "localidad"));
     const rawProvincia    = normalizeStr(getCell(row, columnMap, "provincia"));
     const rawCodigoPostal = normalizeStr(getCell(row, columnMap, "codigoPostal"));
+    const rawMedioEnvio   = normalizeStr(getCell(row, columnMap, "medioEnvio"));
+
+    // Primer producto de la orden (si el CSV trae columnas de producto)
+    const primerSku = normalizeStr(getCell(row, columnMap, "skuProducto")).toUpperCase();
+    const primerNombre   = normalizeStr(getCell(row, columnMap, "nombreProducto"));
+    const primerVariante = normalizeStr(getCell(row, columnMap, "varianteProducto"));
+    const primerCantStr  = normalizeStr(getCell(row, columnMap, "cantidadProducto"));
+    const primerCant     = Math.max(1, parseInt(primerCantStr) || 1);
+    const primerNombreCompleto = primerVariante ? `${primerNombre} - ${primerVariante}` : primerNombre;
+    const productos: ProductoOrden[] = primerSku
+      ? [{ sku: primerSku, nombre: primerNombreCompleto, cantidad: primerCant }]
+      : [];
 
     const order: GroupedOrder = {
       numeroOrden,
@@ -94,7 +125,8 @@ export function groupOrders(
         getCell(row, columnMap, "telefonoEnvio"),
         getCell(row, columnMap, "telefonoComprador"),
       )),
-      medioEnvio: normalizeStr(getCell(row, columnMap, "medioEnvio")),
+      medioEnvio: rawMedioEnvio,
+      rawMedioEnvio,
       direccion: normalizeStr(getCell(row, columnMap, "direccion")),
       numeroDireccion: normalizeStr(getCell(row, columnMap, "numero")),
       piso: normalizeStr(getCell(row, columnMap, "piso")),
@@ -113,6 +145,7 @@ export function groupOrders(
         normalizeStr(getCell(row, columnMap, "numero")),
         normalizeProvincia(normalizeStr(getCell(row, columnMap, "provincia"))),
       ),
+      productos,
     };
 
     orderMap.set(numeroOrden, order);

@@ -1,4 +1,4 @@
-import type { TnOrder, GroupedOrder } from "@/types/orders";
+import type { TnOrder, GroupedOrder, ProductoOrden } from "@/types/orders";
 import {
   normalizeStr,
   normalizeDni,
@@ -124,8 +124,17 @@ export function convertTnOrders(orders: TnOrder[]): GroupedOrder[] {
     const localidad    = normalizeLocalidad(localidadRaw);
     const codigoPostal = normalizeCodigoPostal(cpRaw);
 
-    const esSucursal = isSucursalOption(order.shipping_option);
-    const medioEnvio = esSucursal ? "Punto de retiro" : "Andreani a Domicilio";
+    const esSucursal    = isSucursalOption(order.shipping_option);
+    const rawMedioEnvio = optionName(order.shipping_option);
+    const medioEnvio    = esSucursal ? "Punto de retiro" : "Andreani a Domicilio";
+
+    const productos: ProductoOrden[] = order.products
+      .filter(p => p.sku)
+      .map(p => ({
+        sku:      p.sku!.trim().toUpperCase(),
+        nombre:   p.variant_name ? `${p.name} - ${p.variant_name}` : p.name,
+        cantidad: p.quantity,
+      }));
 
     const sucursal = esSucursal
       ? resolveSucursal(
@@ -158,7 +167,9 @@ export function convertTnOrders(orders: TnOrder[]): GroupedOrder[] {
       rawLocalidad:     localidadRaw,
       rawProvincia:     provRaw,
       rawCodigoPostal:  cpRaw,
+      rawMedioEnvio,
       sucursal,
+      productos,
     };
   });
 }

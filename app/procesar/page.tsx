@@ -27,6 +27,7 @@ export default function ProcesarPage() {
   const [parseWarning, setParseWarning] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<{ order: GroupedOrder; error: ValidationError } | null>(null);
   const [exportSummary, setExportSummary] = useState<{ domicilio: number; sucursal: number } | null>(null);
+  const [stockInsuficiente, setStockInsuficiente] = useState<{ sku: string; nombre: string; disponible: number; solicitado: number }[]>([]);
   const [showPicker, setShowPicker]       = useState(false);
   const [tnConnected, setTnConnected]     = useState<boolean>(false);
 
@@ -103,8 +104,36 @@ export default function ProcesarPage() {
 
   async function handleExport() {
     if (!result) return;
+
+    // Descargar Excel
     await exportAndreaniWorkbook(result.domicilio, result.sucursal);
     setExportSummary({ domicilio: result.domicilio.length, sucursal: result.sucursal.length });
+
+    // Descontar stock (best-effort: no bloqueamos si falla)
+    try {
+      const deduccionMap = new Map<string, { nombre: string; cantidad: number }>();
+      for (const order of result.groupedOrders) {
+        for (const prod of order.productos ?? []) {
+          if (!prod.sku) continue;
+          const prev = deduccionMap.get(prod.sku) ?? { nombre: prod.nombre, cantidad: 0 };
+          prev.cantidad += prod.cantidad;
+          deduccionMap.set(prod.sku, prev);
+        }
+      }
+      if (deduccionMap.size > 0) {
+        const motivo = `Exportación ${new Date().toLocaleDateString("es-AR")} (${result.domicilio.length + result.sucursal.length} pedidos)`;
+        const items = Array.from(deduccionMap.entries()).map(([sku, v]) => ({ sku, nombre: v.nombre, cantidad: v.cantidad, motivo }));
+        const r = await fetch("/api/stock/deducir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items }),
+        });
+        if (r.ok) {
+          const { insuficiente } = await r.json();
+          setStockInsuficiente(insuficiente ?? []);
+        }
+      }
+    } catch { /* silencioso — stock es best-effort */ }
   }
 
   function handleSaveOrder(updated: GroupedOrder) {
@@ -142,6 +171,7 @@ export default function ProcesarPage() {
           <a href="/procesar" className="active"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
           <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
+          <a href="/stock"><i className="fas fa-boxes-stacking" /> Stock de Productos</a>
         </nav>
       </div>
 
@@ -327,7 +357,8 @@ export default function ProcesarPage() {
           exportedDomicilio={exportSummary.domicilio}
           exportedSucursal={exportSummary.sucursal}
           omitidos={result.errores}
-          onClose={() => setExportSummary(null)}
+          stockInsuficiente={stockInsuficiente}
+          onClose={() => { setExportSummary(null); setStockInsuficiente([]); }}
         />
       )}
 

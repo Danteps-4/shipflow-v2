@@ -22,6 +22,11 @@ export const COLUMN_CANDIDATES = {
   provincia: ["Provincia o estado", "Provincia", "Estado"],
   codigoPostal: ["Código postal", "Codigo postal", "CP", "Cod. Postal"],
   sucursal: ["Sucursal", "Punto de retiro", "Sucursal Andreani"],
+  // Columnas de productos (para descuento de stock)
+  skuProducto:      ["SKU del producto", "SKU", "Código de producto", "Codigo de producto"],
+  nombreProducto:   ["Nombre del producto", "Nombre de producto"],
+  cantidadProducto: ["Cantidad"],
+  varianteProducto: ["Variante del producto", "Variante"],
 };
 
 // -------------------------------------------------------------------

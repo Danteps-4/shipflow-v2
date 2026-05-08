@@ -3,10 +3,18 @@
 import { useEffect } from "react";
 import { ValidationError } from "@/types/orders";
 
+interface StockAlert {
+  sku: string;
+  nombre: string;
+  disponible: number;
+  solicitado: number;
+}
+
 interface ExportSummaryModalProps {
   exportedDomicilio: number;
   exportedSucursal: number;
   omitidos: ValidationError[];
+  stockInsuficiente?: StockAlert[];
   onClose: () => void;
 }
 
@@ -14,6 +22,7 @@ export default function ExportSummaryModal({
   exportedDomicilio,
   exportedSucursal,
   omitidos,
+  stockInsuficiente = [],
   onClose,
 }: ExportSummaryModalProps) {
   useEffect(() => {
@@ -145,6 +154,33 @@ export default function ExportSummaryModal({
             </div>
           )}
         </div>
+
+        {/* Stock insuficiente */}
+        {stockInsuficiente.length > 0 && (
+          <div style={{
+            padding: "0.75rem 1rem",
+            background: "rgba(245,158,11,0.08)",
+            border: "1px solid rgba(245,158,11,0.3)",
+            borderRadius: "var(--radius)",
+            marginTop: "0.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+              <i className="fas fa-triangle-exclamation" style={{ color: "#f59e0b" }} />
+              <span style={{ fontWeight: 600, fontSize: "0.875rem", color: "#f59e0b" }}>
+                Stock insuficiente en {stockInsuficiente.length} SKU{stockInsuficiente.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            {stockInsuficiente.map(s => (
+              <div key={s.sku} style={{ fontSize: "0.78rem", color: "var(--text-muted)", paddingLeft: "1.5rem", marginTop: "0.2rem" }}>
+                <span style={{ fontFamily: "monospace", fontWeight: 600, color: "var(--text-color)" }}>{s.sku}</span>
+                {s.nombre ? ` — ${s.nombre}` : ""} &nbsp;·&nbsp; disponible: <strong>{s.disponible}</strong>, solicitado: <strong>{s.solicitado}</strong>
+              </div>
+            ))}
+            <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.5rem", paddingLeft: "1.5rem" }}>
+              El stock se descuentó igual. Reponelo desde <a href="/stock" style={{ color: "var(--primary-color)" }}>Stock de Productos</a>.
+            </p>
+          </div>
+        )}
 
         {/* Footer */}
         <div className="sf-modal-footer">

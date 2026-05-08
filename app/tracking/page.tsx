@@ -120,6 +120,7 @@ export default function TrackingPage() {
           <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
           <a href="/tracking" className="active"><i className="fas fa-truck" /> Subir Tracking</a>
+          <a href="/stock"><i className="fas fa-boxes-stacking" /> Stock de Productos</a>
         </nav>
       </div>
 

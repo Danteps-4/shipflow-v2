@@ -37,6 +37,14 @@ const TOOLS = [
     description: "Consultá todos los pedidos de tu tienda en tiempo real con filtros por estado de pago y envío.",
     tags: ["Tienda Nube", "Tiempo real", "Filtros"],
   },
+  {
+    href: "/stock",
+    icon: "fas fa-boxes-stacking",
+    color: "#ec4899",
+    title: "Stock de Productos",
+    description: "Controlá el stock de tus productos. Se descuenta automáticamente al exportar pedidos y te avisa cuando hay quiebre de stock.",
+    tags: ["Stock", "Automático", "Alertas"],
+  },
 ];
 
 export default function HomePage() {
@@ -59,6 +67,7 @@ export default function HomePage() {
           <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
           <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
+          <a href="/stock"><i className="fas fa-boxes-stacking" /> Stock de Productos</a>
         </nav>
       </div>
 
