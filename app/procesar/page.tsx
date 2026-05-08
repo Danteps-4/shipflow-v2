@@ -104,25 +104,45 @@ export default function ProcesarPage() {
 
   async function handleExport() {
     if (!result) return;
+    // Snapshot para evitar closures stale después de awaits
+    const snap = result;
 
-    // Descargar Excel
-    await exportAndreaniWorkbook(result.domicilio, result.sucursal);
-    setExportSummary({ domicilio: result.domicilio.length, sucursal: result.sucursal.length });
+    // Descargar Excel (solo pedidos válidos)
+    await exportAndreaniWorkbook(snap.domicilio, snap.sucursal);
+    setExportSummary({ domicilio: snap.domicilio.length, sucursal: snap.sucursal.length });
 
-    // Descontar stock (best-effort: no bloqueamos si falla)
+    // Descontar stock: se incluyen TODOS los pedidos — válidos + con errores.
+    // Los pedidos con errores se cargan manualmente en Andreani pero igual consumen stock.
     try {
+      // Números de orden de error para lookup explícito
+      const errorNums = new Set(snap.errores.map(e => e.numeroOrden));
+
       const deduccionMap = new Map<string, { nombre: string; cantidad: number }>();
-      for (const order of result.groupedOrders) {
+
+      for (const order of snap.groupedOrders) {
         for (const prod of order.productos ?? []) {
           if (!prod.sku) continue;
-          const prev = deduccionMap.get(prod.sku) ?? { nombre: prod.nombre, cantidad: 0 };
-          prev.cantidad += prod.cantidad;
-          deduccionMap.set(prod.sku, prev);
+          const entry = deduccionMap.get(prod.sku);
+          if (entry) {
+            entry.cantidad += prod.cantidad;
+          } else {
+            deduccionMap.set(prod.sku, { nombre: prod.nombre, cantidad: prod.cantidad });
+          }
         }
       }
+
+      // Fallback: si algún pedido con error no estaba en groupedOrders, no hay productos
+      // disponibles sin SKU — se loguea para diagnóstico
+      if (process.env.NODE_ENV !== "production") {
+        const cubiertos = new Set(snap.groupedOrders.map(o => o.numeroOrden));
+        const faltantes = [...errorNums].filter(n => !cubiertos.has(n));
+        if (faltantes.length) console.warn("Pedidos con error sin datos de producto:", faltantes);
+      }
+
       if (deduccionMap.size > 0) {
-        const motivo = `Exportación ${new Date().toLocaleDateString("es-AR")} (${result.domicilio.length + result.sucursal.length} pedidos)`;
-        const items = Array.from(deduccionMap.entries()).map(([sku, v]) => ({ sku, nombre: v.nombre, cantidad: v.cantidad, motivo }));
+        const total  = snap.domicilio.length + snap.sucursal.length + snap.errores.length;
+        const motivo = `Exportación ${new Date().toLocaleDateString("es-AR")} (${total} pedidos${snap.errores.length > 0 ? `, ${snap.errores.length} manuales` : ""})`;
+        const items  = Array.from(deduccionMap.entries()).map(([sku, v]) => ({ sku, nombre: v.nombre, cantidad: v.cantidad, motivo }));
         const r = await fetch("/api/stock/deducir", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
