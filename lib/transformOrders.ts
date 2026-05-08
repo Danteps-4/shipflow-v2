@@ -17,7 +17,7 @@ const FIXED_VALUES = {
   alto: 1,
   ancho: 1,
   profundidad: 1,
-  valorDeclarado: 6000,
+  valorDeclarado: 20000,
   celularCodigo: "54",
   departamento: "",
   observaciones: "",
