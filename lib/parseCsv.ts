@@ -25,7 +25,7 @@ export const COLUMN_CANDIDATES = {
   // Columnas de productos (para descuento de stock)
   skuProducto:      ["SKU del producto", "SKU", "Código de producto", "Codigo de producto"],
   nombreProducto:   ["Nombre del producto", "Nombre de producto"],
-  cantidadProducto: ["Cantidad"],
+  cantidadProducto: ["Cantidad del producto", "Cantidad"],
   varianteProducto: ["Variante del producto", "Variante"],
 };
 
