@@ -94,7 +94,11 @@ export default function EtiquetasPage() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
-      a.download = "etiquetas_con_sku.pdf";
+      const hoy = new Date();
+      const dd  = String(hoy.getDate()).padStart(2, "0");
+      const mm  = String(hoy.getMonth() + 1).padStart(2, "0");
+      const aa  = String(hoy.getFullYear()).slice(2);
+      a.download = `etiquetas_sku_Lumeo_${dd}-${mm}-${aa}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDone(true);
