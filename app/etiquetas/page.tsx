@@ -94,11 +94,25 @@ export default function EtiquetasPage() {
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
+
+      // Obtener nombre de la tienda activa
+      let storeName = "Tienda";
+      try {
+        const statusRes = await fetch("/api/auth/status");
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          const activeStore = status.stores?.find((s: { user_id: number; store_name: string }) => s.user_id === status.active);
+          if (activeStore?.store_name) storeName = activeStore.store_name;
+        }
+      } catch { /* usar nombre por defecto */ }
+
       const hoy = new Date();
       const dd  = String(hoy.getDate()).padStart(2, "0");
       const mm  = String(hoy.getMonth() + 1).padStart(2, "0");
       const aa  = String(hoy.getFullYear()).slice(2);
-      a.download = `etiquetas_sku_Lumeo_${dd}-${mm}-${aa}.pdf`;
+      // Limpiar caracteres inválidos en nombre de archivo
+      const nombreLimpio = storeName.replace(/[/\\:*?"<>|]/g, "_").trim();
+      a.download = `etiquetas_sku_${nombreLimpio}_${dd}-${mm}-${aa}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDone(true);
