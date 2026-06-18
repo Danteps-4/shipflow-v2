@@ -13,10 +13,10 @@ import { matchProvLocCp, matchSucursal } from "./andreaniMatcher";
 // -------------------------------------------------------------------
 const FIXED_VALUES = {
   paqueteGuardado: "",
-  peso: 1,
-  alto: 1,
-  ancho: 1,
-  profundidad: 1,
+  peso: 200,
+  alto: 5,
+  ancho: 20,
+  profundidad: 20,
   valorDeclarado: 30000,
   celularCodigo: "54",
   departamento: "",
