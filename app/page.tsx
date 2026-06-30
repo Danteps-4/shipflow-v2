@@ -69,6 +69,19 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Finanzas",
+    tools: [
+      {
+        href: "/finanzas",
+        icon: "fas fa-chart-pie",
+        color: "#10b981",
+        title: "Gastos y Suscripciones",
+        description: "Registrá gastos puntuales y suscripciones recurrentes para tener un panorama claro de los costos mensuales de tu negocio.",
+        tags: ["Gastos", "Suscripciones", "Costos"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

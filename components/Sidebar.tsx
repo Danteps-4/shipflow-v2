@@ -29,6 +29,12 @@ const GROUPS: NavGroup[] = [
       { href: "/stock", icon: "fas fa-warehouse", label: "Stock de Productos" },
     ],
   },
+  {
+    label: "Finanzas",
+    links: [
+      { href: "/finanzas", icon: "fas fa-chart-pie", label: "Gastos y Suscripciones" },
+    ],
+  },
 ];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
