@@ -119,6 +119,7 @@ export default function TrackingPage() {
           <a href="/orders"><i className="fas fa-receipt" /> Pedidos</a>
           <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
+          <a href="/etiquetas-ml"><i className="fas fa-barcode" /> Etiquetas ML (ZPL → PDF)</a>
           <a href="/tracking" className="active"><i className="fas fa-truck" /> Subir Tracking</a>
           <a href="/stock"><i className="fas fa-warehouse" /> Stock de Productos</a>
         </nav>

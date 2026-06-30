@@ -57,26 +57,24 @@ function DropZone({
   );
 }
 
-export default function EtiquetasPage() {
+export default function EtiquetasMlPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [csv, setCsv]     = useState<FileState>(null);
-  const [pdf, setPdf]     = useState<FileState>(null);
+  const [file, setFile] = useState<FileState>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
-  const [done, setDone]       = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
 
   async function handleProcess() {
-    if (!csv || !pdf) return;
+    if (!file) return;
     setLoading(true);
     setError(null);
     setDone(false);
 
     try {
       const form = new FormData();
-      form.append("csv", csv.file);
-      form.append("pdf", pdf.file);
+      form.append("file", file.file);
 
-      const res = await fetch("/api/etiquetas", { method: "POST", body: form });
+      const res = await fetch("/api/etiquetas-ml", { method: "POST", body: form });
 
       if (!res.ok) {
         let errorMsg = "Error del servidor";
@@ -84,35 +82,21 @@ export default function EtiquetasPage() {
           const body = await res.json();
           errorMsg = body.error ?? errorMsg;
         } catch {
-          // response is not JSON (e.g. empty body or HTML error page)
           errorMsg = `Error del servidor (HTTP ${res.status})`;
         }
         throw new Error(errorMsg);
       }
 
       const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-
-      // Obtener nombre de la tienda activa
-      let storeName = "Tienda";
-      try {
-        const statusRes = await fetch("/api/auth/status");
-        if (statusRes.ok) {
-          const status = await statusRes.json();
-          const activeStore = status.stores?.find((s: { user_id: number; store_name: string }) => s.user_id === status.active);
-          if (activeStore?.store_name) storeName = activeStore.store_name;
-        }
-      } catch { /* usar nombre por defecto */ }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
 
       const hoy = new Date();
-      const dd  = String(hoy.getDate()).padStart(2, "0");
-      const mm  = String(hoy.getMonth() + 1).padStart(2, "0");
-      const aa  = String(hoy.getFullYear()).slice(2);
-      // Limpiar caracteres inválidos en nombre de archivo
-      const nombreLimpio = storeName.replace(/[/\\:*?"<>|]/g, "_").trim();
-      a.download = `etiquetas_sku_${nombreLimpio}_${dd}-${mm}-${aa}.pdf`;
+      const dd = String(hoy.getDate()).padStart(2, "0");
+      const mm = String(hoy.getMonth() + 1).padStart(2, "0");
+      const aa = String(hoy.getFullYear()).slice(2);
+      a.download = `etiquetas_ml_${dd}-${mm}-${aa}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDone(true);
@@ -123,7 +107,7 @@ export default function EtiquetasPage() {
     }
   }
 
-  const ready = csv && pdf;
+  const ready = !!file;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -140,8 +124,8 @@ export default function EtiquetasPage() {
           <a href="/"><i className="fas fa-house" /> Inicio</a>
           <a href="/orders"><i className="fas fa-receipt" /> Pedidos</a>
           <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
-          <a href="/etiquetas" className="active"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
-          <a href="/etiquetas-ml"><i className="fas fa-barcode" /> Etiquetas ML (ZPL → PDF)</a>
+          <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
+          <a href="/etiquetas-ml" className="active"><i className="fas fa-barcode" /> Etiquetas ML (ZPL → PDF)</a>
           <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
           <a href="/stock"><i className="fas fa-warehouse" /> Stock de Productos</a>
         </nav>
@@ -166,35 +150,28 @@ export default function EtiquetasPage() {
         <div className="sf-container">
 
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>
-            Agregar SKU a Etiquetas
+            Etiquetas ML (ZPL → PDF)
           </h1>
           <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
-            Agregá el SKU de cada pedido al pie del PDF de etiquetas de Andreani.
+            Convertí el ZIP o TXT de etiquetas ZPL de Mercado Libre a un PDF listo para tu impresora térmica.
           </p>
 
           {/* ── PASO 1 ─────────────────────────────────────────── */}
           <div className="sf-section-title">
             <div className="sf-step-badge pending">1</div>
             <div>
-              <h2>Subir archivos</h2>
-              <p>ventas.csv de Tienda Nube y el PDF de paquetes de Andreani</p>
+              <h2>Subir archivo</h2>
+              <p>ZIP o TXT con las etiquetas ZPL exportadas de Mercado Libre</p>
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+          <div style={{ marginBottom: "1.5rem" }}>
             <DropZone
-              label="ventas.csv"
-              accept=".csv,text/csv"
-              icon="fas fa-file-csv"
-              value={csv}
-              onChange={setCsv}
-            />
-            <DropZone
-              label="PDF de paquetes (Andreani)"
-              accept=".pdf,application/pdf"
-              icon="fas fa-file-pdf"
-              value={pdf}
-              onChange={setPdf}
+              label="Etiquetas ML (.zip o .txt)"
+              accept=".zip,.txt,application/zip,text/plain"
+              icon="fas fa-file-zipper"
+              value={file}
+              onChange={setFile}
             />
           </div>
 
@@ -207,8 +184,8 @@ export default function EtiquetasPage() {
               }
             </div>
             <div>
-              <h2>Generar etiquetas con SKU</h2>
-              <p>Se descargará el PDF con el SKU al pie de cada etiqueta</p>
+              <h2>Generar PDF</h2>
+              <p>Se descargará un PDF de 4×6&quot; con una etiqueta por página y el SKU incluido</p>
             </div>
           </div>
 
@@ -235,7 +212,7 @@ export default function EtiquetasPage() {
             {loading ? (
               <><i className="fas fa-spinner fa-spin" /> Procesando...</>
             ) : (
-              <><i className="fas fa-tags" /> Generar PDF con SKU</>
+              <><i className="fas fa-barcode" /> Convertir a PDF</>
             )}
           </button>
 

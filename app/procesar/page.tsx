@@ -190,6 +190,7 @@ export default function ProcesarPage() {
           <a href="/orders"><i className="fas fa-receipt" /> Pedidos</a>
           <a href="/procesar" className="active"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
           <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
+          <a href="/etiquetas-ml"><i className="fas fa-barcode" /> Etiquetas ML (ZPL → PDF)</a>
           <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
           <a href="/stock"><i className="fas fa-warehouse" /> Stock de Productos</a>
         </nav>
