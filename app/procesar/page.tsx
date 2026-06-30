@@ -114,21 +114,20 @@ export default function ProcesarPage() {
 
     // Descontar stock: se incluyen TODOS los pedidos — válidos + con errores.
     // Los pedidos con errores se cargan manualmente en Andreani pero igual consumen stock.
+    // Cada línea va con su numeroOrden para que el backend no la descuente
+    // dos veces si se vuelve a exportar el mismo CSV.
     try {
       // Números de orden de error para lookup explícito
       const errorNums = new Set(snap.errores.map(e => e.numeroOrden));
 
-      const deduccionMap = new Map<string, { nombre: string; cantidad: number }>();
+      const total  = snap.domicilio.length + snap.sucursal.length + snap.errores.length;
+      const motivo = `Exportación ${new Date().toLocaleDateString("es-AR")} (${total} pedidos${snap.errores.length > 0 ? `, ${snap.errores.length} manuales` : ""})`;
 
+      const items: { numeroOrden: string; sku: string; nombre: string; cantidad: number; motivo: string }[] = [];
       for (const order of snap.groupedOrders) {
         for (const prod of order.productos ?? []) {
           if (!prod.sku) continue;
-          const entry = deduccionMap.get(prod.sku);
-          if (entry) {
-            entry.cantidad += prod.cantidad;
-          } else {
-            deduccionMap.set(prod.sku, { nombre: prod.nombre, cantidad: prod.cantidad });
-          }
+          items.push({ numeroOrden: order.numeroOrden, sku: prod.sku, nombre: prod.nombre, cantidad: prod.cantidad, motivo });
         }
       }
 
@@ -140,10 +139,7 @@ export default function ProcesarPage() {
         if (faltantes.length) console.warn("Pedidos con error sin datos de producto:", faltantes);
       }
 
-      if (deduccionMap.size > 0) {
-        const total  = snap.domicilio.length + snap.sucursal.length + snap.errores.length;
-        const motivo = `Exportación ${new Date().toLocaleDateString("es-AR")} (${total} pedidos${snap.errores.length > 0 ? `, ${snap.errores.length} manuales` : ""})`;
-        const items  = Array.from(deduccionMap.entries()).map(([sku, v]) => ({ sku, nombre: v.nombre, cantidad: v.cantidad, motivo }));
+      if (items.length > 0) {
         const r = await fetch("/api/stock/deducir", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

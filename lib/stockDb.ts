@@ -27,10 +27,17 @@ export interface DeducirItem {
   nombre: string;
   cantidad: number;
   motivo: string;
+  // Identificador del pedido de origen, para evitar descontar dos veces
+  // el mismo pedido si se reexporta el mismo CSV. Opcional: si se omite,
+  // el item se procesa siempre (comportamiento legado, sin idempotencia).
+  numeroOrden?: string;
 }
 
 export interface DeducirResult {
   insuficiente: { sku: string; nombre: string; disponible: number; solicitado: number }[];
+  // Cantidad de líneas que ya habían sido descontadas antes (mismo pedido + SKU)
+  // y por lo tanto se omitieron en esta corrida.
+  omitidos: number;
 }
 
 // ─── Init + migración ────────────────────────────────────────────────────────
@@ -94,6 +101,18 @@ export async function initStockTables(): Promise<void> {
       component_sku TEXT    NOT NULL,
       cantidad      INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY (store_id, kit_sku, component_sku)
+    )
+  `;
+
+  // Registro de líneas de pedido ya descontadas, para que reexportar el
+  // mismo CSV no vuelva a restar el mismo pedido del stock.
+  await sql`
+    CREATE TABLE IF NOT EXISTS pedidos_procesados (
+      store_id     TEXT NOT NULL,
+      numero_orden TEXT NOT NULL,
+      sku          TEXT NOT NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (store_id, numero_orden, sku)
     )
   `;
 }
@@ -183,16 +202,42 @@ export async function deducirStock(
   storeId: string,
   items: DeducirItem[],
 ): Promise<DeducirResult> {
-  if (!items.length) return { insuficiente: [] };
+  if (!items.length) return { insuficiente: [], omitidos: 0 };
 
   const sql = getDb();
+
+  // 0. Idempotencia: reclamar atómicamente cada línea (pedido + SKU).
+  //    Si ya fue procesada antes (reexportación del mismo CSV), se omite.
+  const withOrden   = items.filter((i): i is DeducirItem & { numeroOrden: string } => !!i.numeroOrden);
+  const withoutOrden = items.filter((i) => !i.numeroOrden);
+
+  let claimed: DeducirItem[] = [...withoutOrden];
+  let omitidos = 0;
+
+  if (withOrden.length > 0) {
+    const numerosOrden = withOrden.map((i) => i.numeroOrden);
+    const skus         = withOrden.map((i) => i.sku);
+    const claimedRows = await sql`
+      INSERT INTO pedidos_procesados (store_id, numero_orden, sku)
+      SELECT ${storeId}, * FROM UNNEST(${numerosOrden}::text[], ${skus}::text[]) AS t(numero_orden, sku)
+      ON CONFLICT (store_id, numero_orden, sku) DO NOTHING
+      RETURNING numero_orden, sku
+    ` as { numero_orden: string; sku: string }[];
+
+    const claimedKeys = new Set(claimedRows.map((r) => `${r.numero_orden}::${r.sku}`));
+    const claimedFromOrden = withOrden.filter((i) => claimedKeys.has(`${i.numeroOrden}::${i.sku}`));
+    omitidos = withOrden.length - claimedFromOrden.length;
+    claimed  = [...claimed, ...claimedFromOrden];
+  }
+
+  if (!claimed.length) return { insuficiente: [], omitidos };
 
   // 1. Obtener mapa de kits de la tienda
   const kitMap = await getAllKits(storeId);
 
   // 2. Expandir items: si un SKU es un kit, reemplazarlo por sus componentes
   const expanded = new Map<string, { nombre: string; cantidad: number }>();
-  for (const item of items) {
+  for (const item of claimed) {
     const components = kitMap[item.sku];
     if (components && components.length > 0) {
       // Es un kit → descontar componentes
@@ -228,7 +273,7 @@ export async function deducirStock(
   }
 
   // 4. Descontar (permite stock negativo, solo avisa)
-  const motivo = items[0]?.motivo ?? "Exportación";
+  const motivo = claimed[0]?.motivo ?? "Exportación";
   for (const [sku, v] of expanded) {
     await sql`
       INSERT INTO stock (store_id, sku, nombre, cantidad, updated_at)
@@ -246,7 +291,7 @@ export async function deducirStock(
     `;
   }
 
-  return { insuficiente };
+  return { insuficiente, omitidos };
 }
 
 // ─── Ajuste manual ────────────────────────────────────────────────────────────
