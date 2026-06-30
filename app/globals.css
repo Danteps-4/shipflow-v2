@@ -139,6 +139,15 @@ body {
   font-size: 0.95rem;
 }
 
+.sf-nav-group-label {
+  padding: 1.1rem 1.5rem 0.35rem 1.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
 .sf-nav a:hover,
 .sf-nav a.active {
   background-color: rgba(59, 130, 246, 0.1);

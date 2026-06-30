@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
+import Sidebar from "@/components/Sidebar";
 
 type FileState = { file: File; name: string } | null;
 
@@ -113,25 +114,7 @@ export default function EtiquetasMlPage() {
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
 
       {/* ── SIDEBAR ──────────────────────────────────────────────── */}
-      <div className={`sf-sidebar ${sidebarOpen ? "open" : ""}`}>
-        <div className="sf-sidebar-header">
-          <h3>Menú</h3>
-          <button className="sf-close-btn" onClick={() => setSidebarOpen(false)}>
-            <i className="fas fa-times" />
-          </button>
-        </div>
-        <nav className="sf-nav">
-          <a href="/"><i className="fas fa-house" /> Inicio</a>
-          <a href="/orders"><i className="fas fa-receipt" /> Pedidos</a>
-          <a href="/procesar"><i className="fas fa-file-excel" /> Procesar Pedidos</a>
-          <a href="/etiquetas"><i className="fas fa-tags" /> Agregar SKU a Etiquetas</a>
-          <a href="/etiquetas-ml" className="active"><i className="fas fa-barcode" /> Etiquetas ML (ZPL → PDF)</a>
-          <a href="/tracking"><i className="fas fa-truck" /> Subir Tracking</a>
-          <a href="/stock"><i className="fas fa-warehouse" /> Stock de Productos</a>
-        </nav>
-      </div>
-
-      <div className={`sf-overlay ${sidebarOpen ? "open" : ""}`} onClick={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* ── HEADER ───────────────────────────────────────────────── */}
       <header className="sf-header">
