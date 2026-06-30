@@ -17,15 +17,19 @@ import json
 import base64
 import re
 import io
+import time
 import zipfile
 import urllib.request
+import urllib.error
 
 from reportlab.lib.pagesizes import inch
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-LABELARY_URL = "http://api.labelary.com/v1/printers/8dpmm/labels/4.0x6.0/0/"
+LABELARY_URL = "https://api.labelary.com/v1/printers/8dpmm/labels/4.0x6.0/0/"
 LABEL_W_IN, LABEL_H_IN = 4.0, 6.0
+RENDER_DELAY_S = 0.3       # pausa entre etiquetas para no superar el rate limit
+MAX_RETRIES = 5
 
 
 def extract_zpl(file_bytes: bytes, filename: str) -> str:
@@ -74,8 +78,17 @@ def render_zpl_to_png(zpl: str) -> bytes:
         headers={"Accept": "image/png", "Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        return resp.read()
+    delay = 1.0
+    for attempt in range(MAX_RETRIES):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < MAX_RETRIES - 1:
+                time.sleep(delay)
+                delay *= 2
+                continue
+            raise
 
 
 def build_pdf(png_images: list) -> bytes:
@@ -105,7 +118,9 @@ def main():
         sys.exit(1)
 
     png_images = []
-    for zpl in labels:
+    for i, zpl in enumerate(labels):
+        if i > 0:
+            time.sleep(RENDER_DELAY_S)
         sku = extract_sku(zpl)
         zpl_final = inject_sku(strip_troquel(zpl), sku)
         png_images.append(render_zpl_to_png(zpl_final))
