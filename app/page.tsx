@@ -47,6 +47,14 @@ const TOOL_GROUPS = [
     label: "Mercado Libre",
     tools: [
       {
+        href: "/mercadolibre",
+        icon: "fas fa-plug",
+        color: "#fff159",
+        title: "Conectar Mercado Libre",
+        description: "Vinculá tu cuenta de vendedor para que cada venta paga descuente stock automáticamente, en tiempo real, junto con Tienda Nube.",
+        tags: ["OAuth", "Webhooks", "Stock en tiempo real"],
+      },
+      {
         href: "/etiquetas-ml",
         icon: "fas fa-barcode",
         color: "#fff159",

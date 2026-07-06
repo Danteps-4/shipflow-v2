@@ -9,11 +9,14 @@ export interface StockItem {
   updated_at: string;
 }
 
+export type Canal = "tiendanube" | "mercadolibre";
+
 export interface Movimiento {
   id: number;
   sku: string;
   cantidad: number;
   motivo: string;
+  canal: Canal;
   created_at: string;
 }
 
@@ -91,6 +94,9 @@ export async function initStockTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS movimientos_store_created
     ON movimientos (store_id, created_at DESC)
   `;
+  await sql`
+    ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS canal TEXT NOT NULL DEFAULT 'tiendanube'
+  `;
 
   // Definición de kits/bundles
   // kit_sku → lista de (component_sku, cantidad)
@@ -105,15 +111,34 @@ export async function initStockTables(): Promise<void> {
   `;
 
   // Registro de líneas de pedido ya descontadas, para que reexportar el
-  // mismo CSV no vuelva a restar el mismo pedido del stock.
+  // mismo CSV (o reintentar el mismo webhook) no vuelva a restar el
+  // mismo pedido del stock. "canal" distingue Tienda Nube de Mercado
+  // Libre, ya que sus números de orden no comparten numeración.
   await sql`
     CREATE TABLE IF NOT EXISTS pedidos_procesados (
       store_id     TEXT NOT NULL,
       numero_orden TEXT NOT NULL,
       sku          TEXT NOT NULL,
+      canal        TEXT NOT NULL DEFAULT 'tiendanube',
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (store_id, numero_orden, sku)
+      PRIMARY KEY (store_id, canal, numero_orden, sku)
     )
+  `;
+
+  // Migración: si la tabla ya existía con la PK vieja (sin canal), agregar
+  // la columna y recrear la constraint con canal incluido.
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'pedidos_procesados' AND column_name = 'canal'
+      ) THEN
+        ALTER TABLE pedidos_procesados ADD COLUMN canal TEXT NOT NULL DEFAULT 'tiendanube';
+        ALTER TABLE pedidos_procesados DROP CONSTRAINT IF EXISTS pedidos_procesados_pkey;
+        ALTER TABLE pedidos_procesados ADD PRIMARY KEY (store_id, canal, numero_orden, sku);
+      END IF;
+    END $$
   `;
 }
 
@@ -201,13 +226,15 @@ export async function deleteKit(storeId: string, kitSku: string): Promise<void> 
 export async function deducirStock(
   storeId: string,
   items: DeducirItem[],
+  canal: Canal = "tiendanube",
 ): Promise<DeducirResult> {
   if (!items.length) return { insuficiente: [], omitidos: 0 };
 
   const sql = getDb();
 
-  // 0. Idempotencia: reclamar atómicamente cada línea (pedido + SKU).
-  //    Si ya fue procesada antes (reexportación del mismo CSV), se omite.
+  // 0. Idempotencia: reclamar atómicamente cada línea (canal + pedido + SKU).
+  //    Si ya fue procesada antes (reexportación del mismo CSV, o reintento
+  //    del mismo webhook), se omite.
   const withOrden   = items.filter((i): i is DeducirItem & { numeroOrden: string } => !!i.numeroOrden);
   const withoutOrden = items.filter((i) => !i.numeroOrden);
 
@@ -218,9 +245,9 @@ export async function deducirStock(
     const numerosOrden = withOrden.map((i) => i.numeroOrden);
     const skus         = withOrden.map((i) => i.sku);
     const claimedRows = await sql`
-      INSERT INTO pedidos_procesados (store_id, numero_orden, sku)
-      SELECT ${storeId}, * FROM UNNEST(${numerosOrden}::text[], ${skus}::text[]) AS t(numero_orden, sku)
-      ON CONFLICT (store_id, numero_orden, sku) DO NOTHING
+      INSERT INTO pedidos_procesados (store_id, canal, numero_orden, sku)
+      SELECT ${storeId}, ${canal}, * FROM UNNEST(${numerosOrden}::text[], ${skus}::text[]) AS t(numero_orden, sku)
+      ON CONFLICT (store_id, canal, numero_orden, sku) DO NOTHING
       RETURNING numero_orden, sku
     ` as { numero_orden: string; sku: string }[];
 
@@ -286,8 +313,8 @@ export async function deducirStock(
       WHERE store_id = ${storeId} AND sku = ${sku}
     `;
     await sql`
-      INSERT INTO movimientos (store_id, sku, cantidad, motivo, created_at)
-      VALUES (${storeId}, ${sku}, ${-v.cantidad}, ${motivo}, NOW())
+      INSERT INTO movimientos (store_id, sku, cantidad, motivo, canal, created_at)
+      VALUES (${storeId}, ${sku}, ${-v.cantidad}, ${motivo}, ${canal}, NOW())
     `;
   }
 
@@ -317,7 +344,7 @@ export async function ajustarStock(
 export async function getMovimientos(storeId: string, limit = 200): Promise<Movimiento[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT id, sku, cantidad, motivo, created_at
+    SELECT id, sku, cantidad, motivo, canal, created_at
     FROM movimientos
     WHERE store_id = ${storeId}
     ORDER BY created_at DESC

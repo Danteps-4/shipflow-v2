@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addStore } from "@/lib/tnStores";
 import { getSessionUserId } from "@/lib/getSessionUser";
+import { initMlTables, upsertTnConexion } from "@/lib/mlDb";
+import { registerTnWebhook } from "@/lib/tnWebhooks";
 
 export const runtime = "nodejs";
 
@@ -48,6 +50,16 @@ export async function GET(req: NextRequest) {
 
   addStore(sfUserId, { access_token, user_id, store_name, connected_at: new Date().toISOString() });
   console.log("[callback] store saved for sfUserId:", sfUserId, "tn user_id:", user_id);
+
+  // Índice inverso store_id → access_token, para que los webhooks de TN
+  // (que llegan sin sesión de navegador) puedan resolver credenciales.
+  try {
+    await initMlTables();
+    await upsertTnConexion(String(user_id), access_token, store_name);
+    await registerTnWebhook(user_id, access_token);
+  } catch (e) {
+    console.error("[callback] error guardando tn_conexiones / webhook:", e);
+  }
 
   // Use TN_REDIRECT_URI to derive the public base URL (avoids Railway's internal localhost:8080)
   const base = process.env.TN_REDIRECT_URI

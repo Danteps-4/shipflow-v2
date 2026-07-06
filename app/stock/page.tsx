@@ -17,8 +17,14 @@ interface Movimiento {
   sku: string;
   cantidad: number;
   motivo: string;
+  canal: "tiendanube" | "mercadolibre";
   created_at: string;
 }
+
+const CANAL_LABEL: Record<Movimiento["canal"], { label: string; color: string }> = {
+  tiendanube:    { label: "Tienda Nube",   color: "#3b82f6" },
+  mercadolibre:  { label: "Mercado Libre", color: "#fff159" },
+};
 
 interface KitComponent {
   component_sku: string;
@@ -518,24 +524,37 @@ export default function StockPage() {
                     <thead>
                       <tr>
                         <th>Fecha</th>
+                        <th>Canal</th>
                         <th>SKU</th>
                         <th style={{ textAlign: "right" }}>Cantidad</th>
                         <th>Motivo</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {movimientos.map((m, i) => (
-                        <tr key={m.id} className={i % 2 === 0 ? "row-even" : "row-odd"}>
-                          <td style={{ fontSize: "0.8rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtDate(m.created_at)}</td>
-                          <td><span style={{ fontFamily: "monospace", fontWeight: 600 }}>{m.sku}</span></td>
-                          <td style={{ textAlign: "right" }}>
-                            <span style={{ fontWeight: 700, color: m.cantidad >= 0 ? "var(--success-color)" : "var(--error-color)" }}>
-                              {m.cantidad > 0 ? `+${m.cantidad}` : m.cantidad}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: "0.83rem", color: "var(--text-muted)" }}>{m.motivo}</td>
-                        </tr>
-                      ))}
+                      {movimientos.map((m, i) => {
+                        const canal = CANAL_LABEL[m.canal] ?? CANAL_LABEL.tiendanube;
+                        return (
+                          <tr key={m.id} className={i % 2 === 0 ? "row-even" : "row-odd"}>
+                            <td style={{ fontSize: "0.8rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtDate(m.created_at)}</td>
+                            <td>
+                              <span style={{
+                                fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem",
+                                borderRadius: "999px", color: "#000", background: canal.color,
+                                whiteSpace: "nowrap",
+                              }}>
+                                {canal.label}
+                              </span>
+                            </td>
+                            <td><span style={{ fontFamily: "monospace", fontWeight: 600 }}>{m.sku}</span></td>
+                            <td style={{ textAlign: "right" }}>
+                              <span style={{ fontWeight: 700, color: m.cantidad >= 0 ? "var(--success-color)" : "var(--error-color)" }}>
+                                {m.cantidad > 0 ? `+${m.cantidad}` : m.cantidad}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: "0.83rem", color: "var(--text-muted)" }}>{m.motivo}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
