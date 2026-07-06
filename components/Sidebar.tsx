@@ -21,6 +21,7 @@ const GROUPS: NavGroup[] = [
     label: "Mercado Libre",
     links: [
       { href: "/mercadolibre", icon: "fas fa-plug", label: "Conectar Mercado Libre" },
+      { href: "/mercadolibre/pedidos", icon: "fas fa-receipt", label: "Pedidos ML" },
       { href: "/etiquetas-ml", icon: "fas fa-barcode", label: "Etiquetas ML (ZPL → PDF)" },
     ],
   },

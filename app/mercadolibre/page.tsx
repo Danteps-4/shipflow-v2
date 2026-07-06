@@ -110,6 +110,10 @@ export default function MercadoLibrePage() {
                 <span>Conectado como <strong>{status.nickname}</strong>. Las ventas pagas descuentan stock automáticamente.</span>
               </div>
 
+              <a href="/mercadolibre/pedidos" className="sf-btn sf-btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", marginBottom: "1.5rem" }}>
+                <i className="fas fa-receipt" /> Ver pedidos de Mercado Libre
+              </a>
+
               <div className="sf-section-title">
                 <div className="sf-step-badge"><i className="fas fa-rotate" style={{ fontSize: "0.65rem" }} /></div>
                 <div>

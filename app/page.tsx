@@ -55,6 +55,14 @@ const TOOL_GROUPS = [
         tags: ["OAuth", "Webhooks", "Stock en tiempo real"],
       },
       {
+        href: "/mercadolibre/pedidos",
+        icon: "fas fa-receipt",
+        color: "#fff159",
+        title: "Pedidos de Mercado Libre",
+        description: "Consultá en tiempo real las ventas de tu cuenta de Mercado Libre: comprador, productos, total y estado de cada pedido.",
+        tags: ["Tiempo real", "Filtros", "Mercado Libre"],
+      },
+      {
         href: "/etiquetas-ml",
         icon: "fas fa-barcode",
         color: "#fff159",

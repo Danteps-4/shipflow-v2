@@ -5,6 +5,7 @@ const ML_API = "https://api.mercadolibre.com";
 
 export interface MlOrderItem {
   quantity: number;
+  unit_price?: number;
   item: {
     id: string;
     title: string;
@@ -16,6 +17,10 @@ export interface MlOrderItem {
 export interface MlOrder {
   id: number;
   status: string;
+  date_created?: string;
+  total_amount?: number;
+  currency_id?: string;
+  buyer?: { nickname?: string; first_name?: string; last_name?: string };
   order_items: MlOrderItem[];
 }
 
