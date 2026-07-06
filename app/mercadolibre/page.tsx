@@ -35,8 +35,15 @@ export default function MercadoLibrePage() {
 
   async function handleDisconnect() {
     if (!confirm("¿Desconectar la cuenta de Mercado Libre? Dejará de descontarse stock automáticamente por ventas de ML.")) return;
-    await fetch("/api/mercadolibre/disconnect", { method: "POST" });
-    setStatus({ connected: false });
+    setError(null);
+    try {
+      const res = await fetch("/api/mercadolibre/disconnect", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? `Error del servidor (HTTP ${res.status})`);
+      setStatus({ connected: false });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Error desconocido al desconectar");
+    }
   }
 
   async function handleSync() {
