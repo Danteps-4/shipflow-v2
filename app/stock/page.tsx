@@ -9,6 +9,7 @@ interface StockItem {
   sku: string;
   nombre: string;
   cantidad: number;
+  destacado: boolean;
   updated_at: string;
 }
 
@@ -138,6 +139,15 @@ export default function StockPage() {
     }
   }
 
+  async function handleToggleDestacado(item: StockItem) {
+    setItems(prev => prev.map(i => i.sku === item.sku ? { ...i, destacado: !i.destacado } : i));
+    await fetch("/api/stock", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sku: item.sku, destacado: !item.destacado }),
+    });
+  }
+
   async function handleDelete(sku: string) {
     if (!confirm(`¿Eliminar "${sku}" del stock?`)) return;
     await fetch(`/api/stock?sku=${encodeURIComponent(sku)}`, { method: "DELETE" });
@@ -258,6 +268,7 @@ export default function StockPage() {
   const totalUnidades = items.reduce((s, i) => s + i.cantidad, 0);
   const sinStock      = items.filter(i => i.cantidad <= 0).length;
   const totalKits     = Object.keys(kits).length;
+  const destacados    = items.filter(i => i.destacado);
 
   function fmtDate(iso: string) {
     return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -290,6 +301,25 @@ export default function StockPage() {
           <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
             Stock por tienda. Se descuenta automáticamente al exportar pedidos. Los kits descontán sus componentes.
           </p>
+
+          {/* Destacados: SKUs marcados con la estrella, para ver de un vistazo
+              la cantidad disponible de los productos que más importa vigilar. */}
+          {!loading && !error && destacados.length > 0 && (
+            <div style={{
+              display: "grid", gridTemplateColumns: `repeat(${Math.min(destacados.length, 4)}, 1fr)`,
+              gap: "0.75rem", marginBottom: "1rem",
+            }}>
+              {destacados.map(item => (
+                <StatCard
+                  key={item.sku}
+                  value={item.cantidad}
+                  label={item.sku}
+                  icon="fas fa-star"
+                  color={item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)"}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Tarjetas */}
           {!loading && !error && (
@@ -419,6 +449,14 @@ export default function StockPage() {
                               <td style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(item.updated_at)}</td>
                               <td>
                                 <div style={{ display: "flex", gap: "0.35rem", whiteSpace: "nowrap" }}>
+                                  <button
+                                    className="sf-btn-edit"
+                                    onClick={() => handleToggleDestacado(item)}
+                                    title={item.destacado ? "Quitar de destacados" : "Marcar como destacado"}
+                                    style={{ color: item.destacado ? "#f59e0b" : undefined }}
+                                  >
+                                    <i className={item.destacado ? "fas fa-star" : "far fa-star"} />
+                                  </button>
                                   <button
                                     className="sf-btn-edit"
                                     onClick={() => { setAjusteModal({ sku: item.sku, nombre: item.nombre }); setAjusteDelta(""); setAjusteMotivo(""); }}

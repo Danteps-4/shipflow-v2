@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initStockTables, getStock, upsertStockItem, deleteStockItem } from "@/lib/stockDb";
+import { initStockTables, getStock, upsertStockItem, deleteStockItem, setDestacado } from "@/lib/stockDb";
 
 export const runtime = "nodejs";
 
@@ -33,6 +33,20 @@ export async function POST(req: NextRequest) {
 
   await initStockTables();
   await upsertStockItem(storeId, String(sku).trim().toUpperCase(), String(nombre ?? "").trim(), cantidad);
+  return NextResponse.json({ ok: true });
+}
+
+export async function PATCH(req: NextRequest) {
+  const storeId = await getStoreId(req);
+  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+
+  const { sku, destacado } = await req.json();
+  if (!sku || typeof destacado !== "boolean") {
+    return NextResponse.json({ error: "Faltan campos: sku, destacado" }, { status: 400 });
+  }
+
+  await initStockTables();
+  await setDestacado(storeId, String(sku), destacado);
   return NextResponse.json({ ok: true });
 }
 

@@ -6,6 +6,7 @@ export interface StockItem {
   sku: string;
   nombre: string;
   cantidad: number;
+  destacado: boolean;
   updated_at: string;
 }
 
@@ -78,6 +79,9 @@ export async function initStockTables(): Promise<void> {
       PRIMARY KEY (store_id, sku)
     )
   `;
+  await sql`
+    ALTER TABLE stock ADD COLUMN IF NOT EXISTS destacado BOOLEAN NOT NULL DEFAULT false
+  `;
 
   // Historial de movimientos
   await sql`
@@ -147,12 +151,20 @@ export async function initStockTables(): Promise<void> {
 export async function getStock(storeId: string): Promise<StockItem[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT sku, nombre, cantidad, updated_at
+    SELECT sku, nombre, cantidad, destacado, updated_at
     FROM stock
     WHERE store_id = ${storeId}
     ORDER BY sku
   `;
   return rows as StockItem[];
+}
+
+export async function setDestacado(storeId: string, sku: string, destacado: boolean): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE stock SET destacado = ${destacado}
+    WHERE store_id = ${storeId} AND sku = ${sku}
+  `;
 }
 
 export async function upsertStockItem(
