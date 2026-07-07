@@ -28,7 +28,6 @@ export default function ProcesarPage() {
   const [parseWarning, setParseWarning] = useState<string | null>(null);
   const [editingOrder, setEditingOrder] = useState<{ order: GroupedOrder; error: ValidationError } | null>(null);
   const [exportSummary, setExportSummary] = useState<{ domicilio: number; sucursal: number } | null>(null);
-  const [stockInsuficiente, setStockInsuficiente] = useState<{ sku: string; nombre: string; disponible: number; solicitado: number }[]>([]);
   const [showPicker, setShowPicker]       = useState(false);
   const [tnConnected, setTnConnected]     = useState<boolean>(false);
 
@@ -108,49 +107,11 @@ export default function ProcesarPage() {
     // Snapshot para evitar closures stale después de awaits
     const snap = result;
 
-    // Descargar Excel (solo pedidos válidos)
+    // Descargar Excel (solo pedidos válidos). El stock ya se descuenta
+    // automáticamente por webhook cuando se paga el pedido (TN y ML),
+    // así que exportar acá no vuelve a tocarlo.
     await exportAndreaniWorkbook(snap.domicilio, snap.sucursal);
     setExportSummary({ domicilio: snap.domicilio.length, sucursal: snap.sucursal.length });
-
-    // Descontar stock: se incluyen TODOS los pedidos — válidos + con errores.
-    // Los pedidos con errores se cargan manualmente en Andreani pero igual consumen stock.
-    // Cada línea va con su numeroOrden para que el backend no la descuente
-    // dos veces si se vuelve a exportar el mismo CSV.
-    try {
-      // Números de orden de error para lookup explícito
-      const errorNums = new Set(snap.errores.map(e => e.numeroOrden));
-
-      const total  = snap.domicilio.length + snap.sucursal.length + snap.errores.length;
-      const motivo = `Exportación ${new Date().toLocaleDateString("es-AR")} (${total} pedidos${snap.errores.length > 0 ? `, ${snap.errores.length} manuales` : ""})`;
-
-      const items: { numeroOrden: string; sku: string; nombre: string; cantidad: number; motivo: string }[] = [];
-      for (const order of snap.groupedOrders) {
-        for (const prod of order.productos ?? []) {
-          if (!prod.sku) continue;
-          items.push({ numeroOrden: order.numeroOrden, sku: prod.sku, nombre: prod.nombre, cantidad: prod.cantidad, motivo });
-        }
-      }
-
-      // Fallback: si algún pedido con error no estaba en groupedOrders, no hay productos
-      // disponibles sin SKU — se loguea para diagnóstico
-      if (process.env.NODE_ENV !== "production") {
-        const cubiertos = new Set(snap.groupedOrders.map(o => o.numeroOrden));
-        const faltantes = [...errorNums].filter(n => !cubiertos.has(n));
-        if (faltantes.length) console.warn("Pedidos con error sin datos de producto:", faltantes);
-      }
-
-      if (items.length > 0) {
-        const r = await fetch("/api/stock/deducir", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ items }),
-        });
-        if (r.ok) {
-          const { insuficiente } = await r.json();
-          setStockInsuficiente(insuficiente ?? []);
-        }
-      }
-    } catch { /* silencioso — stock es best-effort */ }
   }
 
   function handleSaveOrder(updated: GroupedOrder) {
@@ -357,8 +318,7 @@ export default function ProcesarPage() {
           exportedDomicilio={exportSummary.domicilio}
           exportedSucursal={exportSummary.sucursal}
           omitidos={result.errores}
-          stockInsuficiente={stockInsuficiente}
-          onClose={() => { setExportSummary(null); setStockInsuficiente([]); }}
+          onClose={() => setExportSummary(null)}
         />
       )}
 
