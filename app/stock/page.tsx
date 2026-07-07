@@ -260,13 +260,25 @@ export default function StockPage() {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
+  // Para un kit, lo "disponible" no es su propio contador (que ya no se
+  // toca al vender) sino cuántas unidades se pueden armar con el stock
+  // actual de sus componentes: el mínimo de cantidad_componente / receta.
+  function getDisponible(item: StockItem): number {
+    const comps = kits[item.sku];
+    if (!comps || comps.length === 0) return item.cantidad;
+    return Math.min(...comps.map(c => {
+      const compItem = items.find(i => i.sku === c.component_sku);
+      return Math.floor((compItem?.cantidad ?? 0) / c.cantidad);
+    }));
+  }
+
   const filtered = items.filter(
     i => i.sku.toLowerCase().includes(search.toLowerCase()) ||
          i.nombre.toLowerCase().includes(search.toLowerCase())
   );
 
-  const totalUnidades = items.reduce((s, i) => s + i.cantidad, 0);
-  const sinStock      = items.filter(i => i.cantidad <= 0).length;
+  const totalUnidades = items.reduce((s, i) => s + (kits[i.sku] ? 0 : i.cantidad), 0);
+  const sinStock      = items.filter(i => getDisponible(i) <= 0).length;
   const totalKits     = Object.keys(kits).length;
   const destacados    = items.filter(i => i.destacado);
 
@@ -318,7 +330,7 @@ export default function StockPage() {
                 gap: "1rem",
               }}>
                 {destacados.map(item => (
-                  <DestacadoCard key={item.sku} item={item} onToggle={() => handleToggleDestacado(item)} />
+                  <DestacadoCard key={item.sku} item={item} disponible={getDisponible(item)} onToggle={() => handleToggleDestacado(item)} />
                 ))}
               </div>
             </div>
@@ -415,8 +427,9 @@ export default function StockPage() {
                     </thead>
                     <tbody>
                       {filtered.map((item, i) => {
-                        const esKit    = !!kits[item.sku];
-                        const comps    = kits[item.sku] ?? [];
+                        const esKit     = !!kits[item.sku];
+                        const comps     = kits[item.sku] ?? [];
+                        const disponible = getDisponible(item);
                         return (
                           <>
                             <tr key={item.sku} className={i % 2 === 0 ? "row-even" : "row-odd"}>
@@ -434,19 +447,19 @@ export default function StockPage() {
                               <td style={{ textAlign: "right" }}>
                                 <span style={{
                                   fontWeight: 700,
-                                  color: item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)",
+                                  color: disponible <= 0 ? "var(--error-color)" : disponible <= 5 ? "#f59e0b" : "var(--success-color)",
                                   fontSize: "1rem",
                                 }}>
-                                  {item.cantidad}
+                                  {disponible}
                                 </span>
-                                {item.cantidad <= 0 && (
+                                {disponible <= 0 && (
                                   <span className="sf-badge sf-badge-error" style={{ marginLeft: "0.4rem", fontSize: "0.6rem" }}>Sin stock</span>
                                 )}
-                                {item.cantidad > 0 && item.cantidad <= 5 && (
+                                {disponible > 0 && disponible <= 5 && (
                                   <span className="sf-badge" style={{ marginLeft: "0.4rem", fontSize: "0.6rem", background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Poco</span>
                                 )}
                                 {esKit && (
-                                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontStyle: "italic", marginTop: "0.1rem" }}>ver componentes ↓</div>
+                                  <div style={{ fontSize: "0.65rem", color: "var(--text-muted)", fontStyle: "italic", marginTop: "0.1rem" }}>se arma con ↓</div>
                                 )}
                               </td>
                               <td style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(item.updated_at)}</td>
@@ -842,8 +855,8 @@ export default function StockPage() {
   );
 }
 
-function DestacadoCard({ item, onToggle }: { item: StockItem; onToggle: () => void }) {
-  const color = item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)";
+function DestacadoCard({ item, disponible, onToggle }: { item: StockItem; disponible: number; onToggle: () => void }) {
+  const color = disponible <= 0 ? "var(--error-color)" : disponible <= 5 ? "#f59e0b" : "var(--success-color)";
   return (
     <div style={{
       position: "relative",
@@ -869,7 +882,7 @@ function DestacadoCard({ item, onToggle }: { item: StockItem; onToggle: () => vo
         {item.sku}
       </div>
       <div style={{ fontSize: "2.75rem", fontWeight: 800, color, lineHeight: 1 }}>
-        {item.cantidad}
+        {disponible}
       </div>
       <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
         {item.nombre || "unidades disponibles"}
