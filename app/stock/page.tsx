@@ -305,19 +305,22 @@ export default function StockPage() {
           {/* Destacados: SKUs marcados con la estrella, para ver de un vistazo
               la cantidad disponible de los productos que más importa vigilar. */}
           {!loading && !error && destacados.length > 0 && (
-            <div style={{
-              display: "grid", gridTemplateColumns: `repeat(${Math.min(destacados.length, 4)}, 1fr)`,
-              gap: "0.75rem", marginBottom: "1rem",
-            }}>
-              {destacados.map(item => (
-                <StatCard
-                  key={item.sku}
-                  value={item.cantidad}
-                  label={item.sku}
-                  icon="fas fa-star"
-                  color={item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)"}
-                />
-              ))}
+            <div style={{ marginBottom: "1.75rem" }}>
+              <h2 style={{
+                fontSize: "0.8rem", fontWeight: 700, letterSpacing: "0.06em",
+                textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "0.75rem",
+              }}>
+                <i className="fas fa-star" style={{ color: "#f59e0b", marginRight: "0.4rem" }} />
+                Destacados
+              </h2>
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "1rem",
+              }}>
+                {destacados.map(item => (
+                  <DestacadoCard key={item.sku} item={item} onToggle={() => handleToggleDestacado(item)} />
+                ))}
+              </div>
             </div>
           )}
 
@@ -835,6 +838,42 @@ export default function StockPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function DestacadoCard({ item, onToggle }: { item: StockItem; onToggle: () => void }) {
+  const color = item.cantidad <= 0 ? "var(--error-color)" : item.cantidad <= 5 ? "#f59e0b" : "var(--success-color)";
+  return (
+    <div style={{
+      position: "relative",
+      background: "linear-gradient(160deg, rgba(245,158,11,0.10), rgba(15,23,42,0.55))",
+      border: "1px solid rgba(245,158,11,0.35)",
+      borderRadius: "calc(var(--radius) * 1.4)",
+      padding: "1.25rem 1.5rem",
+    }}>
+      <button
+        onClick={onToggle}
+        title="Quitar de destacados"
+        style={{
+          position: "absolute", top: "0.9rem", right: "0.9rem",
+          background: "none", border: "none", color: "#f59e0b", cursor: "pointer", fontSize: "1rem",
+        }}
+      >
+        <i className="fas fa-star" />
+      </button>
+      <div style={{
+        fontFamily: "monospace", fontSize: "0.8rem", fontWeight: 700,
+        color: "var(--text-muted)", letterSpacing: "0.3px", marginBottom: "0.5rem", paddingRight: "1.5rem",
+      }}>
+        {item.sku}
+      </div>
+      <div style={{ fontSize: "2.75rem", fontWeight: 800, color, lineHeight: 1 }}>
+        {item.cantidad}
+      </div>
+      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
+        {item.nombre || "unidades disponibles"}
+      </div>
     </div>
   );
 }
