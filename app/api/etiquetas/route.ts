@@ -14,28 +14,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Error al leer los archivos enviados" }, { status: 400 });
   }
 
-  const csvFile = formData.get("csv") as File | null;
-  const pdfFile = formData.get("pdf") as File | null;
+  const csvFile    = formData.get("csv")     as File   | null;
+  const pdfFile    = formData.get("pdf")     as File   | null;
+  const skuMapStr  = formData.get("sku_map") as string | null;
 
-  if (!csvFile || !pdfFile) {
-    return NextResponse.json({ error: "Falta CSV o PDF" }, { status: 400 });
+  if (!pdfFile) {
+    return NextResponse.json({ error: "Falta PDF" }, { status: 400 });
+  }
+  if (!csvFile && !skuMapStr) {
+    return NextResponse.json({ error: "Falta CSV o mapa de SKUs" }, { status: 400 });
   }
 
-  let csvBuffer: Buffer;
   let pdfBuffer: Buffer;
   try {
-    csvBuffer = Buffer.from(await csvFile.arrayBuffer());
     pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
   } catch (err) {
     console.error("[etiquetas] buffer error:", err);
     return NextResponse.json({ error: "Error al leer los archivos" }, { status: 400 });
   }
 
-  const csvB64 = csvBuffer.toString("base64");
   const pdfB64 = pdfBuffer.toString("base64");
 
+  // Build Python input: use pre-built sku_map if provided, else send CSV for server-side parsing
+  const pyInput: Record<string, unknown> = { pdf_b64: pdfB64 };
+  if (skuMapStr) {
+    pyInput.sku_map = JSON.parse(skuMapStr);
+  } else {
+    const csvBuffer = Buffer.from(await csvFile!.arrayBuffer());
+    pyInput.csv_b64 = csvBuffer.toString("base64");
+  }
+
   const scriptPath = path.join(process.cwd(), "scripts", "add_sku_to_pdf.py");
-  const inputJson  = JSON.stringify({ csv_b64: csvB64, pdf_b64: pdfB64 });
+  const inputJson  = JSON.stringify(pyInput);
 
   // Try python, then python3
   let b64Result: string | null = null;

@@ -148,10 +148,16 @@ if __name__ == "__main__":
     raw  = sys.stdin.buffer.read()
     data = json.loads(raw.decode("utf-8"))
 
-    csv_bytes = base64.b64decode(data["csv_b64"])
     pdf_bytes = base64.b64decode(data["pdf_b64"])
 
-    sku_map    = construir_mapa_skus(csv_bytes)
+    # If sku_map is provided by the client (already built/edited), use it directly.
+    # Otherwise fall back to building it from the CSV.
+    if data.get("sku_map"):
+        sku_map = data["sku_map"]
+    else:
+        csv_bytes = base64.b64decode(data["csv_b64"])
+        sku_map   = construir_mapa_skus(csv_bytes)
+
     result_pdf = process_pdf_labels(pdf_bytes, sku_map)
 
     sys.stdout.write(base64.b64encode(result_pdf).decode("utf-8"))
