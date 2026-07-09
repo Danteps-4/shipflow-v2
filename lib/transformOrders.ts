@@ -122,8 +122,14 @@ export function transformOrders(orders: GroupedOrder[]): Omit<ProcessingResult, 
   const domicilio: AndreaniDomicilio[] = [];
   const sucursal: AndreaniSucursal[] = [];
   const errores: ValidationError[] = [];
+  const retiroPresencial: GroupedOrder[] = [];
 
   for (const order of orders) {
+    if (order.retiroPresencial) {
+      retiroPresencial.push(order);
+      continue;
+    }
+
     if (esSucursal(order.medioEnvio)) {
       // --- Pedido a sucursal ---
       const camposConError = validarSucursal(order);
@@ -153,5 +159,5 @@ export function transformOrders(orders: GroupedOrder[]): Omit<ProcessingResult, 
     }
   }
 
-  return { domicilio, sucursal, errores };
+  return { domicilio, sucursal, errores, retiroPresencial };
 }

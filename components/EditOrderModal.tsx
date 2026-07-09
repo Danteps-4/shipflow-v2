@@ -83,6 +83,39 @@ export default function EditOrderModal({ order, error, onSave, onClose }: EditOr
 
         {/* Body */}
         <div className="sf-modal-body">
+
+          {/* ── Toggle retiro presencial ── */}
+          <label style={{
+            display: "flex", alignItems: "flex-start", gap: "0.75rem",
+            padding: "0.75rem 1rem", marginBottom: "1.25rem",
+            background: form.retiroPresencial ? "rgba(99,102,241,0.08)" : "var(--bg-secondary)",
+            border: `1px solid ${form.retiroPresencial ? "rgba(99,102,241,0.45)" : "var(--border-color)"}`,
+            borderRadius: "var(--radius)", cursor: "pointer", transition: "all 0.15s",
+          }}>
+            <input
+              type="checkbox"
+              checked={!!form.retiroPresencial}
+              onChange={e => setForm(prev => ({ ...prev, retiroPresencial: e.target.checked }))}
+              style={{ marginTop: "2px", width: 15, height: 15, flexShrink: 0, cursor: "pointer", accentColor: "var(--primary-color)" }}
+            />
+            <div>
+              <div style={{ fontWeight: 600, fontSize: "0.875rem" }}>
+                <i className="fas fa-store" style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
+                Retiro presencial
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                No se genera etiqueta ni se incluye en el Excel de Andreani
+              </div>
+            </div>
+          </label>
+
+          {form.retiroPresencial ? (
+            <div className="sf-alert sf-alert-ok">
+              <i className="fas fa-circle-check" style={{ flexShrink: 0 }} />
+              <span>Este pedido quedará excluido del procesamiento de Andreani. Podés desmarcarlo en cualquier momento para volver a incluirlo.</span>
+            </div>
+          ) : (
+            <>
           {/* Campos comunes */}
           <div className="sf-form-grid">
             <Field
@@ -195,6 +228,8 @@ export default function EditOrderModal({ order, error, onSave, onClose }: EditOr
                   ))}
                 </datalist>
               </div>
+            </>
+          )}
             </>
           )}
         </div>

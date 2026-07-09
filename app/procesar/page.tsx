@@ -18,7 +18,7 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
-type Tab = "domicilio" | "sucursal" | "errores";
+type Tab = "domicilio" | "sucursal" | "errores" | "retiro";
 
 export default function ProcesarPage() {
   const [sidebarOpen, setSidebarOpen]   = useState(false);
@@ -41,11 +41,11 @@ export default function ProcesarPage() {
       try {
         const tnOrders = JSON.parse(pending);
         const converted = convertTnOrders(tnOrders);
-        const { domicilio, sucursal, errores } = transformOrders(converted);
+        const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(converted);
         setResult({
           totalFilas: converted.length,
           ordenesUnicas: converted.length,
-          domicilio, sucursal, errores, groupedOrders: converted,
+          domicilio, sucursal, errores, retiroPresencial, groupedOrders: converted,
         });
         if (errores.length > 0)        setActiveTab("errores");
         else if (domicilio.length > 0) setActiveTab("domicilio");
@@ -60,11 +60,11 @@ export default function ProcesarPage() {
     const existingNums = new Set(existing.map((o) => o.numeroOrden));
     const newOrders = imported.filter((o) => !existingNums.has(o.numeroOrden));
     const merged = [...existing, ...newOrders];
-    const { domicilio, sucursal, errores } = transformOrders(merged);
+    const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(merged);
     setResult({
       totalFilas: (result?.totalFilas ?? 0) + newOrders.length,
       ordenesUnicas: merged.length,
-      domicilio, sucursal, errores, groupedOrders: merged,
+      domicilio, sucursal, errores, retiroPresencial, groupedOrders: merged,
     });
     if (errores.length > 0)        setActiveTab("errores");
     else if (domicilio.length > 0) setActiveTab("domicilio");
@@ -87,9 +87,9 @@ export default function ProcesarPage() {
       }
 
       const grouped = groupOrders(rows, columnMap);
-      const { domicilio, sucursal, errores } = transformOrders(grouped);
+      const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(grouped);
 
-      setResult({ totalFilas: rows.length, ordenesUnicas: grouped.length, domicilio, sucursal, errores, groupedOrders: grouped });
+      setResult({ totalFilas: rows.length, ordenesUnicas: grouped.length, domicilio, sucursal, errores, retiroPresencial, groupedOrders: grouped });
 
       if (errores.length > 0)        setActiveTab("errores");
       else if (domicilio.length > 0) setActiveTab("domicilio");
@@ -104,12 +104,7 @@ export default function ProcesarPage() {
 
   async function handleExport() {
     if (!result) return;
-    // Snapshot para evitar closures stale después de awaits
     const snap = result;
-
-    // Descargar Excel (solo pedidos válidos). El stock ya se descuenta
-    // automáticamente por webhook cuando se paga el pedido (TN y ML),
-    // así que exportar acá no vuelve a tocarlo.
     await exportAndreaniWorkbook(snap.domicilio, snap.sucursal);
     setExportSummary({ domicilio: snap.domicilio.length, sucursal: snap.sucursal.length });
   }
@@ -119,17 +114,23 @@ export default function ProcesarPage() {
     const newGrouped = result.groupedOrders.map((g) =>
       g.numeroOrden === updated.numeroOrden ? updated : g
     );
-    const { domicilio, sucursal, errores } = transformOrders(newGrouped);
-    setResult({ ...result, domicilio, sucursal, errores, groupedOrders: newGrouped });
+    const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(newGrouped);
+    setResult({ ...result, domicilio, sucursal, errores, retiroPresencial, groupedOrders: newGrouped });
     setEditingOrder(null);
-    if (errores.length > 0) setActiveTab("errores");
-    else setActiveTab(domicilio.length > 0 ? "domicilio" : "sucursal");
+    if (updated.retiroPresencial) {
+      setActiveTab("retiro");
+    } else if (errores.length > 0) {
+      setActiveTab("errores");
+    } else {
+      setActiveTab(domicilio.length > 0 ? "domicilio" : "sucursal");
+    }
   }
 
   const tabs: { key: Tab; label: string; icon: string; count?: number }[] = [
-    { key: "domicilio", label: "A domicilio", icon: "fas fa-house",               count: result?.domicilio.length },
-    { key: "sucursal",  label: "A sucursal",  icon: "fas fa-building",            count: result?.sucursal.length  },
-    { key: "errores",   label: "Errores",     icon: "fas fa-triangle-exclamation", count: result?.errores.length  },
+    { key: "domicilio", label: "A domicilio",       icon: "fas fa-house",                count: result?.domicilio.length         },
+    { key: "sucursal",  label: "A sucursal",         icon: "fas fa-building",             count: result?.sucursal.length          },
+    { key: "errores",   label: "Errores",            icon: "fas fa-triangle-exclamation", count: result?.errores.length           },
+    { key: "retiro",    label: "Retiro presencial",  icon: "fas fa-store",                count: result?.retiroPresencial.length  },
   ];
 
   return (
@@ -221,7 +222,8 @@ export default function ProcesarPage() {
 
               <div className="sf-tabs">
                 {tabs.map((tab) => {
-                  const isErr = tab.key === "errores" && (tab.count ?? 0) > 0;
+                  const isErr    = tab.key === "errores" && (tab.count ?? 0) > 0;
+                  const isRetiro = tab.key === "retiro"  && (tab.count ?? 0) > 0;
                   return (
                     <button
                       key={tab.key}
@@ -231,7 +233,12 @@ export default function ProcesarPage() {
                       <i className={tab.icon} />
                       {tab.label}
                       {tab.count !== undefined && (
-                        <span className={`sf-tab-badge ${isErr ? "error" : ""}`}>{tab.count}</span>
+                        <span
+                          className={`sf-tab-badge ${isErr ? "error" : ""}`}
+                          style={isRetiro ? { background: "rgba(99,102,241,0.18)", color: "var(--primary-color)" } : {}}
+                        >
+                          {tab.count}
+                        </span>
                       )}
                     </button>
                   );
@@ -263,6 +270,50 @@ export default function ProcesarPage() {
                   onEdit={(order, error) => setEditingOrder({ order, error })}
                 />
               )}
+              {activeTab === "retiro" && (
+                result.retiroPresencial.length === 0 ? (
+                  <div className="sf-empty">
+                    <i className="fas fa-store sf-empty-icon" />
+                    <p style={{ fontWeight: 600, color: "var(--text-muted)" }}>No hay pedidos de retiro presencial</p>
+                  </div>
+                ) : (
+                  <div className="sf-table-wrap">
+                    <table className="sf-table">
+                      <thead>
+                        <tr>
+                          <th>Orden</th>
+                          <th>Cliente</th>
+                          <th>Tipo de envío</th>
+                          <th style={{ width: "1px" }} />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.retiroPresencial.map((order, i) => (
+                          <tr key={order.numeroOrden} className={i % 2 === 0 ? "row-even" : "row-odd"}>
+                            <td style={{ fontFamily: "monospace", fontWeight: 600 }}>{order.numeroOrden}</td>
+                            <td>{order.nombreEnvio || "—"}</td>
+                            <td style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{order.medioEnvio || "—"}</td>
+                            <td>
+                              <button
+                                onClick={() => setEditingOrder({
+                                  order,
+                                  error: { numeroOrden: order.numeroOrden, campos: [], tipo: order.medioEnvio.trim().toLowerCase() === "punto de retiro" ? "sucursal" : "domicilio" },
+                                })}
+                                title="Editar pedido"
+                                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "2px 4px", borderRadius: "4px", lineHeight: 1, fontSize: "0.8rem", transition: "color 0.15s" }}
+                                onMouseEnter={e => (e.currentTarget.style.color = "var(--accent-color)")}
+                                onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}
+                              >
+                                <i className="fas fa-pen" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
 
               <hr className="sf-divider" />
 
@@ -276,7 +327,12 @@ export default function ProcesarPage() {
                     Excel con hojas &quot;A domicilio&quot; y &quot;A sucursal&quot;
                     {result.errores.length > 0 && (
                       <span style={{ color: "var(--error-color)", marginLeft: "0.4rem" }}>
-                        · {result.errores.length} pedido(s) con errores serán omitidos
+                        · {result.errores.length} pedido(s) con errores omitidos
+                      </span>
+                    )}
+                    {result.retiroPresencial.length > 0 && (
+                      <span style={{ color: "var(--text-muted)", marginLeft: "0.4rem" }}>
+                        · {result.retiroPresencial.length} retiro{result.retiroPresencial.length !== 1 ? "s" : ""} presencial{result.retiroPresencial.length !== 1 ? "es" : ""} excluidos
                       </span>
                     )}
                   </p>
@@ -297,6 +353,12 @@ export default function ProcesarPage() {
                     <div className="sf-export-stat">
                       <span className="sf-dot" style={{ backgroundColor: "var(--error-color)" }} />
                       {result.errores.length} omitidos
+                    </div>
+                  )}
+                  {result.retiroPresencial.length > 0 && (
+                    <div className="sf-export-stat">
+                      <span className="sf-dot" style={{ backgroundColor: "var(--primary-color)" }} />
+                      {result.retiroPresencial.length} retiro{result.retiroPresencial.length !== 1 ? "s" : ""} presencial{result.retiroPresencial.length !== 1 ? "es" : ""}
                     </div>
                   )}
                 </div>

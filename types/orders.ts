@@ -36,6 +36,8 @@ export interface GroupedOrder {
   rawMedioEnvio?: string;
   // Productos del pedido (para descuento de stock)
   productos?: ProductoOrden[];
+  // Marcado manualmente como retiro presencial: se excluye del Excel de Andreani
+  retiroPresencial?: boolean;
 }
 
 export interface ProductoOrden {
@@ -156,6 +158,7 @@ export interface ProcessingResult {
   domicilio: AndreaniDomicilio[];
   sucursal: AndreaniSucursal[];
   errores: ValidationError[];
+  retiroPresencial: GroupedOrder[];
   // Órdenes agrupadas con raw data para comparativas en la UI
   groupedOrders: GroupedOrder[];
 }
