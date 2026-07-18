@@ -1,15 +1,12 @@
 """
-Receives via stdin: JSON { csv_content: str, pdf_b64: str }
-Parses the Tienda Nube CSV to build a map: N° Orden → "SKU1 x2 | SKU2"
-Then overlays "SKU: ..." text at the bottom-left of each Andreani PDF page,
-matching by N° Interno (= Tienda Nube order number).
-Returns base64-encoded modified PDF via stdout.
+Receives via stdin: JSON { pdf_b64: str, sku_map?: dict, csv_b64?: str }
+Overlays "SKU: ..." text at the bottom-left of each label page.
 
-Method mirrors web_app/services/pdf_processing.py:
-  - CSV: pandas, latin1, sep=";"
-  - PDF: PyPDF2 + reportlab overlay
-  - Position: x=8, y=8 (bottom-left corner of page)
-  - Font: Helvetica 6pt
+Supports two label formats (auto-detected per page):
+  - Andreani:   matches "Interno: #12345"  → font 6pt
+  - Envío Nube (E-Pick): matches "Para: #4487" or "#4487" → font 9pt
+
+Returns base64-encoded modified PDF via stdout.
 """
 
 import sys
@@ -21,11 +18,10 @@ import pandas as pd
 import PyPDF2
 from reportlab.pdfgen import canvas
 
-FONT_NAME      = "Helvetica"
-FONT_SIZE      = 6
-MARGEN_X       = 8
-MARGEN_Y       = 8
-MAX_ANCHO_TEXTO = 180
+FONT_NAME       = "Helvetica"
+MARGEN_X        = 8
+MARGEN_Y        = 8
+MAX_ANCHO_TEXTO = 200
 
 ORDER_COL = "Número de orden"
 SKU_COL   = "SKU"
@@ -33,8 +29,6 @@ CANT_COL  = "Cantidad del producto"
 
 
 def construir_mapa_skus(csv_bytes: bytes) -> dict:
-    # Tienda Nube exports with latin1 encoding and semicolon separator
-    # Try latin1+semicolon first (most common), then fallback combinations
     for enc in ("latin1", "utf-8", "utf-8-sig"):
         for sep in (";", ","):
             try:
@@ -75,16 +69,48 @@ def construir_mapa_skus(csv_bytes: bytes) -> dict:
     return mapa
 
 
-def extraer_nro_interno(texto_pagina: str):
-    if not isinstance(texto_pagina, str):
+# ── Extractors ────────────────────────────────────────────────────────
+
+def extraer_nro_interno(texto: str):
+    """Andreani: busca 'Interno: #12345'"""
+    if not isinstance(texto, str):
         return None
-    t = texto_pagina.replace("NÂ°", "N°").replace("Nº", "N°")
-    t = t.replace("\n", " ")
+    t = texto.replace("NÂ°", "N°").replace("Nº", "N°").replace("\n", " ")
     m = re.search(r"Interno\s*:\s*#?\s*([0-9]+)", t, flags=re.IGNORECASE)
+    return m.group(1) if m else None
+
+
+def extraer_nro_envionube(texto: str):
+    """Envío Nube / E-Pick: busca 'Para: #4487' o '#4487' en el texto."""
+    if not isinstance(texto, str):
+        return None
+    t = texto.replace("\n", " ")
+    # Prefer 'Para: #XXXX' (most specific)
+    m = re.search(r"Para\s*:\s*#(\d+)", t, re.IGNORECASE)
     if m:
         return m.group(1)
-    return None
+    # Fallback: first bare #XXXX occurrence
+    m = re.search(r"#(\d+)", t)
+    return m.group(1) if m else None
 
+
+def detectar_orden(texto: str):
+    """
+    Returns (nro_orden: str | None, font_size: int).
+    Tries Andreani first, then Envío Nube.
+    """
+    nro = extraer_nro_interno(texto)
+    if nro:
+        return nro, 6          # Andreani small label → 6pt
+
+    nro = extraer_nro_envionube(texto)
+    if nro:
+        return nro, 9          # E-Pick full-page label → 9pt
+
+    return None, 6
+
+
+# ── Text wrap ─────────────────────────────────────────────────────────
 
 def wrap_text(texto: str, max_width: float, font_name: str, font_size: int, canvas_obj) -> list:
     if not texto:
@@ -94,8 +120,7 @@ def wrap_text(texto: str, max_width: float, font_name: str, font_size: int, canv
     linea_actual = ""
     for palabra in palabras:
         candidata = (linea_actual + " " + palabra).strip()
-        w = canvas_obj.stringWidth(candidata, font_name, font_size)
-        if w <= max_width:
+        if canvas_obj.stringWidth(candidata, font_name, font_size) <= max_width:
             linea_actual = candidata
         else:
             if linea_actual:
@@ -106,30 +131,37 @@ def wrap_text(texto: str, max_width: float, font_name: str, font_size: int, canv
     return lineas
 
 
+# ── Main PDF processing ───────────────────────────────────────────────
+
 def process_pdf_labels(pdf_bytes: bytes, skus_map: dict) -> bytes:
     reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
     writer = PyPDF2.PdfWriter()
 
     for page in reader.pages:
         texto = page.extract_text()
-        nro_interno = extraer_nro_interno(texto)
+        nro_orden, font_size = detectar_orden(texto)
 
-        if nro_interno:
-            skus_texto = skus_map.get(str(int(nro_interno)))
+        if nro_orden:
+            try:
+                key = str(int(nro_orden))
+            except ValueError:
+                key = nro_orden
+            skus_texto = skus_map.get(key)
+
             if skus_texto:
                 packet = io.BytesIO()
                 width  = float(page.mediabox.width)
                 height = float(page.mediabox.height)
                 c = canvas.Canvas(packet, pagesize=(width, height))
-                c.setFont(FONT_NAME, FONT_SIZE)
+                c.setFont(FONT_NAME, font_size)
 
                 texto_mostrar = f"SKU: {skus_texto}"
-                lineas = wrap_text(texto_mostrar, MAX_ANCHO_TEXTO, FONT_NAME, FONT_SIZE, c)
+                lineas = wrap_text(texto_mostrar, MAX_ANCHO_TEXTO, FONT_NAME, font_size, c)
 
                 y = MARGEN_Y
                 for linea in lineas:
                     c.drawString(MARGEN_X, y, linea)
-                    y += FONT_SIZE + 1
+                    y += font_size + 1
 
                 c.save()
                 packet.seek(0)
@@ -150,8 +182,6 @@ if __name__ == "__main__":
 
     pdf_bytes = base64.b64decode(data["pdf_b64"])
 
-    # If sku_map is provided by the client (already built/edited), use it directly.
-    # Otherwise fall back to building it from the CSV.
     if data.get("sku_map"):
         sku_map = data["sku_map"]
     else:
@@ -159,5 +189,4 @@ if __name__ == "__main__":
         sku_map   = construir_mapa_skus(csv_bytes)
 
     result_pdf = process_pdf_labels(pdf_bytes, sku_map)
-
     sys.stdout.write(base64.b64encode(result_pdf).decode("utf-8"))

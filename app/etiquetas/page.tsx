@@ -243,7 +243,7 @@ export default function EtiquetasPage() {
             <div className="sf-step-badge pending">1</div>
             <div>
               <h2>Subir archivos</h2>
-              <p>ventas.csv de Tienda Nube y el PDF de paquetes de Andreani</p>
+              <p>ventas.csv de Tienda Nube y el PDF de etiquetas (Andreani o Envío Nube)</p>
             </div>
           </div>
 
@@ -256,7 +256,7 @@ export default function EtiquetasPage() {
               onChange={handleCsvChange}
             />
             <DropZone
-              label="PDF de paquetes (Andreani)"
+              label="PDF de etiquetas (Andreani o Envío Nube)"
               accept=".pdf,application/pdf"
               icon="fas fa-file-pdf"
               value={pdf}
