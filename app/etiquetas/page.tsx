@@ -6,6 +6,7 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
 type FileState = { file: File; name: string } | null;
+type Modo      = "andreani" | "envionube";
 type SkuItem    = { sku: string; cantidad: number };
 type ParsedOrders = Record<string, { nombre: string; skus: SkuItem[] }>;
 
@@ -18,25 +19,17 @@ function DropZone({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    const file = e.dataTransfer.files[0];
-    if (file) onChange({ file, name: file.name });
-  }
-
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) onChange({ file, name: file.name });
-  }
-
   return (
     <div
       className={`sf-dropzone ${value ? "sf-dropzone--done" : ""}`}
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={handleDrop}
+      onDragOver={e => e.preventDefault()}
+      onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) onChange({ file: f, name: f.name }); }}
       onClick={() => inputRef.current?.click()}
     >
-      <input ref={inputRef} type="file" accept={accept} style={{ display: "none" }} onChange={handleChange} />
+      <input
+        ref={inputRef} type="file" accept={accept} style={{ display: "none" }}
+        onChange={e => { const f = e.target.files?.[0]; if (f) onChange({ file: f, name: f.name }); }}
+      />
       {value ? (
         <>
           <i className="fas fa-circle-check" style={{ fontSize: "1.5rem", color: "var(--success-color)" }} />
@@ -68,8 +61,7 @@ function SkuChip({ item, onRemove }: { item: SkuItem; onRemove?: () => void }) {
       </span>
       {onRemove && (
         <button
-          type="button"
-          onClick={onRemove}
+          type="button" onClick={onRemove}
           style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: "0 0.1rem", fontSize: "0.7rem", lineHeight: 1 }}
         >
           <i className="fas fa-times" />
@@ -82,15 +74,18 @@ function SkuChip({ item, onRemove }: { item: SkuItem; onRemove?: () => void }) {
 // ── Page ─────────────────────────────────────────────────────────────
 export default function EtiquetasPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [modo, setModo]               = useState<Modo>("andreani");
+
   const [csv, setCsv] = useState<FileState>(null);
   const [pdf, setPdf] = useState<FileState>(null);
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [done, setDone]               = useState(false);
 
-  // Parsed orders (from CSV)
+  // Parsed orders state
   const [parsedOrders, setParsedOrders] = useState<ParsedOrders | null>(null);
-  const [parseLoading, setParseLoading] = useState(false);
+  const [parseStatus, setParseStatus]   = useState<string>("");   // "" = not loading
+  const parseLoading = !!parseStatus;
 
   // Edit modal
   const [editModal, setEditModal] = useState<{ orden: string; nombre: string } | null>(null);
@@ -98,13 +93,23 @@ export default function EtiquetasPage() {
   const [nuevoSku, setNuevoSku]   = useState("");
   const [nuevaCant, setNuevaCant] = useState(1);
 
-  // ── Parse CSV when uploaded ──
+  // ── Reset on mode switch ──
+  function reset() {
+    setCsv(null);
+    setPdf(null);
+    setParsedOrders(null);
+    setParseStatus("");
+    setError(null);
+    setDone(false);
+  }
+
+  // ── Andreani: parse CSV ──
   async function handleCsvChange(f: FileState) {
     setCsv(f);
     setParsedOrders(null);
     setDone(false);
     if (!f) return;
-    setParseLoading(true);
+    setParseStatus("Leyendo pedidos…");
     try {
       const form = new FormData();
       form.append("csv", f.file);
@@ -112,13 +117,57 @@ export default function EtiquetasPage() {
       if (res.ok) {
         const { orders } = await res.json();
         setParsedOrders(orders ?? null);
-      } else {
-        console.error("[etiquetas/parse] HTTP", res.status);
       }
+    } catch { /* ignore */ }
+    setParseStatus("");
+  }
+
+  // ── Envío Nube: extract orders from PDF → fetch SKUs from TN ──
+  async function handlePdfEnvioNube(f: FileState) {
+    setPdf(f);
+    setParsedOrders(null);
+    setError(null);
+    setDone(false);
+    if (!f) return;
+
+    try {
+      // Step 1: extract order numbers from PDF
+      setParseStatus("Leyendo números de orden del PDF…");
+      const extractForm = new FormData();
+      extractForm.append("pdf", f.file);
+      const extractRes = await fetch("/api/etiquetas/extract", { method: "POST", body: extractForm });
+      if (!extractRes.ok) throw new Error("Error al leer el PDF");
+      const { orderNumbers } = await extractRes.json() as { orderNumbers: string[] };
+
+      if (!orderNumbers?.length) {
+        setError("No se encontraron números de orden en el PDF.");
+        setParseStatus("");
+        return;
+      }
+
+      // Step 2: fetch SKUs from TN API
+      setParseStatus(`Consultando Tienda Nube (${orderNumbers.length} pedido${orderNumbers.length !== 1 ? "s" : ""})…`);
+      const fetchRes = await fetch("/api/etiquetas/fetch-skus", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderNumbers }),
+      });
+      if (!fetchRes.ok) {
+        const body = await fetchRes.json().catch(() => ({}));
+        throw new Error(body.error ?? "Error al consultar Tienda Nube");
+      }
+      const { orders } = await fetchRes.json() as { orders: ParsedOrders };
+
+      // Orders without SKUs in TN → show with empty skus so user can add manually
+      const full: ParsedOrders = {};
+      for (const num of orderNumbers) {
+        full[num] = orders[num] ?? { nombre: "", skus: [] };
+      }
+      setParsedOrders(full);
     } catch (e) {
-      console.error("[etiquetas/parse]", e);
+      setError(e instanceof Error ? e.message : "Error desconocido");
     }
-    setParseLoading(false);
+    setParseStatus("");
   }
 
   // ── Edit modal helpers ──
@@ -156,7 +205,6 @@ export default function EtiquetasPage() {
     setDone(false);
 
     try {
-      // Build sku_map string from (possibly edited) parsedOrders
       const skuMapObj: Record<string, string> = {};
       for (const [orden, info] of Object.entries(parsedOrders)) {
         const parts = info.skus
@@ -182,7 +230,6 @@ export default function EtiquetasPage() {
       const a    = document.createElement("a");
       a.href = url;
 
-      // Build filename with store name + date
       let storeName = "Tienda";
       try {
         const statusRes = await fetch("/api/auth/status");
@@ -198,7 +245,8 @@ export default function EtiquetasPage() {
       const mm  = String(hoy.getMonth() + 1).padStart(2, "0");
       const aa  = String(hoy.getFullYear()).slice(2);
       const nombreLimpio = storeName.replace(/[/\\:*?"<>|]/g, "_").trim();
-      a.download = `etiquetas_sku_${nombreLimpio}_${dd}-${mm}-${aa}.pdf`;
+      const tipoLabel    = modo === "envionube" ? "envionube" : "andreani";
+      a.download = `etiquetas_sku_${tipoLabel}_${nombreLimpio}_${dd}-${mm}-${aa}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDone(true);
@@ -211,7 +259,13 @@ export default function EtiquetasPage() {
 
   const ready        = !!pdf && parsedOrders !== null && !parseLoading;
   const totalPedidos = parsedOrders ? Object.keys(parsedOrders).length : 0;
-  const showTable    = (parsedOrders !== null && !parseLoading) || parseLoading;
+  const showTable    = (parsedOrders !== null || parseLoading);
+
+  // ── Mode labels ──
+  const modoConfig = {
+    andreani:  { label: "Andreani",    icon: "fas fa-truck",     stepDesc: "ventas.csv de Tienda Nube y el PDF de paquetes de Andreani" },
+    envionube: { label: "Envío Nube",  icon: "fas fa-box-open",  stepDesc: "Solo el PDF de etiquetas descargado de Tienda Nube" },
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -234,35 +288,84 @@ export default function EtiquetasPage() {
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>
             Agregar SKU a Etiquetas
           </h1>
-          <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
-            Agregá el SKU de cada pedido al pie del PDF de etiquetas de Andreani.
+          <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
+            Agregá el SKU de cada pedido al pie del PDF de etiquetas.
           </p>
+
+          {/* ── Selector de modo ── */}
+          <div style={{
+            display: "inline-flex",
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "var(--radius)",
+            padding: "3px",
+            marginBottom: "2rem",
+            gap: "2px",
+          }}>
+            {(["andreani", "envionube"] as Modo[]).map(m => (
+              <button
+                key={m}
+                onClick={() => { setModo(m); reset(); }}
+                style={{
+                  background: modo === m ? "var(--primary-color)" : "transparent",
+                  color: modo === m ? "#fff" : "var(--text-muted)",
+                  border: "none",
+                  borderRadius: "calc(var(--radius) - 2px)",
+                  padding: "0.4rem 1.1rem",
+                  cursor: "pointer",
+                  fontWeight: modo === m ? 600 : 400,
+                  fontSize: "0.875rem",
+                  transition: "all 0.15s",
+                  display: "flex", alignItems: "center", gap: "0.45rem",
+                }}
+              >
+                <i className={modoConfig[m].icon} />
+                {modoConfig[m].label}
+              </button>
+            ))}
+          </div>
 
           {/* ── PASO 1: Upload ── */}
           <div className="sf-section-title">
             <div className="sf-step-badge pending">1</div>
             <div>
               <h2>Subir archivos</h2>
-              <p>ventas.csv de Tienda Nube y el PDF de etiquetas (Andreani o Envío Nube)</p>
+              <p>{modoConfig[modo].stepDesc}</p>
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
-            <DropZone
-              label="ventas.csv"
-              accept=".csv,text/csv"
-              icon="fas fa-file-csv"
-              value={csv}
-              onChange={handleCsvChange}
-            />
-            <DropZone
-              label="PDF de etiquetas (Andreani o Envío Nube)"
-              accept=".pdf,application/pdf"
-              icon="fas fa-file-pdf"
-              value={pdf}
-              onChange={(f) => { setPdf(f); setDone(false); }}
-            />
-          </div>
+          {modo === "andreani" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1.5rem" }}>
+              <DropZone
+                label="ventas.csv"
+                accept=".csv,text/csv"
+                icon="fas fa-file-csv"
+                value={csv}
+                onChange={handleCsvChange}
+              />
+              <DropZone
+                label="PDF de etiquetas (Andreani)"
+                accept=".pdf,application/pdf"
+                icon="fas fa-file-pdf"
+                value={pdf}
+                onChange={f => { setPdf(f); setDone(false); }}
+              />
+            </div>
+          ) : (
+            <div style={{ maxWidth: 360, marginBottom: "1.5rem" }}>
+              <DropZone
+                label="PDF de etiquetas (Envío Nube)"
+                accept=".pdf,application/pdf"
+                icon="fas fa-file-pdf"
+                value={pdf}
+                onChange={handlePdfEnvioNube}
+              />
+              <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
+                Los SKUs se obtienen automáticamente desde Tienda Nube
+              </p>
+            </div>
+          )}
 
           {/* ── PASO 2: Preview & editar ── */}
           {showTable && (
@@ -272,9 +375,9 @@ export default function EtiquetasPage() {
                 <div>
                   <h2>Revisar y editar SKUs</h2>
                   <p>
-                    {parseLoading
-                      ? "Procesando CSV…"
-                      : `${totalPedidos} pedido${totalPedidos !== 1 ? "s" : ""} con SKU — podés editar antes de generar`
+                    {parseStatus
+                      ? parseStatus
+                      : `${totalPedidos} pedido${totalPedidos !== 1 ? "s" : ""} — podés agregar o modificar antes de generar`
                     }
                   </p>
                 </div>
@@ -282,7 +385,7 @@ export default function EtiquetasPage() {
 
               {parseLoading ? (
                 <div style={{ color: "var(--text-muted)", fontSize: "0.875rem", padding: "0.5rem 0 1.5rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                  <i className="fas fa-spinner fa-spin" /> Leyendo pedidos…
+                  <i className="fas fa-spinner fa-spin" /> {parseStatus}
                 </div>
               ) : parsedOrders && (
                 <div className="sf-table-wrap" style={{ marginBottom: "1.5rem" }}>
@@ -307,11 +410,15 @@ export default function EtiquetasPage() {
                             {info.nombre || "—"}
                           </td>
                           <td>
-                            <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                              {info.skus.map((s, j) => (
-                                <SkuChip key={j} item={s} />
-                              ))}
-                            </div>
+                            {info.skus.length > 0 ? (
+                              <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                                {info.skus.map((s, j) => <SkuChip key={j} item={s} />)}
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: "0.78rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                                Sin SKU — agregá uno con el lápiz
+                              </span>
+                            )}
                           </td>
                           <td>
                             <button
@@ -400,7 +507,6 @@ export default function EtiquetasPage() {
                 </p>
               )}
 
-              {/* Current SKUs */}
               <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.4rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
                 SKUs actuales
               </label>
@@ -413,7 +519,6 @@ export default function EtiquetasPage() {
                 ))}
               </div>
 
-              {/* Add new SKU */}
               <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.4rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
                 Agregar SKU
               </label>
