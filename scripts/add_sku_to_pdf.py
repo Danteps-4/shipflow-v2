@@ -110,6 +110,47 @@ def detectar_orden(texto: str):
     return None, 6
 
 
+# ── E-Pick: find Y position below customer name ───────────────────────
+
+def posicion_sku_envionube(page) -> float:
+    """
+    Returns Y coordinate (pts from bottom) just below the customer name
+    on an E-Pick label. Falls back to 43% of page height.
+    """
+    height = float(page.mediabox.height)
+    fallback = height * 0.43
+
+    items = []
+
+    def visitor(text, _cm, tm, _fd, _fs):
+        s = text.strip() if isinstance(text, str) else ""
+        if s:
+            items.append((s, float(tm[5])))
+
+    try:
+        page.extract_text(visitor_text=visitor)
+    except Exception:
+        return fallback
+
+    if not items:
+        return fallback
+
+    # Locate 'Para:' line Y
+    para_ys = [y for t, y in items if re.search(r"Para\s*:", t, re.IGNORECASE)]
+    if not para_ys:
+        return fallback
+
+    para_y = max(para_ys)
+
+    # Name line is just below Para: (lower Y in PDF coordinates)
+    below = [y for _, y in items if y < para_y - 3]
+    if not below:
+        return para_y - 20
+
+    name_y = max(below)  # closest line below Para: = customer name
+    return name_y - 18   # ~18pt below the name baseline
+
+
 # ── Text wrap ─────────────────────────────────────────────────────────
 
 def wrap_text(texto: str, max_width: float, font_name: str, font_size: int, canvas_obj) -> list:
@@ -158,10 +199,16 @@ def process_pdf_labels(pdf_bytes: bytes, skus_map: dict) -> bytes:
                 texto_mostrar = f"SKU: {skus_texto}"
                 lineas = wrap_text(texto_mostrar, MAX_ANCHO_TEXTO, FONT_NAME, font_size, c)
 
-                y = MARGEN_Y
-                for linea in lineas:
-                    c.drawString(MARGEN_X, y, linea)
-                    y += font_size + 1
+                if font_size == 9:  # E-Pick / Envío Nube: debajo del nombre
+                    y = posicion_sku_envionube(page)
+                    for linea in lineas:
+                        c.drawString(MARGEN_X, y, linea)
+                        y -= font_size + 2  # hacia abajo
+                else:              # Andreani: margen inferior
+                    y = MARGEN_Y
+                    for linea in lineas:
+                        c.drawString(MARGEN_X, y, linea)
+                        y += font_size + 1  # hacia arriba
 
                 c.save()
                 packet.seek(0)
