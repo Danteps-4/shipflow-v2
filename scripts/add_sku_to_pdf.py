@@ -115,10 +115,13 @@ def detectar_orden(texto: str):
 def posicion_sku_envionube(page) -> float:
     """
     Returns Y coordinate (pts from bottom) just below the customer name
-    on an E-Pick label. Falls back to 43% of page height.
+    on an E-Pick label. Falls back to 50% of page height.
+
+    The customer name may live inside a Form XObject and not be visible
+    to the visitor; in that case we estimate its position from Para:.
     """
     height = float(page.mediabox.height)
-    fallback = height * 0.43
+    fallback = height * 0.50
 
     items = []
 
@@ -135,20 +138,21 @@ def posicion_sku_envionube(page) -> float:
     if not items:
         return fallback
 
-    # Locate 'Para:' line Y
     para_ys = [y for t, y in items if re.search(r"Para\s*:", t, re.IGNORECASE)]
     if not para_ys:
         return fallback
 
     para_y = max(para_ys)
 
-    # Name line is just below Para: (lower Y in PDF coordinates)
-    below = [y for _, y in items if y < para_y - 3]
-    if not below:
-        return para_y - 20
-
-    name_y = max(below)  # closest line below Para: = customer name
-    return name_y - 18   # ~18pt below the name baseline
+    # Only consider text within 45pt below Para: — avoids accidentally
+    # picking up distant sections like "No olvides confirmar..."
+    close_below = [y for _, y in items if para_y - 45 < y < para_y - 3]
+    if close_below:
+        name_y = max(close_below)   # line just below Para: = customer name
+        return name_y - 10          # 10pt below the name baseline
+    else:
+        # Name probably in an XObject; estimate ~20pt below Para:
+        return para_y - 32
 
 
 # ── Text wrap ─────────────────────────────────────────────────────────
