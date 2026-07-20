@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     }
   } catch { /* keep default name */ }
 
-  addStore(sfUserId, { access_token, user_id, store_name, connected_at: new Date().toISOString() });
+  addStore({ access_token, user_id, store_name, connected_at: new Date().toISOString() });
   console.log("[callback] store saved for sfUserId:", sfUserId, "tn user_id:", user_id);
 
   // Índice inverso store_id → access_token, para que los webhooks de TN

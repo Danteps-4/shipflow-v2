@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
-import { getSessionUserId } from "@/lib/getSessionUser";
+import { requireModule } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 
@@ -42,10 +42,10 @@ async function fetchOrderByNumber(
 }
 
 export async function POST(req: NextRequest) {
-  const sfUserId = await getSessionUserId(req);
-  if (!sfUserId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  const guard = await requireModule(req, "pedidos");
+  if (!guard.ok) return guard.response;
 
-  const tokens = readTokens(sfUserId);
+  const tokens = readTokens();
   if (!tokens) return NextResponse.json({ error: "No hay tienda conectada" }, { status: 401 });
 
   const body = await req.json() as { orderNumbers?: string[] };

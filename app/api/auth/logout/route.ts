@@ -6,6 +6,6 @@ export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const sfUserId = await getSessionUserId(req);
-  if (sfUserId) deleteTokens(sfUserId);
+  if (sfUserId) deleteTokens();
   return NextResponse.json({ ok: true });
 }

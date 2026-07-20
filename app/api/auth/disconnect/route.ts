@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
   if (!sfUserId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { storeId } = await req.json();
-  disconnectStore(sfUserId, Number(storeId));
+  disconnectStore(Number(storeId));
   try {
     await deleteTnConexion(String(storeId));
   } catch (e) {

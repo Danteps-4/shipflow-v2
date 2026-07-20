@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
   if (!sfUserId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { storeId } = await req.json();
-  const ok = switchStore(sfUserId, Number(storeId));
+  const ok = switchStore(Number(storeId));
   if (!ok) return NextResponse.json({ error: "Tienda no encontrada" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

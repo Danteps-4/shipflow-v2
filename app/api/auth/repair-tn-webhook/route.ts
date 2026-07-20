@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
   const sfUserId = await getSessionUserId(req);
   if (!sfUserId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const tokens = readTokens(sfUserId);
-  const store  = getActiveStore(sfUserId);
+  const tokens = readTokens();
+  const store  = getActiveStore();
   if (!tokens || !store) {
     return NextResponse.json({ error: "No hay ninguna tienda de Tienda Nube conectada" }, { status: 400 });
   }

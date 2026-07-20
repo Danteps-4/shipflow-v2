@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { getSessionUserId } from "@/lib/getSessionUser";
+import { requireModule } from "@/lib/permissions";
 import { getActiveStore } from "@/lib/tnStores";
 
 export const runtime = "nodejs";
@@ -13,10 +13,13 @@ function base64url(buf: Buffer): string {
 // a la tienda de Tienda Nube activa del usuario, que es la partición
 // (store_id) que ya usa el módulo de stock.
 export async function GET(req: NextRequest) {
-  const sfUserId = await getSessionUserId(req);
-  if (!sfUserId) return NextResponse.redirect(new URL("/login?error=session_expired", req.url));
+  const guard = await requireModule(req, "mercadolibre");
+  if (!guard.ok) {
+    const dest = guard.response.status === 401 ? "/login?error=session_expired" : "/?error=no_access";
+    return NextResponse.redirect(new URL(dest, req.url));
+  }
 
-  const store = getActiveStore(sfUserId);
+  const store = getActiveStore();
   if (!store) return NextResponse.redirect(new URL("/?error=no_tn_store", req.url));
 
   const codeVerifier   = base64url(crypto.randomBytes(32));

@@ -7,14 +7,14 @@ export interface TnTokens {
   user_id: number;
 }
 
-export function readTokens(sfUserId: string): TnTokens | null {
-  const store = getActiveStore(sfUserId);
+export function readTokens(): TnTokens | null {
+  const store = getActiveStore();
   if (!store) return null;
   return { access_token: store.access_token, token_type: "bearer", scope: "", user_id: store.user_id };
 }
 
-export function writeTokens(sfUserId: string, data: TnTokens & { store_name?: string }): void {
-  addStore(sfUserId, {
+export function writeTokens(data: TnTokens & { store_name?: string }): void {
+  addStore({
     access_token: data.access_token,
     user_id: data.user_id,
     store_name: data.store_name ?? `Tienda ${data.user_id}`,
@@ -22,7 +22,7 @@ export function writeTokens(sfUserId: string, data: TnTokens & { store_name?: st
   });
 }
 
-export function deleteTokens(sfUserId: string): void {
-  const store = getActiveStore(sfUserId);
-  if (store) disconnectStore(sfUserId, store.user_id);
+export function deleteTokens(): void {
+  const store = getActiveStore();
+  if (store) disconnectStore(store.user_id);
 }

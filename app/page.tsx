@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
+import { ModuleKey } from "@/lib/modules";
 
 const TOOL_GROUPS = [
   {
     label: "Pedidos",
+    module: "pedidos" as ModuleKey,
     tools: [
       {
         href: "/orders",
@@ -45,6 +47,7 @@ const TOOL_GROUPS = [
   },
   {
     label: "Mercado Libre",
+    module: "mercadolibre" as ModuleKey,
     tools: [
       {
         href: "/mercadolibre",
@@ -74,6 +77,7 @@ const TOOL_GROUPS = [
   },
   {
     label: "Stock",
+    module: "stock" as ModuleKey,
     tools: [
       {
         href: "/stock",
@@ -87,6 +91,7 @@ const TOOL_GROUPS = [
   },
   {
     label: "Finanzas",
+    module: "finanzas" as ModuleKey,
     tools: [
       {
         href: "/finanzas",
@@ -102,6 +107,21 @@ const TOOL_GROUPS = [
 
 export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [role, setRole]               = useState<"admin" | "member" | null>(null);
+  const [modules, setModules]         = useState<ModuleKey[]>([]);
+
+  useEffect(() => {
+    fetch("/api/user/me")
+      .then((r) => r.json())
+      .then((d) => {
+        setRole(d.user?.role ?? null);
+        setModules(d.user?.modules ?? []);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isAdmin = role === "admin";
+  const visibleGroups = TOOL_GROUPS.filter((g) => isAdmin || modules.includes(g.module));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -144,7 +164,7 @@ export default function HomePage() {
           </div>
 
           {/* Tool cards, agrupadas por área de negocio */}
-          {TOOL_GROUPS.map((group) => (
+          {visibleGroups.map((group) => (
             <div key={group.label} style={{ marginBottom: "2.5rem" }}>
               <h2 style={{
                 fontSize: "0.8rem",
@@ -186,6 +206,44 @@ export default function HomePage() {
               </div>
             </div>
           ))}
+
+          {isAdmin && (
+            <div style={{ marginBottom: "2.5rem" }}>
+              <h2 style={{
+                fontSize: "0.8rem",
+                fontWeight: 700,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                color: "var(--text-muted)",
+                marginBottom: "1rem",
+              }}>
+                Administración
+              </h2>
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: "1.25rem",
+              }}>
+                <a
+                  href="/equipo"
+                  className="sf-tool-card"
+                  style={{ "--card-color": "#64748b" } as React.CSSProperties}
+                >
+                  <div className="sf-tool-card__icon">
+                    <i className="fas fa-users-gear" />
+                  </div>
+                  <div className="sf-tool-card__body">
+                    <h2>Equipo</h2>
+                    <p>Gestioná qué módulos puede ver cada persona del equipo.</p>
+                    <div className="sf-tool-card__tags">
+                      <span className="sf-tool-card__tag">Permisos</span>
+                    </div>
+                  </div>
+                  <i className="fas fa-arrow-right sf-tool-card__arrow" />
+                </a>
+              </div>
+            </div>
+          )}
 
         </div>
       </main>

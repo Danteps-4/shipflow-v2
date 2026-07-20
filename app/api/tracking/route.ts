@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
-import { getSessionUserId } from "@/lib/getSessionUser";
+import { requireModule } from "@/lib/permissions";
 import { spawnSync } from "child_process";
 import path from "path";
 import os from "os";
@@ -73,8 +73,9 @@ export async function POST(req: NextRequest) {
   const cl = req.headers.get("content-length") ?? "?";
   console.log("[tracking] POST recibido — content-type:", ct, "content-length:", cl);
 
-  const sfUserId = await getSessionUserId(req);
-  const tokens = sfUserId ? readTokens(sfUserId) : null;
+  const guard = await requireModule(req, "pedidos");
+  if (!guard.ok) return guard.response;
+  const tokens = readTokens();
   if (!tokens) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }

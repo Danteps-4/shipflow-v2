@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   console.log("[status] sfUserId:", sfUserId);
   if (!sfUserId) return NextResponse.json({ connected: false, active: null, stores: [] });
 
-  const state = getStoresState(sfUserId);
+  const state = getStoresState();
   console.log("[status] storesState:", JSON.stringify(state));
   const { active, stores } = state;
   return NextResponse.json({

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUserId } from "@/lib/getSessionUser";
+import { requireModule } from "@/lib/permissions";
 import { getActiveStore } from "@/lib/tnStores";
 import { initMlTables, upsertMlConexion } from "@/lib/mlDb";
 
@@ -7,13 +7,17 @@ export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const code         = req.nextUrl.searchParams.get("code");
-  const sfUserId     = await getSessionUserId(req);
   const codeVerifier = req.cookies.get("ml_pkce_verifier")?.value;
 
-  if (!code)     return NextResponse.redirect(new URL("/?error=missing_code", req.url));
-  if (!sfUserId) return NextResponse.redirect(new URL("/login?error=session_expired", req.url));
+  if (!code) return NextResponse.redirect(new URL("/?error=missing_code", req.url));
 
-  const store = getActiveStore(sfUserId);
+  const guard = await requireModule(req, "mercadolibre");
+  if (!guard.ok) {
+    const dest = guard.response.status === 401 ? "/login?error=session_expired" : "/?error=no_access";
+    return NextResponse.redirect(new URL(dest, req.url));
+  }
+
+  const store = getActiveStore();
   if (!store) return NextResponse.redirect(new URL("/?error=no_tn_store", req.url));
   const storeId = String(store.user_id);
 
