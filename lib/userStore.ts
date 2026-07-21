@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { DATA_DIR } from "./dataDir";
-import { ModuleKey } from "./modules";
+import { ALL_MODULES, ModuleKey } from "./modules";
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -20,10 +20,26 @@ export interface User {
   modules: ModuleKey[];
 }
 
+// Usuarios creados antes de que existiera role/modules no tienen esos campos
+// en el JSON. Se autocompletan como admin + todos los módulos (el acceso
+// total que ya tenían de hecho) la primera vez que se leen, y se persiste
+// para no repetir el chequeo en cada request.
+function migrateLegacyUsers(users: User[]): User[] {
+  let changed = false;
+  const migrated = users.map((u) => {
+    if (u.role !== undefined && u.modules !== undefined) return u;
+    changed = true;
+    return { ...u, role: u.role ?? "admin", modules: u.modules ?? [...ALL_MODULES] };
+  });
+  if (changed) writeUsers(migrated);
+  return migrated;
+}
+
 function readUsers(): User[] {
   if (!fs.existsSync(USERS_FILE)) return [];
   try {
-    return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    const raw = JSON.parse(fs.readFileSync(USERS_FILE, "utf8")) as User[];
+    return migrateLegacyUsers(raw);
   } catch {
     return [];
   }
