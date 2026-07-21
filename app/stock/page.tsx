@@ -10,6 +10,7 @@ interface StockItem {
   nombre: string;
   cantidad: number;
   destacado: boolean;
+  importado: boolean;
   updated_at: string;
 }
 
@@ -36,7 +37,28 @@ interface KitMap {
   [kitSku: string]: KitComponent[];
 }
 
-type Tab = "stock" | "movimientos";
+interface VentaSemana {
+  inicio: string;
+  unidades: number;
+}
+
+interface VentaSemanalSku {
+  sku: string;
+  nombre: string;
+  semanas: VentaSemana[];
+  total: number;
+}
+
+interface Reposicion {
+  id: number;
+  sku: string;
+  cantidad: number;
+  fecha_llegada: string;
+  nota: string;
+  created_at: string;
+}
+
+type Tab = "stock" | "movimientos" | "ventas";
 
 export default function StockPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -70,10 +92,74 @@ export default function StockPage() {
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [movLoading, setMovLoading]   = useState(false);
 
+  // Ventas semanales + reposiciones
+  const [ventas, setVentas]                 = useState<VentaSemanalSku[]>([]);
+  const [ventasLoading, setVentasLoading]   = useState(false);
+  const [reposiciones, setReposiciones]     = useState<Reposicion[]>([]);
+  const [repoForm, setRepoForm] = useState<{ sku: string; cantidad: string; fecha: string; nota: string } | null>(null);
+  const [savingRepo, setSavingRepo]         = useState(false);
+
   useEffect(() => { fetchAll(); }, []);
   useEffect(() => {
     if (tab === "movimientos" && movimientos.length === 0) fetchMovimientos();
+    if (tab === "ventas" && ventas.length === 0) fetchVentas();
   }, [tab]);
+
+  async function fetchVentas() {
+    setVentasLoading(true);
+    try {
+      const [rVentas, rRepo] = await Promise.all([
+        fetch("/api/stock/ventas-semanales"),
+        fetch("/api/stock/reposiciones"),
+      ]);
+      if (rVentas.ok) setVentas((await rVentas.json()).ventas ?? []);
+      if (rRepo.ok) setReposiciones((await rRepo.json()).reposiciones ?? []);
+    } finally {
+      setVentasLoading(false);
+    }
+  }
+
+  async function handleAddReposicion() {
+    if (!repoForm || !repoForm.cantidad || !repoForm.fecha) return;
+    setSavingRepo(true);
+    try {
+      const res = await fetch("/api/stock/reposiciones", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sku: repoForm.sku,
+          cantidad: parseInt(repoForm.cantidad) || 0,
+          fechaLlegada: repoForm.fecha,
+          nota: repoForm.nota,
+        }),
+      });
+      if (res.ok) {
+        const { reposicion } = await res.json();
+        setReposiciones(prev => [...prev, reposicion]);
+        setRepoForm({ sku: repoForm.sku, cantidad: "", fecha: "", nota: "" });
+      }
+    } finally {
+      setSavingRepo(false);
+    }
+  }
+
+  async function handleDeleteReposicion(id: number) {
+    await fetch("/api/stock/reposiciones", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setReposiciones(prev => prev.filter(r => r.id !== id));
+  }
+
+  // Promedio de unidades vendidas por semana en las últimas 4 semanas con datos.
+  function promedioSemanal(sku: string): number {
+    const v = ventas.find(x => x.sku === sku);
+    if (!v) return 0;
+    const ultimas = v.semanas.slice(-4);
+    const suma = ultimas.reduce((s, x) => s + x.unidades, 0);
+    return suma / ultimas.length;
+  }
 
   async function fetchAll() {
     setLoading(true);
@@ -145,6 +231,15 @@ export default function StockPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sku: item.sku, destacado: !item.destacado }),
+    });
+  }
+
+  async function handleToggleImportado(item: StockItem) {
+    setItems(prev => prev.map(i => i.sku === item.sku ? { ...i, importado: !i.importado } : i));
+    await fetch("/api/stock", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sku: item.sku, importado: !item.importado }),
     });
   }
 
@@ -286,6 +381,11 @@ export default function StockPage() {
     return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
   }
 
+  function fmtSemana(iso: string) {
+    const [y, m, d] = iso.slice(0, 10).split("-");
+    return `${d}/${m}`;
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
 
@@ -361,6 +461,9 @@ export default function StockPage() {
             </button>
             <button className={`sf-tab ${tab === "movimientos" ? "active" : ""}`} onClick={() => setTab("movimientos")}>
               <i className="fas fa-clock-rotate-left" /> Movimientos
+            </button>
+            <button className={`sf-tab ${tab === "ventas" ? "active" : ""}`} onClick={() => setTab("ventas")}>
+              <i className="fas fa-chart-line" /> Ventas
             </button>
           </div>
 
@@ -472,6 +575,14 @@ export default function StockPage() {
                                     style={{ color: item.destacado ? "#f59e0b" : undefined }}
                                   >
                                     <i className={item.destacado ? "fas fa-star" : "far fa-star"} />
+                                  </button>
+                                  <button
+                                    className="sf-btn-edit"
+                                    onClick={() => handleToggleImportado(item)}
+                                    title={item.importado ? "Quitar de importados (China)" : "Marcar como importado (China)"}
+                                    style={{ color: item.importado ? "#38bdf8" : undefined }}
+                                  >
+                                    <i className="fas fa-plane" />
                                   </button>
                                   <button
                                     className="sf-btn-edit"
@@ -612,6 +723,182 @@ export default function StockPage() {
                     </tbody>
                   </table>
                 </div>
+              )}
+            </>
+          )}
+
+          {/* ── TAB VENTAS ── */}
+          {tab === "ventas" && (
+            <>
+              {ventasLoading && (
+                <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
+                  <i className="fas fa-spinner fa-spin" style={{ marginRight: "0.5rem" }} />Cargando ventas...
+                </div>
+              )}
+
+              {!ventasLoading && (
+                <>
+                  <h2 style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: "0.75rem" }}>Ventas semanales</h2>
+
+                  {ventas.length === 0 ? (
+                    <div className="sf-empty">
+                      <i className="fas fa-chart-line sf-empty-icon" />
+                      <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>Sin ventas registradas todavía</p>
+                      <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                        Las ventas se registran solas cuando se confirma un pedido pago (Tienda Nube o Mercado Libre).
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="sf-table-wrap" style={{ marginBottom: "2rem" }}>
+                      <table className="sf-table">
+                        <thead>
+                          <tr>
+                            <th>SKU</th>
+                            <th>Nombre</th>
+                            {ventas[0].semanas.map(s => (
+                              <th key={s.inicio} style={{ textAlign: "right" }}>{fmtSemana(s.inicio)}</th>
+                            ))}
+                            <th style={{ textAlign: "right" }}>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ventas
+                            .filter(v => !search || v.sku.toLowerCase().includes(search.toLowerCase()) || v.nombre.toLowerCase().includes(search.toLowerCase()))
+                            .map((v, i) => (
+                              <tr key={v.sku} className={i % 2 === 0 ? "row-even" : "row-odd"}>
+                                <td style={{ fontFamily: "monospace", fontWeight: 600 }}>{v.sku}</td>
+                                <td>{v.nombre || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin nombre</span>}</td>
+                                {v.semanas.map(s => (
+                                  <td key={s.inicio} style={{ textAlign: "right", color: s.unidades > 0 ? "var(--text-color)" : "var(--text-muted)" }}>
+                                    {s.unidades}
+                                  </td>
+                                ))}
+                                <td style={{ textAlign: "right", fontWeight: 700 }}>{v.total}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  <h2 style={{ fontSize: "0.95rem", fontWeight: 700, marginBottom: "0.75rem" }}>
+                    <i className="fas fa-plane" style={{ color: "#38bdf8", marginRight: "0.4rem" }} />
+                    Reposición — productos importados
+                  </h2>
+
+                  {items.filter(i => i.importado).length === 0 ? (
+                    <div className="sf-empty">
+                      <i className="fas fa-plane sf-empty-icon" />
+                      <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>No hay productos marcados como importados</p>
+                      <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                        Marcá un SKU con el ícono de avión en la tabla de Stock para hacerle seguimiento de reposición.
+                      </p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                      {items.filter(i => i.importado).map(item => {
+                        const disponible = getDisponible(item);
+                        const promedio = promedioSemanal(item.sku);
+                        const semanasDeStock = promedio > 0 ? Math.max(0, disponible) / promedio : null;
+                        const reposDelSku = reposiciones.filter(r => r.sku === item.sku);
+                        return (
+                          <div key={item.sku} style={{ border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "1rem 1.25rem" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
+                              <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{item.sku}</span>
+                              <span style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>{item.nombre}</span>
+                              <span style={{ marginLeft: "auto", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                                Disponible: <strong style={{ color: "var(--text-color)" }}>{disponible}</strong>
+                              </span>
+                            </div>
+
+                            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+                              {disponible <= 0 ? (
+                                <strong style={{ color: "var(--error-color)" }}>Ya estás sin stock de este producto.</strong>
+                              ) : promedio > 0 ? (
+                                <>Vendés ~<strong>{promedio.toFixed(1)}</strong>/semana (promedio últimas 4 semanas) → a este ritmo te alcanza para ~<strong>{semanasDeStock!.toFixed(1)}</strong> semanas.</>
+                              ) : (
+                                <>Sin ventas recientes para este SKU — no se puede proyectar todavía.</>
+                              )}
+                            </p>
+
+                            {reposDelSku.length > 0 && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.75rem" }}>
+                                {reposDelSku.map(r => {
+                                  const hoy = new Date();
+                                  const llegada = new Date(r.fecha_llegada);
+                                  const diasHastaLlegada = Math.round((llegada.getTime() - hoy.getTime()) / 86400000);
+                                  const diasDeStock = semanasDeStock !== null ? semanasDeStock * 7 : null;
+                                  const llegaATiempo = diasDeStock === null ? null : diasDeStock >= diasHastaLlegada;
+                                  return (
+                                    <div key={r.id} style={{
+                                      display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap",
+                                      background: llegaATiempo === false ? "rgba(239,68,68,0.08)" : llegaATiempo === true ? "rgba(16,185,129,0.08)" : "rgba(148,163,184,0.08)",
+                                      border: `1px solid ${llegaATiempo === false ? "rgba(239,68,68,0.3)" : llegaATiempo === true ? "rgba(16,185,129,0.3)" : "var(--border-color)"}`,
+                                      borderRadius: "var(--radius)", padding: "0.5rem 0.75rem", fontSize: "0.8rem",
+                                    }}>
+                                      <i className={`fas ${llegaATiempo === false ? "fa-triangle-exclamation" : llegaATiempo === true ? "fa-circle-check" : "fa-circle-info"}`}
+                                        style={{ color: llegaATiempo === false ? "var(--error-color)" : llegaATiempo === true ? "var(--success-color)" : "var(--text-muted)" }} />
+                                      <span>
+                                        Llegan <strong>{r.cantidad}</strong> unidades el <strong>{new Date(r.fecha_llegada).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" })}</strong>
+                                        {r.nota && <span style={{ color: "var(--text-muted)" }}> — {r.nota}</span>}
+                                        {llegaATiempo === false && diasDeStock !== null && (
+                                          <strong style={{ color: "var(--error-color)" }}> · te quedás sin stock ~{Math.round(diasHastaLlegada - diasDeStock)} días antes de que llegue</strong>
+                                        )}
+                                        {llegaATiempo === true && (
+                                          <strong style={{ color: "var(--success-color)" }}> · llega a tiempo</strong>
+                                        )}
+                                      </span>
+                                      <button
+                                        onClick={() => handleDeleteReposicion(r.id)}
+                                        style={{ marginLeft: "auto", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+                                      >
+                                        <i className="fas fa-trash" />
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {repoForm?.sku === item.sku ? (
+                              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
+                                <div>
+                                  <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Cantidad</label>
+                                  <input type="number" className="sf-input" style={{ width: 100 }}
+                                    value={repoForm.cantidad} onChange={e => setRepoForm({ ...repoForm, cantidad: e.target.value })} />
+                                </div>
+                                <div>
+                                  <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Llega el</label>
+                                  <input type="date" className="sf-input"
+                                    value={repoForm.fecha} onChange={e => setRepoForm({ ...repoForm, fecha: e.target.value })} />
+                                </div>
+                                <div style={{ flex: 1, minWidth: 140 }}>
+                                  <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Nota (opcional)</label>
+                                  <input type="text" className="sf-input" style={{ width: "100%" }}
+                                    value={repoForm.nota} onChange={e => setRepoForm({ ...repoForm, nota: e.target.value })} placeholder="Ej: 2do pedido proveedor X" />
+                                </div>
+                                <button className="sf-btn sf-btn-secondary" onClick={() => setRepoForm(null)}>Cancelar</button>
+                                <button className="sf-btn" onClick={handleAddReposicion} disabled={savingRepo || !repoForm.cantidad || !repoForm.fecha}>
+                                  {savingRepo ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-plus" />} Guardar
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setRepoForm({ sku: item.sku, cantidad: "", fecha: "", nota: "" })}
+                                style={{
+                                  background: "none", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)",
+                                  padding: "0.35rem 0.7rem", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.78rem",
+                                }}
+                              >
+                                <i className="fas fa-plus" /> Cargar envío en camino
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

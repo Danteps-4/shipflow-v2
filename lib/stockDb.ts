@@ -7,10 +7,12 @@ export interface StockItem {
   nombre: string;
   cantidad: number;
   destacado: boolean;
+  importado: boolean;
   updated_at: string;
 }
 
 export type Canal = "tiendanube" | "mercadolibre";
+export type TipoMovimiento = "venta" | "ajuste";
 
 export interface Movimiento {
   id: number;
@@ -18,6 +20,7 @@ export interface Movimiento {
   cantidad: number;
   motivo: string;
   canal: Canal;
+  tipo: TipoMovimiento;
   created_at: string;
 }
 
@@ -82,6 +85,9 @@ export async function initStockTables(): Promise<void> {
   await sql`
     ALTER TABLE stock ADD COLUMN IF NOT EXISTS destacado BOOLEAN NOT NULL DEFAULT false
   `;
+  await sql`
+    ALTER TABLE stock ADD COLUMN IF NOT EXISTS importado BOOLEAN NOT NULL DEFAULT false
+  `;
 
   // Historial de movimientos
   await sql`
@@ -100,6 +106,16 @@ export async function initStockTables(): Promise<void> {
   `;
   await sql`
     ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS canal TEXT NOT NULL DEFAULT 'tiendanube'
+  `;
+
+  // "tipo" distingue con certeza una venta real (deducirStock) de un ajuste
+  // manual (ajustarStock), en vez de depender del texto libre de "motivo".
+  // El backfill clasifica los movimientos históricos que ya son ventas.
+  await sql`
+    ALTER TABLE movimientos ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT 'ajuste'
+  `;
+  await sql`
+    UPDATE movimientos SET tipo = 'venta' WHERE tipo = 'ajuste' AND motivo LIKE 'Venta %'
   `;
 
   // Definición de kits/bundles
@@ -144,6 +160,25 @@ export async function initStockTables(): Promise<void> {
       END IF;
     END $$
   `;
+
+  // Envíos en camino (ej. reposición desde China) por SKU marcado como
+  // "importado", para poder avisar si el stock se va a quebrar antes de
+  // que llegue el próximo envío según el ritmo de venta reciente.
+  await sql`
+    CREATE TABLE IF NOT EXISTS stock_reposiciones (
+      id            SERIAL PRIMARY KEY,
+      store_id      TEXT NOT NULL,
+      sku           TEXT NOT NULL,
+      cantidad      INTEGER NOT NULL,
+      fecha_llegada DATE NOT NULL,
+      nota          TEXT NOT NULL DEFAULT '',
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS stock_reposiciones_store_sku
+    ON stock_reposiciones (store_id, sku)
+  `;
 }
 
 // ─── Stock ────────────────────────────────────────────────────────────────────
@@ -151,7 +186,7 @@ export async function initStockTables(): Promise<void> {
 export async function getStock(storeId: string): Promise<StockItem[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT sku, nombre, cantidad, destacado, updated_at
+    SELECT sku, nombre, cantidad, destacado, importado, updated_at
     FROM stock
     WHERE store_id = ${storeId}
     ORDER BY sku
@@ -163,6 +198,14 @@ export async function setDestacado(storeId: string, sku: string, destacado: bool
   const sql = getDb();
   await sql`
     UPDATE stock SET destacado = ${destacado}
+    WHERE store_id = ${storeId} AND sku = ${sku}
+  `;
+}
+
+export async function setImportado(storeId: string, sku: string, importado: boolean): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE stock SET importado = ${importado}
     WHERE store_id = ${storeId} AND sku = ${sku}
   `;
 }
@@ -325,8 +368,8 @@ export async function deducirStock(
       WHERE store_id = ${storeId} AND sku = ${sku}
     `;
     await sql`
-      INSERT INTO movimientos (store_id, sku, cantidad, motivo, canal, created_at)
-      VALUES (${storeId}, ${sku}, ${-v.cantidad}, ${motivo}, ${canal}, NOW())
+      INSERT INTO movimientos (store_id, sku, cantidad, motivo, canal, tipo, created_at)
+      VALUES (${storeId}, ${sku}, ${-v.cantidad}, ${motivo}, ${canal}, 'venta', NOW())
     `;
   }
 
@@ -356,11 +399,121 @@ export async function ajustarStock(
 export async function getMovimientos(storeId: string, limit = 200): Promise<Movimiento[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT id, sku, cantidad, motivo, canal, created_at
+    SELECT id, sku, cantidad, motivo, canal, tipo, created_at
     FROM movimientos
     WHERE store_id = ${storeId}
     ORDER BY created_at DESC
     LIMIT ${limit}
   `;
   return rows as Movimiento[];
+}
+
+// ─── Ventas semanales ───────────────────────────────────────────────────────
+
+export interface VentaSemana {
+  inicio: string;
+  unidades: number;
+}
+
+export interface VentaSemanalSku {
+  sku: string;
+  nombre: string;
+  semanas: VentaSemana[];
+  total: number;
+}
+
+// Trae las ventas reales (tipo = 'venta') de las últimas `semanas` semanas,
+// agrupadas por SKU y por semana. Devuelve una grilla completa (semanas sin
+// ventas = 0) para que todas las filas tengan las mismas columnas, ordenado
+// por total vendido descendente.
+export async function getVentasSemanales(storeId: string, semanas = 8): Promise<VentaSemanalSku[]> {
+  const sql = getDb();
+
+  const rows = await sql`
+    SELECT
+      m.sku,
+      date_trunc('week', m.created_at)::date AS semana,
+      SUM(-m.cantidad)::int AS unidades
+    FROM movimientos m
+    WHERE m.store_id = ${storeId}
+      AND m.tipo = 'venta'
+      AND m.created_at >= NOW() - (${semanas} || ' weeks')::interval
+    GROUP BY m.sku, semana
+  ` as { sku: string; semana: string | Date; unidades: number }[];
+
+  if (!rows.length) return [];
+
+  const stockRows = await sql`
+    SELECT sku, nombre FROM stock WHERE store_id = ${storeId}
+  ` as { sku: string; nombre: string }[];
+  const nombrePorSku = new Map(stockRows.map(r => [r.sku, r.nombre]));
+
+  // Grilla de inicios de semana (lunes), de más vieja a más nueva.
+  const hoy = new Date();
+  const inicioSemanaActual = new Date(hoy);
+  const dia = (inicioSemanaActual.getUTCDay() + 6) % 7; // lunes = 0
+  inicioSemanaActual.setUTCDate(inicioSemanaActual.getUTCDate() - dia);
+  inicioSemanaActual.setUTCHours(0, 0, 0, 0);
+
+  const inicios: string[] = [];
+  for (let i = semanas - 1; i >= 0; i--) {
+    const d = new Date(inicioSemanaActual);
+    d.setUTCDate(d.getUTCDate() - i * 7);
+    inicios.push(d.toISOString().slice(0, 10));
+  }
+
+  const porSku = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const semanaKey = (r.semana instanceof Date ? r.semana.toISOString() : r.semana).slice(0, 10);
+    if (!porSku.has(r.sku)) porSku.set(r.sku, new Map());
+    porSku.get(r.sku)!.set(semanaKey, r.unidades);
+  }
+
+  const result: VentaSemanalSku[] = [];
+  for (const [sku, semanaMap] of porSku) {
+    const semanasArr = inicios.map(inicio => ({ inicio, unidades: semanaMap.get(inicio) ?? 0 }));
+    const total = semanasArr.reduce((s, x) => s + x.unidades, 0);
+    result.push({ sku, nombre: nombrePorSku.get(sku) ?? "", semanas: semanasArr, total });
+  }
+
+  return result.sort((a, b) => b.total - a.total);
+}
+
+// ─── Reposiciones (envíos en camino) ───────────────────────────────────────
+
+export interface Reposicion {
+  id: number;
+  sku: string;
+  cantidad: number;
+  fecha_llegada: string;
+  nota: string;
+  created_at: string;
+}
+
+export async function getReposiciones(storeId: string): Promise<Reposicion[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, sku, cantidad, fecha_llegada, nota, created_at
+    FROM stock_reposiciones
+    WHERE store_id = ${storeId}
+    ORDER BY fecha_llegada
+  `;
+  return rows as Reposicion[];
+}
+
+export async function createReposicion(
+  storeId: string, sku: string, cantidad: number, fechaLlegada: string, nota: string,
+): Promise<Reposicion> {
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO stock_reposiciones (store_id, sku, cantidad, fecha_llegada, nota, created_at)
+    VALUES (${storeId}, ${sku}, ${cantidad}, ${fechaLlegada}, ${nota}, NOW())
+    RETURNING id, sku, cantidad, fecha_llegada, nota, created_at
+  ` as Reposicion[];
+  return rows[0];
+}
+
+export async function deleteReposicion(storeId: string, id: number): Promise<void> {
+  const sql = getDb();
+  await sql`DELETE FROM stock_reposiciones WHERE store_id = ${storeId} AND id = ${id}`;
 }
