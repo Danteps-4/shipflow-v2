@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
 import { getValidMetaAccessToken } from "@/lib/metaTokens";
-import { getAdInsights } from "@/lib/metaAdsClient";
+import { getCampaignTree } from "@/lib/metaAdsClient";
 
 export const runtime = "nodejs";
 
@@ -18,10 +18,10 @@ export async function GET(req: NextRequest) {
   const hasta = req.nextUrl.searchParams.get("hasta") ?? hoy;
 
   try {
-    const insights = await getAdInsights(token.accessToken, token.adAccountId, desde, hasta);
-    return NextResponse.json({ insights, desde, hasta });
+    const campaigns = await getCampaignTree(token.accessToken, token.adAccountId, desde, hasta);
+    return NextResponse.json({ campaigns, desde, hasta });
   } catch (e) {
-    console.error("[creativo/meta/insights]", e);
+    console.error("[creativo/meta/tree]", e);
     return NextResponse.json({ error: "Error al consultar Meta" }, { status: 502 });
   }
 }

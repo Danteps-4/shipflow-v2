@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const authUrl = new URL("https://www.facebook.com/v21.0/dialog/oauth");
   authUrl.searchParams.set("client_id", process.env.META_APP_ID ?? "");
   authUrl.searchParams.set("redirect_uri", process.env.META_REDIRECT_URI ?? "");
-  authUrl.searchParams.set("scope", "ads_read");
+  authUrl.searchParams.set("scope", "ads_read,ads_management");
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("state", state);
 

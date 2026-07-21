@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
@@ -422,10 +422,9 @@ export default function CreativoPage() {
 
 // ─── Publicidad (Meta Ads) ──────────────────────────────────────────────────
 
-interface AdInsight {
-  adId: string;
-  adName: string;
-  entrega: string;
+type BudgetField = "daily_budget" | "lifetime_budget";
+
+interface MetaMetricas {
   gasto: number;
   impresiones: number;
   clics: number;
@@ -437,15 +436,30 @@ interface AdInsight {
   roas: number;
 }
 
+interface MetaNode extends MetaMetricas {
+  id: string;
+  name: string;
+  status: string;
+  effectiveStatus: string;
+  dailyBudget: number | null;
+  lifetimeBudget: number | null;
+}
+
+type AdNode = MetaNode;
+interface AdSetNode extends MetaNode { ads: AdNode[] }
+interface CampaignNode extends MetaNode { adsets: AdSetNode[] }
+
 const ENTREGA_LABEL: Record<string, { label: string; color: string }> = {
-  ACTIVE:           { label: "Activo",           color: "var(--success-color)" },
-  PAUSED:           { label: "Pausado",          color: "var(--text-muted)" },
-  DELETED:          { label: "Eliminado",        color: "var(--error-color)" },
-  ARCHIVED:         { label: "Archivado",        color: "var(--text-muted)" },
-  PENDING_REVIEW:   { label: "En revisión",      color: "#f59e0b" },
-  DISAPPROVED:      { label: "Rechazado",        color: "var(--error-color)" },
-  ADSET_PAUSED:     { label: "Conjunto pausado", color: "var(--text-muted)" },
-  CAMPAIGN_PAUSED:  { label: "Campaña pausada",  color: "var(--text-muted)" },
+  ACTIVE:          { label: "Activo",           color: "var(--success-color)" },
+  PAUSED:          { label: "Pausado",          color: "var(--text-muted)" },
+  DELETED:         { label: "Eliminado",        color: "var(--error-color)" },
+  ARCHIVED:        { label: "Archivado",        color: "var(--text-muted)" },
+  PENDING_REVIEW:  { label: "En revisión",      color: "#f59e0b" },
+  DISAPPROVED:     { label: "Rechazado",        color: "var(--error-color)" },
+  ADSET_PAUSED:    { label: "Conjunto pausado", color: "var(--text-muted)" },
+  CAMPAIGN_PAUSED: { label: "Campaña pausada",  color: "var(--text-muted)" },
+  IN_PROCESS:      { label: "En proceso",       color: "#f59e0b" },
+  WITH_ISSUES:     { label: "Con problemas",    color: "var(--error-color)" },
 };
 
 function fechaHoyMeta(): string {
@@ -460,14 +474,122 @@ function fmtMoneyMeta(n: number): string {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
 }
 
+interface EditBudgetState {
+  nodeId: string;
+  field: BudgetField;
+  value: string;
+}
+
+interface NodeRowProps {
+  node: MetaNode;
+  nivel: number;
+  expandible: boolean;
+  expandido: boolean;
+  onToggleExpand: () => void;
+  onToggleStatus: () => void;
+  toggling: boolean;
+  editBudget: EditBudgetState | null;
+  onStartEdit: () => void;
+  onChangeEdit: (v: string) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  savingBudget: boolean;
+}
+
+function NodeRow({
+  node, nivel, expandible, expandido, onToggleExpand, onToggleStatus, toggling,
+  editBudget, onStartEdit, onChangeEdit, onCancelEdit, onSaveEdit, savingBudget,
+}: NodeRowProps) {
+  const entrega = ENTREGA_LABEL[node.effectiveStatus] ?? { label: node.effectiveStatus, color: "var(--text-muted)" };
+  const isActive = node.status === "ACTIVE";
+  const isEditingThis = editBudget?.nodeId === node.id;
+  const budgetField: BudgetField | null = node.dailyBudget !== null ? "daily_budget" : node.lifetimeBudget !== null ? "lifetime_budget" : null;
+  const budgetValue = budgetField === "daily_budget" ? node.dailyBudget : budgetField === "lifetime_budget" ? node.lifetimeBudget : null;
+
+  return (
+    <tr style={{ background: nivel === 1 ? "rgba(255,255,255,0.02)" : nivel === 2 ? "rgba(255,255,255,0.04)" : undefined }}>
+      <td style={{ width: 24 }}>
+        {expandible && (
+          <button onClick={onToggleExpand} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 0 }}>
+            <i className={`fas fa-chevron-${expandido ? "down" : "right"}`} style={{ fontSize: "0.7rem" }} />
+          </button>
+        )}
+      </td>
+      <td style={{ width: 50 }}>
+        <button
+          onClick={onToggleStatus}
+          disabled={toggling}
+          title={isActive ? "Pausar" : "Activar"}
+          style={{
+            width: 34, height: 18, borderRadius: 999, border: "none", cursor: "pointer",
+            background: isActive ? "var(--success-color)" : "var(--border-color)",
+            position: "relative", transition: "background 0.15s", opacity: toggling ? 0.5 : 1,
+          }}
+        >
+          <span style={{
+            position: "absolute", top: 2, left: isActive ? 18 : 2, width: 14, height: 14,
+            borderRadius: "50%", background: "#fff", transition: "left 0.15s",
+          }} />
+        </button>
+      </td>
+      <td style={{ paddingLeft: `${1 + nivel * 1.5}rem`, whiteSpace: "normal" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", background: entrega.color, flexShrink: 0 }} title={entrega.label} />
+          {node.name}
+        </span>
+      </td>
+      <td>
+        {isEditingThis ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+            <input
+              type="number" className="sf-input" style={{ width: 90 }} value={editBudget!.value}
+              onChange={e => onChangeEdit(e.target.value)} autoFocus
+            />
+            <button onClick={onSaveEdit} disabled={savingBudget} style={{ background: "none", border: "none", color: "var(--success-color)", cursor: "pointer" }}>
+              <i className="fas fa-check" />
+            </button>
+            <button onClick={onCancelEdit} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+              <i className="fas fa-times" />
+            </button>
+          </div>
+        ) : budgetField ? (
+          <button onClick={onStartEdit} style={{ background: "none", border: "none", color: "var(--text-color)", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem", whiteSpace: "nowrap" }}>
+            <i className="fas fa-pen" style={{ fontSize: "0.7rem", color: "var(--text-muted)" }} />
+            {fmtMoneyMeta(budgetValue ?? 0)} <span style={{ color: "var(--text-muted)", fontSize: "0.72rem" }}>{budgetField === "daily_budget" ? "/día" : "/total"}</span>
+          </button>
+        ) : (
+          <span style={{ color: "var(--text-muted)" }}>–</span>
+        )}
+      </td>
+      <td style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>{fmtMoneyMeta(node.gasto)}</td>
+      <td style={{ textAlign: "right" }}>{node.impresiones.toLocaleString("es-AR")}</td>
+      <td style={{ textAlign: "right" }}>{node.clics.toLocaleString("es-AR")}</td>
+      <td style={{ textAlign: "right" }}>{node.ctr.toFixed(2)}%</td>
+      <td style={{ textAlign: "right" }}>{node.agregadosCarrito}</td>
+      <td style={{ textAlign: "right" }}>{node.pagosIniciados}</td>
+      <td style={{ textAlign: "right" }}>{node.compras}</td>
+      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>{fmtMoneyMeta(node.valorCompras)}</td>
+      <td style={{ textAlign: "right", fontWeight: 700, color: node.roas >= 1 ? "var(--success-color)" : "var(--error-color)" }}>
+        {node.roas.toFixed(2)}x
+      </td>
+    </tr>
+  );
+}
+
 function MetaAdsPanel() {
-  const [connected, setConnected]     = useState<boolean | null>(null);
+  const [connected, setConnected]       = useState<boolean | null>(null);
   const [nombreCuenta, setNombreCuenta] = useState("");
-  const [desde, setDesde]             = useState(() => fechaHaceDias(7));
-  const [hasta, setHasta]             = useState(() => fechaHoyMeta());
-  const [insights, setInsights]       = useState<AdInsight[]>([]);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState<string | null>(null);
+  const [desde, setDesde]               = useState(() => fechaHaceDias(7));
+  const [hasta, setHasta]               = useState(() => fechaHoyMeta());
+  const [campaigns, setCampaigns]       = useState<CampaignNode[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+  const [filtro, setFiltro]             = useState("");
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const [expandedAdsets, setExpandedAdsets]       = useState<Set<string>>(new Set());
+  const [togglingIds, setTogglingIds]   = useState<Set<string>>(new Set());
+  const [editBudget, setEditBudget]     = useState<EditBudgetState | null>(null);
+  const [savingBudget, setSavingBudget] = useState(false);
 
   useEffect(() => { checkStatus(); }, []);
 
@@ -477,20 +599,20 @@ function MetaAdsPanel() {
       const data = await res.json();
       setConnected(!!data.connected);
       setNombreCuenta(data.nombreCuenta ?? "");
-      if (data.connected) fetchInsights(desde, hasta);
+      if (data.connected) fetchTree(desde, hasta);
     } catch {
       setConnected(false);
     }
   }
 
-  async function fetchInsights(d: string, h: string) {
+  async function fetchTree(d: string, h: string) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/creativo/meta/insights?desde=${d}&hasta=${h}`);
+      const res = await fetch(`/api/creativo/meta/tree?desde=${d}&hasta=${h}`);
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Error al consultar Meta"); setInsights([]); return; }
-      setInsights(data.insights ?? []);
+      if (!res.ok) { setError(data.error ?? "Error al consultar Meta"); setCampaigns([]); return; }
+      setCampaigns(data.campaigns ?? []);
     } finally {
       setLoading(false);
     }
@@ -500,7 +622,7 @@ function MetaAdsPanel() {
     if (!confirm("¿Desconectar la cuenta de Meta?")) return;
     await fetch("/api/creativo/meta/disconnect", { method: "POST" });
     setConnected(false);
-    setInsights([]);
+    setCampaigns([]);
   }
 
   function aplicarPreset(dias: number) {
@@ -508,7 +630,68 @@ function MetaAdsPanel() {
     const h = fechaHoyMeta();
     setDesde(d);
     setHasta(h);
-    fetchInsights(d, h);
+    fetchTree(d, h);
+  }
+
+  function toggleExpand(set: Set<string>, setSet: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSet(next);
+  }
+
+  async function handleToggleStatus(node: MetaNode) {
+    const nuevoEstado = node.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    const accion = nuevoEstado === "ACTIVE" ? "activar" : "pausar";
+    if (!confirm(`¿Seguro que querés ${accion} "${node.name}"?`)) return;
+
+    setTogglingIds(prev => new Set(prev).add(node.id));
+    try {
+      const res = await fetch("/api/creativo/meta/node-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodeId: node.id, status: nuevoEstado }),
+      });
+      if (res.ok) {
+        await fetchTree(desde, hasta);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error ?? "Error al actualizar el estado");
+      }
+    } finally {
+      setTogglingIds(prev => { const s = new Set(prev); s.delete(node.id); return s; });
+    }
+  }
+
+  function startEditBudget(node: MetaNode) {
+    const field: BudgetField = node.dailyBudget !== null ? "daily_budget" : "lifetime_budget";
+    const actual = field === "daily_budget" ? node.dailyBudget : node.lifetimeBudget;
+    setEditBudget({ nodeId: node.id, field, value: String(actual ?? "") });
+  }
+
+  async function saveBudget(node: MetaNode) {
+    if (!editBudget) return;
+    const nuevoMonto = Number(editBudget.value);
+    if (!nuevoMonto || nuevoMonto <= 0) return;
+    const actual = editBudget.field === "daily_budget" ? node.dailyBudget : node.lifetimeBudget;
+    if (!confirm(`¿Cambiar el presupuesto de "${node.name}" de ${fmtMoneyMeta(actual ?? 0)} a ${fmtMoneyMeta(nuevoMonto)}?`)) return;
+
+    setSavingBudget(true);
+    try {
+      const res = await fetch("/api/creativo/meta/node-budget", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nodeId: node.id, field: editBudget.field, monto: nuevoMonto }),
+      });
+      if (res.ok) {
+        setEditBudget(null);
+        await fetchTree(desde, hasta);
+      } else {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error ?? "Error al actualizar el presupuesto");
+      }
+    } finally {
+      setSavingBudget(false);
+    }
   }
 
   if (connected === null) {
@@ -533,6 +716,10 @@ function MetaAdsPanel() {
     );
   }
 
+  const campaignsFiltradas = filtro
+    ? campaigns.filter(c => c.name.toLowerCase().includes(filtro.toLowerCase()))
+    : campaigns;
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
@@ -548,7 +735,11 @@ function MetaAdsPanel() {
         </button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "flex-end", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1.25rem" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Filtrar campañas</label>
+          <input type="text" className="sf-input" style={{ width: "100%" }} value={filtro} onChange={e => setFiltro(e.target.value)} placeholder="Filtrar campañas..." />
+        </div>
         <div>
           <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Desde</label>
           <input type="date" className="sf-input" value={desde} onChange={e => setDesde(e.target.value)} />
@@ -557,7 +748,7 @@ function MetaAdsPanel() {
           <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Hasta</label>
           <input type="date" className="sf-input" value={hasta} onChange={e => setHasta(e.target.value)} />
         </div>
-        <button className="sf-btn" onClick={() => fetchInsights(desde, hasta)} disabled={loading}>
+        <button className="sf-btn" onClick={() => fetchTree(desde, hasta)} disabled={loading}>
           {loading ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-magnifying-glass" />} Ver
         </button>
         <div style={{ display: "flex", gap: "0.4rem" }}>
@@ -580,20 +771,22 @@ function MetaAdsPanel() {
         </div>
       )}
 
-      {!loading && !error && insights.length === 0 && (
+      {!loading && !error && campaignsFiltradas.length === 0 && (
         <div className="sf-empty">
-          <i className="fas fa-chart-line sf-empty-icon" />
-          <p style={{ fontWeight: 600, color: "var(--text-color)" }}>Sin datos para este período</p>
+          <i className="fas fa-bullhorn sf-empty-icon" />
+          <p style={{ fontWeight: 600, color: "var(--text-color)" }}>Sin campañas para este período/filtro</p>
         </div>
       )}
 
-      {!loading && insights.length > 0 && (
+      {!loading && campaignsFiltradas.length > 0 && (
         <div className="sf-table-wrap">
           <table className="sf-table">
             <thead>
               <tr>
-                <th>Anuncio</th>
-                <th>Entrega</th>
+                <th style={{ width: 24 }} />
+                <th style={{ width: 50 }}>Estado</th>
+                <th>Nombre</th>
+                <th>Presupuesto</th>
                 <th style={{ textAlign: "right" }}>Gasto</th>
                 <th style={{ textAlign: "right" }}>Impresiones</th>
                 <th style={{ textAlign: "right" }}>Clics</th>
@@ -606,24 +799,66 @@ function MetaAdsPanel() {
               </tr>
             </thead>
             <tbody>
-              {insights.map((row, i) => {
-                const entrega = ENTREGA_LABEL[row.entrega] ?? { label: row.entrega, color: "var(--text-muted)" };
+              {campaignsFiltradas.map(campaign => {
+                const campaignExpanded = expandedCampaigns.has(campaign.id);
                 return (
-                  <tr key={row.adId} className={i % 2 === 0 ? "row-even" : "row-odd"}>
-                    <td>{row.adName}</td>
-                    <td><span style={{ color: entrega.color, fontWeight: 600, fontSize: "0.78rem" }}>{entrega.label}</span></td>
-                    <td style={{ textAlign: "right", fontWeight: 600 }}>{fmtMoneyMeta(row.gasto)}</td>
-                    <td style={{ textAlign: "right" }}>{row.impresiones.toLocaleString("es-AR")}</td>
-                    <td style={{ textAlign: "right" }}>{row.clics.toLocaleString("es-AR")}</td>
-                    <td style={{ textAlign: "right" }}>{row.ctr.toFixed(2)}%</td>
-                    <td style={{ textAlign: "right" }}>{row.agregadosCarrito}</td>
-                    <td style={{ textAlign: "right" }}>{row.pagosIniciados}</td>
-                    <td style={{ textAlign: "right" }}>{row.compras}</td>
-                    <td style={{ textAlign: "right" }}>{fmtMoneyMeta(row.valorCompras)}</td>
-                    <td style={{ textAlign: "right", fontWeight: 700, color: row.roas >= 1 ? "var(--success-color)" : "var(--error-color)" }}>
-                      {row.roas.toFixed(2)}x
-                    </td>
-                  </tr>
+                  <Fragment key={campaign.id}>
+                    <NodeRow
+                      node={campaign}
+                      nivel={0}
+                      expandible={campaign.adsets.length > 0}
+                      expandido={campaignExpanded}
+                      onToggleExpand={() => toggleExpand(expandedCampaigns, setExpandedCampaigns, campaign.id)}
+                      onToggleStatus={() => handleToggleStatus(campaign)}
+                      toggling={togglingIds.has(campaign.id)}
+                      editBudget={editBudget}
+                      onStartEdit={() => startEditBudget(campaign)}
+                      onChangeEdit={v => setEditBudget(prev => prev && { ...prev, value: v })}
+                      onCancelEdit={() => setEditBudget(null)}
+                      onSaveEdit={() => saveBudget(campaign)}
+                      savingBudget={savingBudget}
+                    />
+                    {campaignExpanded && campaign.adsets.map(adset => {
+                      const adsetExpanded = expandedAdsets.has(adset.id);
+                      return (
+                        <Fragment key={adset.id}>
+                          <NodeRow
+                            node={adset}
+                            nivel={1}
+                            expandible={adset.ads.length > 0}
+                            expandido={adsetExpanded}
+                            onToggleExpand={() => toggleExpand(expandedAdsets, setExpandedAdsets, adset.id)}
+                            onToggleStatus={() => handleToggleStatus(adset)}
+                            toggling={togglingIds.has(adset.id)}
+                            editBudget={editBudget}
+                            onStartEdit={() => startEditBudget(adset)}
+                            onChangeEdit={v => setEditBudget(prev => prev && { ...prev, value: v })}
+                            onCancelEdit={() => setEditBudget(null)}
+                            onSaveEdit={() => saveBudget(adset)}
+                            savingBudget={savingBudget}
+                          />
+                          {adsetExpanded && adset.ads.map(ad => (
+                            <NodeRow
+                              key={ad.id}
+                              node={ad}
+                              nivel={2}
+                              expandible={false}
+                              expandido={false}
+                              onToggleExpand={() => {}}
+                              onToggleStatus={() => handleToggleStatus(ad)}
+                              toggling={togglingIds.has(ad.id)}
+                              editBudget={editBudget}
+                              onStartEdit={() => startEditBudget(ad)}
+                              onChangeEdit={v => setEditBudget(prev => prev && { ...prev, value: v })}
+                              onCancelEdit={() => setEditBudget(null)}
+                              onSaveEdit={() => saveBudget(ad)}
+                              savingBudget={savingBudget}
+                            />
+                          ))}
+                        </Fragment>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </tbody>
