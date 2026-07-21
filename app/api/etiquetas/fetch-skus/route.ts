@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { requireModule } from "@/lib/permissions";
+import { initPedidoExtrasTables, getExtrasPorOrdenes } from "@/lib/pedidoExtrasDb";
 
 export const runtime = "nodejs";
 
@@ -76,6 +77,20 @@ export async function POST(req: NextRequest) {
     // Respect TN rate limits between batches
     if (i + BATCH < orderNumbers.length) {
       await new Promise(resolve => setTimeout(resolve, 250));
+    }
+  }
+
+  // Sumar los extras guardados a mano (ej: un accesorio agregado después de
+  // la compra) para cada pedido pedido, incluso si Tienda Nube no tiene
+  // ningún producto propio para ese número (pedido con solo un extra manual).
+  const storeId = String(tokens.user_id);
+  await initPedidoExtrasTables();
+  const extrasPorOrden = await getExtrasPorOrdenes(storeId, orderNumbers);
+  for (const [orden, extras] of Object.entries(extrasPorOrden)) {
+    if (!extras.length) continue;
+    if (!result[orden]) result[orden] = { nombre: "", skus: [] };
+    for (const extra of extras) {
+      result[orden].skus.push({ sku: extra.sku, cantidad: extra.cantidad });
     }
   }
 

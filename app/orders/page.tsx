@@ -6,6 +6,7 @@ import type { TnOrder, OrdersApiResponse } from "@/types/orders";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
+import OrderExtrasModal, { PedidoExtra } from "@/components/OrderExtrasModal";
 
 // ── Filter presets ───────────────────────────────────────────────
 type FilterPreset = "all" | "paid" | "to_ship" | "shipped" | "delivered";
@@ -83,6 +84,9 @@ export default function OrdersPage() {
   const [error, setError]       = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
 
+  const [extras, setExtras]           = useState<Record<string, PedidoExtra[]>>({});
+  const [extrasModalOrden, setExtrasModalOrden] = useState<number | null>(null);
+
   const router = useRouter();
   const totalPages = Math.ceil(total / PER_PAGE);
 
@@ -128,6 +132,16 @@ export default function OrdersPage() {
   }, [connected, preset, page, debouncedSearch]);
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
+
+  // Extras guardados a mano por pedido (se suman solos al generar etiquetas)
+  useEffect(() => {
+    if (!orders.length) { setExtras({}); return; }
+    const numeros = orders.map(o => o.number).join(",");
+    fetch(`/api/pedidos/extras?numeros=${numeros}`)
+      .then(r => r.json())
+      .then(d => setExtras(d.extras ?? {}))
+      .catch(() => {});
+  }, [orders]);
 
   function toggleAll() {
     if (selected.size === orders.length) {
@@ -341,9 +355,32 @@ export default function OrdersPage() {
                             <div style={{ fontWeight: 500 }}>{order.contact_name}</div>
                             <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{order.contact_email}</div>
                           </td>
-                          <td style={{ fontSize: "0.78rem", color: "var(--text-muted)", maxWidth: 200 }}
-                            title={productSummary(order.products)}>
-                            {productSummary(order.products)}
+                          <td style={{ fontSize: "0.78rem", color: "var(--text-muted)", maxWidth: 240 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", flexWrap: "wrap" }}>
+                              <span title={productSummary(order.products)}>{productSummary(order.products)}</span>
+                              {(extras[String(order.number)] ?? []).map(e => (
+                                <span key={e.id} title={e.nota || undefined} style={{
+                                  display: "inline-flex", alignItems: "center", gap: "0.2rem",
+                                  background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.35)",
+                                  borderRadius: "var(--radius)", padding: "0.05rem 0.4rem",
+                                  fontSize: "0.72rem", fontFamily: "monospace", whiteSpace: "nowrap",
+                                }}>
+                                  {e.sku}{e.cantidad > 1 ? ` ×${e.cantidad}` : ""}
+                                </span>
+                              ))}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setExtrasModalOrden(order.number); }}
+                                title="Agregar producto a este pedido"
+                                style={{
+                                  background: "none", border: "1px dashed var(--border-color)",
+                                  borderRadius: "var(--radius)", color: "var(--text-muted)",
+                                  cursor: "pointer", padding: "0.05rem 0.35rem", fontSize: "0.7rem",
+                                  lineHeight: 1.4,
+                                }}
+                              >
+                                <i className="fas fa-plus" />
+                              </button>
+                            </div>
                           </td>
                           <td style={{ fontSize: "0.78rem", whiteSpace: "nowrap" }}>
                             {order.shipping_address
@@ -398,6 +435,15 @@ export default function OrdersPage() {
         <i className="fas fa-rocket" style={{ color: "var(--primary-color)", marginRight: "0.4rem" }} />
         ShipFlow · Procesamiento local · sin servidores · sin login
       </footer>
+
+      {extrasModalOrden !== null && (
+        <OrderExtrasModal
+          numeroOrden={extrasModalOrden}
+          extras={extras[String(extrasModalOrden)] ?? []}
+          onClose={() => setExtrasModalOrden(null)}
+          onChange={(next) => setExtras(prev => ({ ...prev, [String(extrasModalOrden)]: next }))}
+        />
+      )}
     </div>
   );
 }
