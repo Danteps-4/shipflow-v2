@@ -190,7 +190,7 @@ export default function CreativoPage() {
         </div>
       </header>
 
-      <main className="sf-main">
+      <main className="sf-main" style={mainTab === "publicidad" ? { maxWidth: 1700 } : undefined}>
         <div className="sf-container">
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Creativo</h1>
           <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
@@ -585,6 +585,7 @@ function MetaAdsPanel() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState<string | null>(null);
   const [filtro, setFiltro]             = useState("");
+  const [soloActivas, setSoloActivas]   = useState(true);
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const [expandedAdsets, setExpandedAdsets]       = useState<Set<string>>(new Set());
   const [togglingIds, setTogglingIds]   = useState<Set<string>>(new Set());
@@ -716,9 +717,9 @@ function MetaAdsPanel() {
     );
   }
 
-  const campaignsFiltradas = filtro
-    ? campaigns.filter(c => c.name.toLowerCase().includes(filtro.toLowerCase()))
-    : campaigns;
+  const campaignsFiltradas = campaigns
+    .filter(c => !soloActivas || c.status === "ACTIVE")
+    .filter(c => !filtro || c.name.toLowerCase().includes(filtro.toLowerCase()));
 
   return (
     <div>
@@ -740,6 +741,10 @@ function MetaAdsPanel() {
           <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Filtrar campañas</label>
           <input type="text" className="sf-input" style={{ width: "100%" }} value={filtro} onChange={e => setFiltro(e.target.value)} placeholder="Filtrar campañas..." />
         </div>
+        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.82rem", color: "var(--text-color)", paddingBottom: "0.55rem", whiteSpace: "nowrap", cursor: "pointer" }}>
+          <input type="checkbox" checked={soloActivas} onChange={e => setSoloActivas(e.target.checked)} />
+          Solo activas
+        </label>
         <div>
           <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Desde</label>
           <input type="date" className="sf-input" value={desde} onChange={e => setDesde(e.target.value)} />
