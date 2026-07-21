@@ -43,6 +43,13 @@ const GROUPS: NavGroup[] = [
       { href: "/finanzas", icon: "fas fa-chart-pie", label: "Gastos y Suscripciones" },
     ],
   },
+  {
+    label: "Creativo",
+    module: "creativo",
+    links: [
+      { href: "/creativo", icon: "fas fa-clapperboard", label: "Ángulos, guiones y formatos" },
+    ],
+  },
 ];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {

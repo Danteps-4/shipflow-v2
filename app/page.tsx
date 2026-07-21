@@ -103,6 +103,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Creativo",
+    module: "creativo" as ModuleKey,
+    tools: [
+      {
+        href: "/creativo",
+        icon: "fas fa-clapperboard",
+        color: "#ec4899",
+        title: "Ángulos, guiones y formatos",
+        description: "Biblioteca de ángulos, guiones ganadores y formatos que ya funcionaron, con sus imágenes y videos de referencia.",
+        tags: ["Ángulos", "Guiones", "Formatos"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

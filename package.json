@@ -13,6 +13,7 @@
     "@types/bcryptjs": "^3.0.0",
     "@types/papaparse": "^5.5.2",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.10.0",
     "jose": "^6.2.2",
     "next": "^13.5.8",
     "papaparse": "^5.5.3",
