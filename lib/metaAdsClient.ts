@@ -3,6 +3,7 @@ const META_GRAPH_URL = "https://graph.facebook.com/v21.0";
 export interface MetaMetricas {
   gasto: number;
   impresiones: number;
+  alcance: number;
   clics: number;
   ctr: number;
   agregadosCarrito: number;
@@ -47,6 +48,7 @@ interface RawInsightRow {
   ad_id?: string;
   spend?: string;
   impressions?: string;
+  reach?: string;
   clicks?: string;
   ctr?: string;
   actions?: RawAction[];
@@ -55,7 +57,7 @@ interface RawInsightRow {
 }
 
 const METRICAS_VACIAS: MetaMetricas = {
-  gasto: 0, impresiones: 0, clics: 0, ctr: 0,
+  gasto: 0, impresiones: 0, alcance: 0, clics: 0, ctr: 0,
   agregadosCarrito: 0, pagosIniciados: 0, compras: 0, valorCompras: 0, roas: 0,
 };
 
@@ -76,6 +78,7 @@ function metricasDesdeInsight(row: RawInsightRow | undefined): MetaMetricas {
   return {
     gasto: Number(row.spend ?? 0),
     impresiones: Number(row.impressions ?? 0),
+    alcance: Number(row.reach ?? 0),
     clics: Number(row.clicks ?? 0),
     ctr: Number(row.ctr ?? 0),
     agregadosCarrito: pickAction(row.actions, ["omni_add_to_cart", "add_to_cart"]),
@@ -96,7 +99,7 @@ async function fetchList<T>(url: URL): Promise<T[]> {
 function insightsUrl(adAccountId: string, level: "campaign" | "adset" | "ad", idField: string, desde: string, hasta: string): URL {
   const url = new URL(`${META_GRAPH_URL}/act_${adAccountId}/insights`);
   url.searchParams.set("level", level);
-  url.searchParams.set("fields", `${idField},spend,impressions,clicks,ctr,actions,action_values,purchase_roas`);
+  url.searchParams.set("fields", `${idField},spend,impressions,reach,clicks,ctr,actions,action_values,purchase_roas`);
   url.searchParams.set("time_range", JSON.stringify({ since: desde, until: hasta }));
   url.searchParams.set("limit", "500");
   return url;

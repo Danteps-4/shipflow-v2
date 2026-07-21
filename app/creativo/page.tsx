@@ -427,6 +427,7 @@ type BudgetField = "daily_budget" | "lifetime_budget";
 interface MetaMetricas {
   gasto: number;
   impresiones: number;
+  alcance: number;
   clics: number;
   ctr: number;
   agregadosCarrito: number;
@@ -474,6 +475,63 @@ function fmtMoneyMeta(n: number): string {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
 }
 
+interface ColumnDef {
+  key: string;
+  label: string;
+  format: (n: MetaNode) => string;
+}
+
+// Catálogo de métricas disponibles. Las derivadas (CPC, CPM, frecuencia,
+// costo por carrito/compra) no vienen directo de Meta — se calculan acá a
+// partir de los números crudos que sí trae la API, tanto para cada fila
+// como para la fila de totales (mismo cálculo, mismas funciones).
+const METRIC_COLUMNS: ColumnDef[] = [
+  { key: "gasto",            label: "Gasto",            format: n => fmtMoneyMeta(n.gasto) },
+  { key: "alcance",          label: "Alcance",          format: n => n.alcance.toLocaleString("es-AR") },
+  { key: "frecuencia",       label: "Frecuencia",       format: n => n.alcance ? (n.impresiones / n.alcance).toFixed(2) : "—" },
+  { key: "impresiones",      label: "Impresiones",      format: n => n.impresiones.toLocaleString("es-AR") },
+  { key: "clics",            label: "Clics",            format: n => n.clics.toLocaleString("es-AR") },
+  { key: "ctr",              label: "CTR",              format: n => `${n.ctr.toFixed(2)}%` },
+  { key: "cpc",              label: "CPC",              format: n => fmtMoneyMeta(n.clics ? n.gasto / n.clics : 0) },
+  { key: "cpm",              label: "CPM",              format: n => fmtMoneyMeta(n.impresiones ? (n.gasto / n.impresiones) * 1000 : 0) },
+  { key: "agregadosCarrito", label: "Carritos",         format: n => String(n.agregadosCarrito) },
+  { key: "costoCarrito",     label: "Costo carrito",    format: n => fmtMoneyMeta(n.agregadosCarrito ? n.gasto / n.agregadosCarrito : 0) },
+  { key: "pagosIniciados",   label: "Pagos iniciados",  format: n => String(n.pagosIniciados) },
+  { key: "compras",          label: "Compras",          format: n => String(n.compras) },
+  { key: "costoPorCompra",   label: "Costo por compra", format: n => fmtMoneyMeta(n.compras ? n.gasto / n.compras : 0) },
+  { key: "valorCompras",     label: "Valor compras",    format: n => fmtMoneyMeta(n.valorCompras) },
+  { key: "roas",             label: "ROAS",             format: n => `${n.roas.toFixed(2)}x` },
+];
+
+const DEFAULT_COLUMN_KEYS = [
+  "gasto", "impresiones", "clics", "ctr", "agregadosCarrito", "pagosIniciados", "compras", "valorCompras", "roas",
+];
+
+const COLUMNAS_STORAGE_KEY = "shipflow_meta_columnas";
+
+// Arma un "nodo" sintético con los totales, para poder pasarlo por las
+// mismas funciones de formato que usa cada fila (mismo cálculo, sin
+// duplicar fórmulas entre fila y total).
+function computeTotal(nodes: MetaNode[]): MetaNode {
+  const sum = (f: (n: MetaNode) => number) => nodes.reduce((s, n) => s + f(n), 0);
+  const gasto = sum(n => n.gasto);
+  const impresiones = sum(n => n.impresiones);
+  const clics = sum(n => n.clics);
+  const alcance = sum(n => n.alcance);
+  const valorCompras = sum(n => n.valorCompras);
+  return {
+    id: "__total__", name: "", status: "ACTIVE", effectiveStatus: "ACTIVE",
+    dailyBudget: null, lifetimeBudget: null,
+    gasto, impresiones, alcance, clics,
+    ctr: impresiones ? (clics / impresiones) * 100 : 0,
+    agregadosCarrito: sum(n => n.agregadosCarrito),
+    pagosIniciados: sum(n => n.pagosIniciados),
+    compras: sum(n => n.compras),
+    valorCompras,
+    roas: gasto ? valorCompras / gasto : 0,
+  };
+}
+
 interface EditBudgetState {
   nodeId: string;
   field: BudgetField;
@@ -483,6 +541,7 @@ interface EditBudgetState {
 interface NodeRowProps {
   node: MetaNode;
   nivel: number;
+  columns: ColumnDef[];
   expandible: boolean;
   expandido: boolean;
   onToggleExpand: () => void;
@@ -497,7 +556,7 @@ interface NodeRowProps {
 }
 
 function NodeRow({
-  node, nivel, expandible, expandido, onToggleExpand, onToggleStatus, toggling,
+  node, nivel, columns, expandible, expandido, onToggleExpand, onToggleStatus, toggling,
   editBudget, onStartEdit, onChangeEdit, onCancelEdit, onSaveEdit, savingBudget,
 }: NodeRowProps) {
   const entrega = ENTREGA_LABEL[node.effectiveStatus] ?? { label: node.effectiveStatus, color: "var(--text-muted)" };
@@ -561,17 +620,18 @@ function NodeRow({
           <span style={{ color: "var(--text-muted)" }}>–</span>
         )}
       </td>
-      <td style={{ textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" }}>{fmtMoneyMeta(node.gasto)}</td>
-      <td style={{ textAlign: "right" }}>{node.impresiones.toLocaleString("es-AR")}</td>
-      <td style={{ textAlign: "right" }}>{node.clics.toLocaleString("es-AR")}</td>
-      <td style={{ textAlign: "right" }}>{node.ctr.toFixed(2)}%</td>
-      <td style={{ textAlign: "right" }}>{node.agregadosCarrito}</td>
-      <td style={{ textAlign: "right" }}>{node.pagosIniciados}</td>
-      <td style={{ textAlign: "right" }}>{node.compras}</td>
-      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>{fmtMoneyMeta(node.valorCompras)}</td>
-      <td style={{ textAlign: "right", fontWeight: 700, color: node.roas >= 1 ? "var(--success-color)" : "var(--error-color)" }}>
-        {node.roas.toFixed(2)}x
-      </td>
+      {columns.map(col => (
+        <td
+          key={col.key}
+          style={{
+            textAlign: "right", whiteSpace: "nowrap",
+            fontWeight: col.key === "gasto" ? 600 : col.key === "roas" ? 700 : undefined,
+            color: col.key === "roas" ? (node.roas >= 1 ? "var(--success-color)" : "var(--error-color)") : undefined,
+          }}
+        >
+          {col.format(node)}
+        </td>
+      ))}
     </tr>
   );
 }
@@ -591,8 +651,26 @@ function MetaAdsPanel() {
   const [togglingIds, setTogglingIds]   = useState<Set<string>>(new Set());
   const [editBudget, setEditBudget]     = useState<EditBudgetState | null>(null);
   const [savingBudget, setSavingBudget] = useState(false);
+  const [columnKeys, setColumnKeys]     = useState<string[]>(DEFAULT_COLUMN_KEYS);
+  const [columnasAbiertas, setColumnasAbiertas] = useState(false);
 
-  useEffect(() => { checkStatus(); }, []);
+  useEffect(() => {
+    checkStatus();
+    try {
+      const guardadas = localStorage.getItem(COLUMNAS_STORAGE_KEY);
+      if (guardadas) setColumnKeys(JSON.parse(guardadas));
+    } catch { /* usar default si no se puede leer */ }
+  }, []);
+
+  function toggleColumna(key: string) {
+    setColumnKeys(prev => {
+      const next = prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key];
+      try { localStorage.setItem(COLUMNAS_STORAGE_KEY, JSON.stringify(next)); } catch { /* ignorar */ }
+      return next;
+    });
+  }
+
+  const columnasVisibles = METRIC_COLUMNS.filter(c => columnKeys.includes(c.key));
 
   async function checkStatus() {
     try {
@@ -761,6 +839,32 @@ function MetaAdsPanel() {
           <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPreset(7)} disabled={loading}>Últimos 7 días</button>
           <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPreset(30)} disabled={loading}>Últimos 30 días</button>
         </div>
+        <div style={{ position: "relative" }}>
+          <button className="sf-btn sf-btn-secondary" onClick={() => setColumnasAbiertas(o => !o)}>
+            <i className="fas fa-table-columns" /> Columnas
+          </button>
+          {columnasAbiertas && (
+            <>
+              <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={() => setColumnasAbiertas(false)} />
+              <div style={{
+                position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 901,
+                background: "var(--surface-color)", border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                minWidth: 220, padding: "0.5rem", maxHeight: 320, overflowY: "auto",
+              }}>
+                {METRIC_COLUMNS.map(col => (
+                  <label key={col.key} style={{
+                    display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.35rem 0.5rem",
+                    fontSize: "0.82rem", cursor: "pointer", borderRadius: "4px",
+                  }}>
+                    <input type="checkbox" checked={columnKeys.includes(col.key)} onChange={() => toggleColumna(col.key)} />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -792,15 +896,9 @@ function MetaAdsPanel() {
                 <th style={{ width: 50 }}>Estado</th>
                 <th>Nombre</th>
                 <th>Presupuesto</th>
-                <th style={{ textAlign: "right" }}>Gasto</th>
-                <th style={{ textAlign: "right" }}>Impresiones</th>
-                <th style={{ textAlign: "right" }}>Clics</th>
-                <th style={{ textAlign: "right" }}>CTR</th>
-                <th style={{ textAlign: "right" }}>Carritos</th>
-                <th style={{ textAlign: "right" }}>Pagos iniciados</th>
-                <th style={{ textAlign: "right" }}>Compras</th>
-                <th style={{ textAlign: "right" }}>Valor compras</th>
-                <th style={{ textAlign: "right" }}>ROAS</th>
+                {columnasVisibles.map(col => (
+                  <th key={col.key} style={{ textAlign: "right" }}>{col.label}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -811,6 +909,7 @@ function MetaAdsPanel() {
                     <NodeRow
                       node={campaign}
                       nivel={0}
+                      columns={columnasVisibles}
                       expandible={campaign.adsets.length > 0}
                       expandido={campaignExpanded}
                       onToggleExpand={() => toggleExpand(expandedCampaigns, setExpandedCampaigns, campaign.id)}
@@ -830,6 +929,7 @@ function MetaAdsPanel() {
                           <NodeRow
                             node={adset}
                             nivel={1}
+                            columns={columnasVisibles}
                             expandible={adset.ads.length > 0}
                             expandido={adsetExpanded}
                             onToggleExpand={() => toggleExpand(expandedAdsets, setExpandedAdsets, adset.id)}
@@ -847,6 +947,7 @@ function MetaAdsPanel() {
                               key={ad.id}
                               node={ad}
                               nivel={2}
+                              columns={columnasVisibles}
                               expandible={false}
                               expandido={false}
                               onToggleExpand={() => {}}
@@ -867,6 +968,23 @@ function MetaAdsPanel() {
                 );
               })}
             </tbody>
+            <tfoot>
+              {(() => {
+                const total = computeTotal(campaignsFiltradas);
+                return (
+                  <tr style={{ borderTop: "2px solid var(--border-color)", fontWeight: 700 }}>
+                    <td />
+                    <td />
+                    <td colSpan={2} style={{ color: "var(--text-muted)", fontWeight: 600 }}>
+                      Resultados de {campaignsFiltradas.length} campaña{campaignsFiltradas.length !== 1 ? "s" : ""}
+                    </td>
+                    {columnasVisibles.map(col => (
+                      <td key={col.key} style={{ textAlign: "right", whiteSpace: "nowrap" }}>{col.format(total)}</td>
+                    ))}
+                  </tr>
+                );
+              })()}
+            </tfoot>
           </table>
         </div>
       )}
