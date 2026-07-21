@@ -422,11 +422,19 @@ export interface VentaSemanalSku {
   total: number;
 }
 
-// Trae las ventas reales (tipo = 'venta') de las últimas `semanas` semanas,
-// agrupadas por SKU y por semana. Devuelve una grilla completa (semanas sin
-// ventas = 0) para que todas las filas tengan las mismas columnas, ordenado
-// por total vendido descendente.
-export async function getVentasSemanales(storeId: string, semanas = 8): Promise<VentaSemanalSku[]> {
+function inicioDeSemana(d: Date): Date {
+  const r = new Date(d);
+  const dia = (r.getUTCDay() + 6) % 7; // lunes = 0
+  r.setUTCDate(r.getUTCDate() - dia);
+  r.setUTCHours(0, 0, 0, 0);
+  return r;
+}
+
+// Trae las ventas reales (tipo = 'venta') entre `desde` y `hasta` (inclusive,
+// "YYYY-MM-DD"), agrupadas por SKU y por semana. Devuelve una grilla completa
+// (semanas sin ventas = 0) para que todas las filas tengan las mismas
+// columnas, ordenado por total vendido descendente.
+export async function getVentasSemanales(storeId: string, desde: string, hasta: string): Promise<VentaSemanalSku[]> {
   const sql = getDb();
 
   const rows = await sql`
@@ -437,7 +445,8 @@ export async function getVentasSemanales(storeId: string, semanas = 8): Promise<
     FROM movimientos m
     WHERE m.store_id = ${storeId}
       AND m.tipo = 'venta'
-      AND m.created_at >= NOW() - (${semanas} || ' weeks')::interval
+      AND m.created_at >= ${desde}::date
+      AND m.created_at < (${hasta}::date + INTERVAL '1 day')
     GROUP BY m.sku, semana
   ` as { sku: string; semana: string | Date; unidades: number }[];
 
@@ -448,17 +457,12 @@ export async function getVentasSemanales(storeId: string, semanas = 8): Promise<
   ` as { sku: string; nombre: string }[];
   const nombrePorSku = new Map(stockRows.map(r => [r.sku, r.nombre]));
 
-  // Grilla de inicios de semana (lunes), de más vieja a más nueva.
-  const hoy = new Date();
-  const inicioSemanaActual = new Date(hoy);
-  const dia = (inicioSemanaActual.getUTCDay() + 6) % 7; // lunes = 0
-  inicioSemanaActual.setUTCDate(inicioSemanaActual.getUTCDate() - dia);
-  inicioSemanaActual.setUTCHours(0, 0, 0, 0);
+  // Grilla de inicios de semana (lunes) entre desde y hasta, inclusive.
+  const desdeSemana = inicioDeSemana(new Date(`${desde}T00:00:00Z`));
+  const hastaSemana = inicioDeSemana(new Date(`${hasta}T00:00:00Z`));
 
   const inicios: string[] = [];
-  for (let i = semanas - 1; i >= 0; i--) {
-    const d = new Date(inicioSemanaActual);
-    d.setUTCDate(d.getUTCDate() - i * 7);
+  for (const d = new Date(desdeSemana); d <= hastaSemana; d.setUTCDate(d.getUTCDate() + 7)) {
     inicios.push(d.toISOString().slice(0, 10));
   }
 

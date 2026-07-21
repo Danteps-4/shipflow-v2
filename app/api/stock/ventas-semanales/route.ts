@@ -21,7 +21,14 @@ export async function GET(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
+  const hoy = new Date();
+  const hastaDefault = hoy.toISOString().slice(0, 10);
+  const desdeDefault = new Date(hoy.getTime() - 8 * 7 * 86400000).toISOString().slice(0, 10);
+  let desde = req.nextUrl.searchParams.get("desde") ?? desdeDefault;
+  let hasta = req.nextUrl.searchParams.get("hasta") ?? hastaDefault;
+  if (desde > hasta) [desde, hasta] = [hasta, desde];
+
   await initStockTables();
-  const ventas = await getVentasSemanales(storeId);
-  return NextResponse.json({ ventas });
+  const ventas = await getVentasSemanales(storeId, desde, hasta);
+  return NextResponse.json({ ventas, desde, hasta });
 }

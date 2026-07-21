@@ -5,6 +5,14 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
+function fechaHoy(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function fechaHaceSemanas(semanas: number): string {
+  return new Date(Date.now() - semanas * 7 * 86400000).toISOString().slice(0, 10);
+}
+
 interface StockItem {
   sku: string;
   nombre: string;
@@ -95,6 +103,9 @@ export default function StockPage() {
   // Ventas semanales + reposiciones
   const [ventas, setVentas]                 = useState<VentaSemanalSku[]>([]);
   const [ventasLoading, setVentasLoading]   = useState(false);
+  const [ventasCargadas, setVentasCargadas] = useState(false);
+  const [ventasDesde, setVentasDesde]       = useState(() => fechaHaceSemanas(8));
+  const [ventasHasta, setVentasHasta]       = useState(() => fechaHoy());
   const [reposiciones, setReposiciones]     = useState<Reposicion[]>([]);
   const [repoForm, setRepoForm] = useState<{ sku: string; cantidad: string; fecha: string; nota: string } | null>(null);
   const [savingRepo, setSavingRepo]         = useState(false);
@@ -102,21 +113,30 @@ export default function StockPage() {
   useEffect(() => { fetchAll(); }, []);
   useEffect(() => {
     if (tab === "movimientos" && movimientos.length === 0) fetchMovimientos();
-    if (tab === "ventas" && ventas.length === 0) fetchVentas();
+    if (tab === "ventas" && !ventasCargadas) fetchVentas(ventasDesde, ventasHasta);
   }, [tab]);
 
-  async function fetchVentas() {
+  async function fetchVentas(desde: string, hasta: string) {
     setVentasLoading(true);
     try {
       const [rVentas, rRepo] = await Promise.all([
-        fetch("/api/stock/ventas-semanales"),
+        fetch(`/api/stock/ventas-semanales?desde=${desde}&hasta=${hasta}`),
         fetch("/api/stock/reposiciones"),
       ]);
       if (rVentas.ok) setVentas((await rVentas.json()).ventas ?? []);
       if (rRepo.ok) setReposiciones((await rRepo.json()).reposiciones ?? []);
+      setVentasCargadas(true);
     } finally {
       setVentasLoading(false);
     }
+  }
+
+  function aplicarPreset(semanas: number) {
+    const desde = fechaHaceSemanas(semanas);
+    const hasta = fechaHoy();
+    setVentasDesde(desde);
+    setVentasHasta(hasta);
+    fetchVentas(desde, hasta);
   }
 
   async function handleAddReposicion() {
@@ -730,6 +750,25 @@ export default function StockPage() {
           {/* ── TAB VENTAS ── */}
           {tab === "ventas" && (
             <>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1.25rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Desde</label>
+                  <input type="date" className="sf-input" value={ventasDesde} onChange={e => setVentasDesde(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Hasta</label>
+                  <input type="date" className="sf-input" value={ventasHasta} onChange={e => setVentasHasta(e.target.value)} />
+                </div>
+                <button className="sf-btn" onClick={() => fetchVentas(ventasDesde, ventasHasta)} disabled={ventasLoading}>
+                  {ventasLoading ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-magnifying-glass" />} Ver
+                </button>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPreset(4)} disabled={ventasLoading}>Últimas 4 semanas</button>
+                  <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPreset(8)} disabled={ventasLoading}>Últimas 8 semanas</button>
+                  <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPreset(12)} disabled={ventasLoading}>Últimas 12 semanas</button>
+                </div>
+              </div>
+
               {ventasLoading && (
                 <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
                   <i className="fas fa-spinner fa-spin" style={{ marginRight: "0.5rem" }} />Cargando ventas...
