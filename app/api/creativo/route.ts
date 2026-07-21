@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, TipoCreativo, NuevoArchivo } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, TipoCreativo, NuevoArchivo, WinnerOverride } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -15,7 +15,8 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
-const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato"];
+const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio"];
+const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
 
 export async function GET(req: NextRequest) {
   const guard = await requireModule(req, "creativo");
@@ -57,6 +58,30 @@ export async function POST(req: NextRequest) {
     createdBy: guard.user.name,
     archivos: archivos ?? [],
   });
+  return NextResponse.json({ creativo });
+}
+
+// Vincula/desvincula un anuncio de Meta a un creativo y/o fija su override
+// manual de winner/regular/malo. Body: { id, metaAdId, winnerOverride }
+// (metaAdId/winnerOverride pueden venir en null para desvincular/volver a auto).
+export async function PATCH(req: NextRequest) {
+  const guard = await requireModule(req, "creativo");
+  if (!guard.ok) return guard.response;
+
+  const storeId = await getStoreId(req);
+  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+
+  const { id, metaAdId, winnerOverride } = await req.json() as {
+    id?: number; metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
+  };
+  if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
+  if (winnerOverride != null && !OVERRIDES_VALIDOS.includes(winnerOverride)) {
+    return NextResponse.json({ error: "winnerOverride inválido" }, { status: 400 });
+  }
+
+  await initCreativoTables();
+  const creativo = await updateCreativoMeta(storeId, Number(id), metaAdId ?? null, winnerOverride ?? null);
+  if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ creativo });
 }
 

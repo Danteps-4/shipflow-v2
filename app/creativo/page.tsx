@@ -5,12 +5,13 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
-type Tipo = "angulo" | "guion" | "formato";
+type Tipo = "angulo" | "guion" | "formato" | "anuncio";
 
 const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string }> = {
   angulo:  { label: "Ángulos",  singular: "ángulo",  icon: "fas fa-arrows-turn-to-dots" },
   guion:   { label: "Guiones",  singular: "guion",   icon: "fas fa-file-lines" },
   formato: { label: "Formatos", singular: "formato", icon: "fas fa-clapperboard" },
+  anuncio: { label: "Anuncios", singular: "anuncio", icon: "fas fa-rectangle-ad" },
 };
 
 interface CreativoArchivo {
@@ -19,6 +20,8 @@ interface CreativoArchivo {
   public_id: string;
   tipo_archivo: "image" | "video";
 }
+
+type WinnerOverrideFE = "winner" | "regular" | "malo";
 
 interface Creativo {
   id: number;
@@ -29,6 +32,8 @@ interface Creativo {
   created_by: string;
   created_at: string;
   archivos: CreativoArchivo[];
+  meta_ad_id: string | null;
+  winner_override: WinnerOverrideFE | null;
 }
 
 interface ArchivoEnCarga {
@@ -252,7 +257,7 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && !error && items.length === 0 && (
+              {!loading && !error && items.length === 0 && tipo !== "anuncio" && (
                 <div className="sf-empty">
                   <i className={`${TIPO_LABEL[tipo].icon} sf-empty-icon`} />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
@@ -264,7 +269,11 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && items.length > 0 && (
+              {!error && tipo === "anuncio" && (
+                <AnunciosGrid items={items} onBorrar={handleBorrar} onRefetch={fetchItems} />
+              )}
+
+              {!loading && items.length > 0 && tipo !== "anuncio" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
                   {items.map(item => (
                     <div key={item.id} style={{
@@ -345,7 +354,8 @@ export default function CreativoPage() {
                     Título *
                   </label>
                   <input type="text" className="sf-input" value={titulo} onChange={e => setTitulo(e.target.value)}
-                    placeholder="Ej: Ángulo dolor -> solución rápida" style={{ width: "100%" }} />
+                    placeholder={tipo === "anuncio" ? "Ej: Video testimonio Marta - hook dolor" : "Ej: Ángulo dolor -> solución rápida"}
+                    style={{ width: "100%" }} />
                 </div>
 
                 <div>
@@ -355,7 +365,7 @@ export default function CreativoPage() {
                   <textarea
                     className="sf-input" value={contenido} onChange={e => setContenido(e.target.value)}
                     rows={5} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
-                    placeholder="El guion, la descripción del ángulo o del formato..."
+                    placeholder={tipo === "anuncio" ? "Notas: copy usado, hook, variante de texto... (opcional)" : "El guion, la descripción del ángulo o del formato..."}
                   />
                 </div>
 
@@ -988,6 +998,390 @@ function MetaAdsPanel() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Anuncios (biblioteca de creativos vinculados a un anuncio de Meta) ─────
+
+interface AdConMetricas {
+  id: string;
+  name: string;
+  campaignName: string;
+  adsetName: string;
+  gasto: number;
+  compras: number;
+  roas: number;
+}
+
+// Recorre el árbol campaña → conjunto → anuncio y devuelve una lista plana
+// de anuncios, para poder buscarlos por nombre y mostrar sus métricas.
+function flattenAds(campaigns: CampaignNode[]): AdConMetricas[] {
+  const out: AdConMetricas[] = [];
+  for (const c of campaigns) {
+    for (const as of c.adsets) {
+      for (const ad of as.ads) {
+        out.push({ id: ad.id, name: ad.name, campaignName: c.name, adsetName: as.name, gasto: ad.gasto, compras: ad.compras, roas: ad.roas });
+      }
+    }
+  }
+  return out;
+}
+
+const UMBRALES_STORAGE_KEY = "shipflow_anuncios_umbrales";
+const DEFAULT_UMBRALES = { winner: 3, malo: 1.5 };
+
+const BADGE_INFO: Record<WinnerOverrideFE, { label: string; bg: string; color: string }> = {
+  winner:  { label: "Winner",  bg: "var(--success-color)", color: "#fff" },
+  regular: { label: "Regular", bg: "#f59e0b",               color: "#000" },
+  malo:    { label: "Malo",    bg: "var(--error-color)",    color: "#fff" },
+};
+
+function calcularBadge(roas: number, umbrales: { winner: number; malo: number }): WinnerOverrideFE {
+  if (roas >= umbrales.winner) return "winner";
+  if (roas < umbrales.malo) return "malo";
+  return "regular";
+}
+
+interface AnunciosGridProps {
+  items: Creativo[];
+  onBorrar: (id: number) => void;
+  onRefetch: () => Promise<void> | void;
+}
+
+function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
+  const [desde, setDesde]             = useState(() => fechaHaceDias(30));
+  const [hasta, setHasta]             = useState(() => fechaHoyMeta());
+  const [campaigns, setCampaigns]     = useState<CampaignNode[]>([]);
+  const [loadingAds, setLoadingAds]   = useState(false);
+  const [errorAds, setErrorAds]       = useState<string | null>(null);
+  const [umbrales, setUmbrales]       = useState(DEFAULT_UMBRALES);
+  const [umbralesAbiertos, setUmbralesAbiertos] = useState(false);
+  const [linkAbiertoId, setLinkAbiertoId] = useState<number | null>(null);
+  const [busqueda, setBusqueda]       = useState("");
+  const [guardandoId, setGuardandoId] = useState<number | null>(null);
+
+  const fetchAds = useCallback(async (d: string, h: string) => {
+    setLoadingAds(true);
+    setErrorAds(null);
+    try {
+      const res = await fetch(`/api/creativo/meta/tree?desde=${d}&hasta=${h}`);
+      const data = await res.json();
+      if (!res.ok) { setErrorAds(data.error ?? "Error al consultar Meta"); setCampaigns([]); return; }
+      setCampaigns(data.campaigns ?? []);
+    } finally {
+      setLoadingAds(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAds(desde, hasta);
+    try {
+      const g = localStorage.getItem(UMBRALES_STORAGE_KEY);
+      if (g) setUmbrales(JSON.parse(g));
+    } catch { /* usar default si no se puede leer */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function aplicarPresetAds(dias: number) {
+    const d = fechaHaceDias(dias);
+    const h = fechaHoyMeta();
+    setDesde(d);
+    setHasta(h);
+    fetchAds(d, h);
+  }
+
+  function guardarUmbrales(next: { winner: number; malo: number }) {
+    setUmbrales(next);
+    try { localStorage.setItem(UMBRALES_STORAGE_KEY, JSON.stringify(next)); } catch { /* ignorar */ }
+  }
+
+  const adsDisponibles = flattenAds(campaigns);
+  const adsPorId = new Map(adsDisponibles.map(a => [a.id, a]));
+  const adsFiltrados = adsDisponibles.filter(a => !busqueda || a.name.toLowerCase().includes(busqueda.toLowerCase()));
+
+  async function patchCreativo(item: Creativo, cambios: { metaAdId?: string | null; winnerOverride?: WinnerOverrideFE | null }) {
+    setGuardandoId(item.id);
+    try {
+      const res = await fetch("/api/creativo", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: item.id,
+          metaAdId: "metaAdId" in cambios ? cambios.metaAdId : item.meta_ad_id,
+          winnerOverride: "winnerOverride" in cambios ? cambios.winnerOverride : item.winner_override,
+        }),
+      });
+      if (res.ok) await onRefetch();
+    } finally {
+      setGuardandoId(null);
+    }
+  }
+
+  async function vincular(item: Creativo, adId: string) {
+    await patchCreativo(item, { metaAdId: adId });
+    setLinkAbiertoId(null);
+    setBusqueda("");
+  }
+
+  async function desvincular(item: Creativo) {
+    if (!confirm("¿Quitar el vínculo con el anuncio de Meta?")) return;
+    await patchCreativo(item, { metaAdId: null });
+  }
+
+  function fmtDateAnuncio(iso: string) {
+    return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  const OPCIONES_OVERRIDE: { key: WinnerOverrideFE | null; label: string }[] = [
+    { key: null, label: "Auto" },
+    { key: "winner", label: "Winner" },
+    { key: "regular", label: "Regular" },
+    { key: "malo", label: "Malo" },
+  ];
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: "0.75rem", flexWrap: "wrap", marginBottom: "1.25rem" }}>
+        <div>
+          <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Desde</label>
+          <input type="date" className="sf-input" value={desde} onChange={e => setDesde(e.target.value)} />
+        </div>
+        <div>
+          <label style={{ display: "block", fontSize: "0.7rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>Hasta</label>
+          <input type="date" className="sf-input" value={hasta} onChange={e => setHasta(e.target.value)} />
+        </div>
+        <button className="sf-btn" onClick={() => fetchAds(desde, hasta)} disabled={loadingAds}>
+          {loadingAds ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-magnifying-glass" />} Ver métricas
+        </button>
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPresetAds(1)} disabled={loadingAds}>Ayer</button>
+          <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPresetAds(7)} disabled={loadingAds}>Últimos 7 días</button>
+          <button className="sf-btn sf-btn-secondary" onClick={() => aplicarPresetAds(30)} disabled={loadingAds}>Últimos 30 días</button>
+        </div>
+        <div style={{ position: "relative", marginLeft: "auto" }}>
+          <button className="sf-btn sf-btn-secondary" onClick={() => setUmbralesAbiertos(o => !o)}>
+            <i className="fas fa-sliders" /> Umbrales winner
+          </button>
+          {umbralesAbiertos && (
+            <>
+              <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={() => setUmbralesAbiertos(false)} />
+              <div style={{
+                position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 901,
+                background: "var(--surface-color)", border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                minWidth: 240, padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.6rem",
+              }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>
+                    ROAS mínimo para &quot;Winner&quot;
+                  </label>
+                  <input
+                    type="number" step="0.1" className="sf-input" style={{ width: "100%" }}
+                    value={umbrales.winner}
+                    onChange={e => guardarUmbrales({ ...umbrales, winner: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.2rem" }}>
+                    ROAS por debajo del cual es &quot;Malo&quot;
+                  </label>
+                  <input
+                    type="number" step="0.1" className="sf-input" style={{ width: "100%" }}
+                    value={umbrales.malo}
+                    onChange={e => guardarUmbrales({ ...umbrales, malo: Number(e.target.value) })}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {errorAds && (
+        <div className="sf-alert sf-alert-warning" style={{ marginBottom: "1rem" }}>
+          <i className="fas fa-circle-exclamation" style={{ flexShrink: 0 }} />
+          <span>{errorAds}</span>
+        </div>
+      )}
+
+      {items.length === 0 && (
+        <div className="sf-empty">
+          <i className="fas fa-rectangle-ad sf-empty-icon" />
+          <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
+            Todavía no cargaste ningún anuncio
+          </p>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+            Hacé click en &quot;Nuevo&quot; para empezar.
+          </p>
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "1rem" }}>
+        {items.map(item => {
+          const ad = item.meta_ad_id ? adsPorId.get(item.meta_ad_id) : undefined;
+          const badge: WinnerOverrideFE | null = item.winner_override ?? (ad ? calcularBadge(ad.roas, umbrales) : null);
+
+          return (
+            <div key={item.id} style={{
+              border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+              padding: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{item.titulo}</h3>
+                <button
+                  onClick={() => onBorrar(item.id)}
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
+                  title="Borrar"
+                >
+                  <i className="fas fa-trash" />
+                </button>
+              </div>
+
+              {item.archivos.length > 0 && (
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  {item.archivos.map(a => (
+                    a.tipo_archivo === "image" ? (
+                      <img key={a.id} src={a.url} alt="" style={{ width: 130, height: 130, objectFit: "cover", borderRadius: "var(--radius)" }} />
+                    ) : (
+                      <video key={a.id} src={a.url} controls style={{ width: 200, height: 130, borderRadius: "var(--radius)" }} />
+                    )
+                  ))}
+                </div>
+              )}
+
+              {item.contenido && (
+                <p style={{ fontSize: "0.8rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item.contenido}</p>
+              )}
+
+              {item.tags.length > 0 && (
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                  {item.tags.map(tag => (
+                    <span key={tag} className="sf-badge" style={{ fontSize: "0.65rem" }}>{tag}</span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                {!item.meta_ad_id ? (
+                  <div style={{ position: "relative" }}>
+                    <button
+                      className="sf-btn sf-btn-secondary" style={{ width: "100%", fontSize: "0.8rem" }}
+                      onClick={() => { setLinkAbiertoId(item.id); setBusqueda(""); }}
+                      disabled={guardandoId === item.id}
+                    >
+                      <i className="fas fa-link" /> Vincular con un anuncio de Meta
+                    </button>
+                    {linkAbiertoId === item.id && (
+                      <>
+                        <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={() => setLinkAbiertoId(null)} />
+                        <div style={{
+                          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 901,
+                          background: "var(--surface-color)", border: "1px solid var(--border-color)",
+                          borderRadius: "var(--radius)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                          padding: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem",
+                        }}>
+                          <input
+                            type="text" className="sf-input" placeholder="Buscar anuncio..." autoFocus
+                            value={busqueda} onChange={e => setBusqueda(e.target.value)}
+                          />
+                          <div style={{ overflowY: "auto", maxHeight: 210 }}>
+                            {adsFiltrados.length === 0 && (
+                              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", padding: "0.5rem" }}>
+                                {loadingAds ? "Cargando anuncios..." : "Sin resultados. Probá con otro rango de fechas."}
+                              </div>
+                            )}
+                            {adsFiltrados.map(a => (
+                              <button
+                                key={a.id}
+                                onClick={() => vincular(item, a.id)}
+                                style={{
+                                  display: "block", width: "100%", textAlign: "left", background: "none", border: "none",
+                                  padding: "0.4rem 0.5rem", borderRadius: "4px", cursor: "pointer", color: "var(--text-color)",
+                                }}
+                              >
+                                <div style={{ fontSize: "0.8rem", fontWeight: 600 }}>{a.name}</div>
+                                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{a.campaignName} · {a.adsetName}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                      <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <i className="fab fa-facebook" style={{ marginRight: "0.3rem" }} />
+                        {ad?.name ?? "Anuncio vinculado"}
+                      </div>
+                      <button
+                        onClick={() => desvincular(item)} disabled={guardandoId === item.id}
+                        style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", whiteSpace: "nowrap" }}
+                      >
+                        Quitar vínculo
+                      </button>
+                    </div>
+
+                    {ad ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem", fontSize: "0.78rem" }}>
+                        <div>Gasto: <strong>{fmtMoneyMeta(ad.gasto)}</strong></div>
+                        <div>Compras: <strong>{ad.compras}</strong></div>
+                        <div>ROAS: <strong>{ad.roas.toFixed(2)}x</strong></div>
+                        <div>Costo/compra: <strong>{fmtMoneyMeta(ad.compras ? ad.gasto / ad.compras : 0)}</strong></div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                        Sin datos de Meta para este período.
+                      </div>
+                    )}
+
+                    {badge && (
+                      <span style={{
+                        display: "inline-flex", alignSelf: "flex-start", alignItems: "center", gap: "0.3rem",
+                        background: BADGE_INFO[badge].bg, color: BADGE_INFO[badge].color,
+                        fontSize: "0.7rem", fontWeight: 700, padding: "0.2rem 0.55rem", borderRadius: 999,
+                      }}>
+                        {BADGE_INFO[badge].label}
+                        {item.winner_override && <i className="fas fa-hand" title="Marcado manualmente" style={{ fontSize: "0.65rem" }} />}
+                      </span>
+                    )}
+
+                    <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                      {OPCIONES_OVERRIDE.map(opt => {
+                        const activo = item.winner_override === opt.key;
+                        const color = opt.key ? BADGE_INFO[opt.key].bg : "var(--primary-color)";
+                        const textColor = opt.key ? BADGE_INFO[opt.key].color : "#fff";
+                        return (
+                          <button
+                            key={opt.label}
+                            onClick={() => patchCreativo(item, { winnerOverride: opt.key })}
+                            disabled={guardandoId === item.id}
+                            style={{
+                              fontSize: "0.68rem", padding: "0.2rem 0.5rem", borderRadius: 999, cursor: "pointer",
+                              border: `1px solid ${activo ? color : "var(--border-color)"}`,
+                              background: activo ? color : "transparent",
+                              color: activo ? textColor : "var(--text-muted)",
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                {item.created_by && <>Cargado por <strong>{item.created_by}</strong> · </>}
+                {fmtDateAnuncio(item.created_at)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
