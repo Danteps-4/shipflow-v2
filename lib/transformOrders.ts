@@ -13,7 +13,7 @@ import { matchProvLocCp, matchSucursal } from "./andreaniMatcher";
 // -------------------------------------------------------------------
 const FIXED_VALUES = {
   paqueteGuardado: "",
-  peso: 200,
+  peso: 1000,
   alto: 5,
   ancho: 20,
   profundidad: 20,
