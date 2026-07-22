@@ -486,13 +486,15 @@ export default function OrdersPage() {
                                 onClick={(e) => { e.stopPropagation(); setExtrasModalOrden(order.number); }}
                                 title="Agregar producto a este pedido"
                                 style={{
-                                  background: "none", border: "1px dashed var(--border-color)",
-                                  borderRadius: "var(--radius)", color: "var(--text-muted)",
-                                  cursor: "pointer", padding: "0.05rem 0.35rem", fontSize: "0.7rem",
-                                  lineHeight: 1.4,
+                                  display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                                  background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.45)",
+                                  borderRadius: "var(--radius)", color: "var(--warning-color)",
+                                  cursor: "pointer", padding: "0.2rem 0.55rem", fontSize: "0.72rem", fontWeight: 700,
+                                  whiteSpace: "nowrap",
                                 }}
                               >
                                 <i className="fas fa-plus" />
+                                SKU
                               </button>
                             </div>
                           </td>
@@ -537,12 +539,15 @@ export default function OrdersPage() {
                                         disabled={guardandoEnvio === order.number}
                                         title={tipoActual === "sucursal" ? "Cambiar sucursal" : "Cambiar dirección"}
                                         style={{
-                                          background: "none", border: "1px dashed var(--border-color)",
-                                          borderRadius: "var(--radius)", color: "var(--text-muted)",
-                                          cursor: "pointer", padding: "0.1rem 0.35rem", fontSize: "0.65rem", lineHeight: 1.4,
+                                          display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                                          background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.45)",
+                                          borderRadius: "var(--radius)", color: "var(--primary-color)",
+                                          cursor: "pointer", padding: "0.2rem 0.55rem", fontSize: "0.72rem", fontWeight: 700,
+                                          whiteSpace: "nowrap",
                                         }}
                                       >
                                         <i className="fas fa-map-pin" />
+                                        Editar
                                       </button>
                                     )}
                                   </>
