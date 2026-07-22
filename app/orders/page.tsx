@@ -10,11 +10,12 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import OrderExtrasModal, { PedidoExtra } from "@/components/OrderExtrasModal";
 
-type TipoEnvio = "domicilio" | "sucursal";
+type TipoEnvio = "domicilio" | "sucursal" | "retiro";
 
 const TIPO_ENVIO_INFO: Record<TipoEnvio, { label: string; icon: string }> = {
-  domicilio: { label: "Domicilio", icon: "fas fa-house" },
-  sucursal:  { label: "Sucursal",  icon: "fas fa-building" },
+  domicilio: { label: "Domicilio",         icon: "fas fa-house" },
+  sucursal:  { label: "Sucursal",          icon: "fas fa-building" },
+  retiro:    { label: "Retiro presencial", icon: "fas fa-store" },
 };
 
 // ── Filter presets ───────────────────────────────────────────────
@@ -546,6 +547,12 @@ export default function OrdersPage() {
               style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
             >
               <i className="fas fa-building" style={{ width: 14, color: "var(--text-muted)" }} /> A sucursal
+            </button>
+            <button
+              onClick={() => handleSetEnvio(envioMenuAbierto.numero, "retiro")}
+              style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+            >
+              <i className="fas fa-store" style={{ width: 14, color: "var(--text-muted)" }} /> Retiro presencial
             </button>
           </div>
         </>,

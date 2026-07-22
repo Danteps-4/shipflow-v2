@@ -14,7 +14,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
-const TIPOS_VALIDOS: TipoEnvio[] = ["domicilio", "sucursal"];
+const TIPOS_VALIDOS: TipoEnvio[] = ["domicilio", "sucursal", "retiro"];
 
 export async function GET(req: NextRequest) {
   const guard = await requireModule(req, "pedidos");

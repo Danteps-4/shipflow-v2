@@ -2,14 +2,15 @@ import { getDb } from "./db";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-export type TipoEnvio = "domicilio" | "sucursal";
+export type TipoEnvio = "domicilio" | "sucursal" | "retiro";
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 export async function initPedidoEnvioTables(): Promise<void> {
   const sql = getDb();
 
-  // Override manual de si un pedido va a domicilio o a sucursal, para poder
+  // Override manual de si un pedido va a domicilio, a sucursal, o es retiro
+  // presencial (el cliente compró pero lo retira en el local), para poder
   // corregir la detección automática (basada en el medio de envío de Tienda
   // Nube) antes de procesar, y que quede recordado para la próxima vez que
   // se genere el Excel de Andreani de ese pedido.
@@ -18,11 +19,15 @@ export async function initPedidoEnvioTables(): Promise<void> {
       id           SERIAL PRIMARY KEY,
       store_id     TEXT NOT NULL,
       numero_orden TEXT NOT NULL,
-      tipo         TEXT NOT NULL CHECK (tipo IN ('domicilio','sucursal')),
+      tipo         TEXT NOT NULL CHECK (tipo IN ('domicilio','sucursal','retiro')),
       created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE (store_id, numero_orden)
     )
   `;
+
+  // Migración: permitir el nuevo tipo 'retiro' en tablas ya creadas.
+  await sql`ALTER TABLE pedido_envio_overrides DROP CONSTRAINT IF EXISTS pedido_envio_overrides_tipo_check`;
+  await sql`ALTER TABLE pedido_envio_overrides ADD CONSTRAINT pedido_envio_overrides_tipo_check CHECK (tipo IN ('domicilio','sucursal','retiro'))`;
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────

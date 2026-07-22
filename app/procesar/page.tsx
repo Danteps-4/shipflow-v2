@@ -42,9 +42,9 @@ function applyEnvioOverrides(orders: GroupedOrder[], overrides: Record<string, T
   return orders.map(o => {
     const tipo = overrides[o.numeroOrden];
     if (!tipo) return o;
+    if (tipo === "retiro") return { ...o, retiroPresencial: true };
     const medioEnvio = tipo === "sucursal" ? "Punto de retiro" : "Andreani a Domicilio";
-    if (medioEnvio === o.medioEnvio) return o;
-    return { ...o, medioEnvio, sucursal: tipo === "sucursal" ? o.sucursal : "" };
+    return { ...o, medioEnvio, sucursal: tipo === "sucursal" ? o.sucursal : "", retiroPresencial: false };
   });
 }
 
