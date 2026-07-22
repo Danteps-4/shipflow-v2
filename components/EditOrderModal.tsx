@@ -191,7 +191,7 @@ export default function EditOrderModal({ order, error, onSave, onClose }: EditOr
           ) : (
             <>
               {/* Dirección ingresada por el cliente (solo lectura, como referencia) */}
-              {(order.direccion || order.localidad || order.provincia || order.sucursal) && (
+              {(order.direccion || order.localidad || order.provincia) && (
                 <div className="sf-info-block">
                   <div className="sf-info-block-title">
                     <i className="fas fa-map-pin" />
@@ -210,9 +210,24 @@ export default function EditOrderModal({ order, error, onSave, onClose }: EditOr
                     {order.codigoPostal && (
                       <InfoRow label="Cód. Postal" value={order.rawCodigoPostal || order.codigoPostal} />
                     )}
-                    {order.sucursal && (
-                      <InfoRow label="Sucursal ingresada manualmente" value={order.sucursal} />
-                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Sucursal ingresada manualmente (destacada, en su propia tarjeta) */}
+              {order.sucursal && (
+                <div className="sf-info-block" style={{
+                  borderLeft: "3px solid var(--warning-color)",
+                  background: "rgba(245,158,11,0.08)",
+                  marginTop: order.direccion || order.localidad || order.provincia ? "0.875rem" : 0,
+                  marginBottom: "0.875rem",
+                }}>
+                  <div className="sf-info-block-title" style={{ color: "var(--warning-color)" }}>
+                    <i className="fas fa-pen" />
+                    Sucursal ingresada manualmente
+                  </div>
+                  <div style={{ fontSize: "1rem", fontWeight: 700, color: "var(--text-color)" }}>
+                    {order.sucursal}
                   </div>
                 </div>
               )}
