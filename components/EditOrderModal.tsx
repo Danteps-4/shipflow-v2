@@ -191,7 +191,7 @@ export default function EditOrderModal({ order, error, onSave, onClose }: EditOr
           ) : (
             <>
               {/* Dirección ingresada por el cliente (solo lectura, como referencia) */}
-              {(order.direccion || order.localidad || order.provincia) && (
+              {(order.direccion || order.localidad || order.provincia || order.sucursal) && (
                 <div className="sf-info-block">
                   <div className="sf-info-block-title">
                     <i className="fas fa-map-pin" />
@@ -209,6 +209,9 @@ export default function EditOrderModal({ order, error, onSave, onClose }: EditOr
                     )}
                     {order.codigoPostal && (
                       <InfoRow label="Cód. Postal" value={order.rawCodigoPostal || order.codigoPostal} />
+                    )}
+                    {order.sucursal && (
+                      <InfoRow label="Sucursal ingresada manualmente" value={order.sucursal} />
                     )}
                   </div>
                 </div>
