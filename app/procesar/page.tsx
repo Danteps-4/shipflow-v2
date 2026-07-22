@@ -14,17 +14,17 @@ import { groupOrders } from "@/lib/groupOrders";
 import { transformOrders } from "@/lib/transformOrders";
 import { exportAndreaniWorkbook } from "@/lib/exportAndreaniWorkbook";
 import { ProcessingResult, GroupedOrder, ValidationError } from "@/types/orders";
-import type { TipoEnvio } from "@/lib/pedidoEnvioDb";
+import type { EnvioOverride } from "@/lib/pedidoEnvioDb";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
 type Tab = "domicilio" | "sucursal" | "errores" | "retiro";
 
-// Trae los overrides manuales de domicilio/sucursal cargados en /orders para
-// estos números de pedido (silencioso ante error: si falla, se usa la
-// detección automática como si no hubiera overrides).
-async function fetchEnvioOverrides(numeros: string[]): Promise<Record<string, TipoEnvio>> {
+// Trae los overrides manuales (tipo de envío, dirección o sucursal) cargados
+// en /orders para estos números de pedido (silencioso ante error: si falla,
+// se usa la detección automática como si no hubiera overrides).
+async function fetchEnvioOverrides(numeros: string[]): Promise<Record<string, EnvioOverride>> {
   if (!numeros.length) return {};
   try {
     const res = await fetch(`/api/pedidos/envio?numeros=${numeros.join(",")}`);
@@ -36,15 +36,30 @@ async function fetchEnvioOverrides(numeros: string[]): Promise<Record<string, Ti
   }
 }
 
-// Fuerza el medioEnvio (y limpia la sucursal si pasa a domicilio) según el
-// override manual, antes de que transformOrders decida en qué hoja entra.
-function applyEnvioOverrides(orders: GroupedOrder[], overrides: Record<string, TipoEnvio>): GroupedOrder[] {
+// Aplica el override manual antes de que transformOrders decida en qué hoja
+// entra cada pedido: fuerza el medioEnvio según el tipo, y pisa cualquier
+// campo de dirección/sucursal que el usuario haya editado a mano en /orders.
+function applyEnvioOverrides(orders: GroupedOrder[], overrides: Record<string, EnvioOverride>): GroupedOrder[] {
   return orders.map(o => {
-    const tipo = overrides[o.numeroOrden];
-    if (!tipo) return o;
-    if (tipo === "retiro") return { ...o, retiroPresencial: true };
-    const medioEnvio = tipo === "sucursal" ? "Punto de retiro" : "Andreani a Domicilio";
-    return { ...o, medioEnvio, sucursal: tipo === "sucursal" ? o.sucursal : "", retiroPresencial: false };
+    const ov = overrides[o.numeroOrden];
+    if (!ov) return o;
+
+    const next = { ...o };
+    if (ov.tipo === "retiro") {
+      next.retiroPresencial = true;
+    } else if (ov.tipo) {
+      next.medioEnvio = ov.tipo === "sucursal" ? "Punto de retiro" : "Andreani a Domicilio";
+      next.retiroPresencial = false;
+      if (ov.tipo === "domicilio") next.sucursal = "";
+    }
+    if (ov.direccion != null)       next.direccion = ov.direccion;
+    if (ov.numeroDireccion != null) next.numeroDireccion = ov.numeroDireccion;
+    if (ov.piso != null)            next.piso = ov.piso;
+    if (ov.localidad != null)       next.localidad = ov.localidad;
+    if (ov.provincia != null)       next.provincia = ov.provincia;
+    if (ov.codigoPostal != null)    next.codigoPostal = ov.codigoPostal;
+    if (ov.sucursal != null)        next.sucursal = ov.sucursal;
+    return next;
   });
 }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
-import { initPedidoEnvioTables, getEnvioOverridesPorOrdenes, setEnvioOverride, TipoEnvio } from "@/lib/pedidoEnvioDb";
+import { initPedidoEnvioTables, getEnvioOverridesPorOrdenes, setEnvioOverride, EnvioOverride, TipoEnvio } from "@/lib/pedidoEnvioDb";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ overrides });
 }
 
-// Body: { numeroOrden, tipo }. tipo: "domicilio" | "sucursal" | null (null = volver a automático).
+// Body: { numeroOrden, tipo?, direccion?, numeroDireccion?, piso?, localidad?,
+// provincia?, codigoPostal?, sucursal? }. Cualquier campo omitido o en null
+// significa "sin override para ese campo" (se usa lo que vino de Tienda Nube).
 export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "pedidos");
   if (!guard.ok) return guard.response;
@@ -41,13 +43,25 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { numeroOrden, tipo } = await req.json() as { numeroOrden?: string | number; tipo?: TipoEnvio | null };
+  const body = await req.json() as { numeroOrden?: string | number } & Partial<EnvioOverride>;
+  const { numeroOrden } = body;
   if (!numeroOrden) return NextResponse.json({ error: "Falta numeroOrden" }, { status: 400 });
-  if (tipo != null && !TIPOS_VALIDOS.includes(tipo)) {
+  if (body.tipo != null && !TIPOS_VALIDOS.includes(body.tipo)) {
     return NextResponse.json({ error: "tipo inválido" }, { status: 400 });
   }
 
+  const override: EnvioOverride = {
+    tipo: body.tipo ?? null,
+    direccion: body.direccion ?? null,
+    numeroDireccion: body.numeroDireccion ?? null,
+    piso: body.piso ?? null,
+    localidad: body.localidad ?? null,
+    provincia: body.provincia ?? null,
+    codigoPostal: body.codigoPostal ?? null,
+    sucursal: body.sucursal ?? null,
+  };
+
   await initPedidoEnvioTables();
-  await setEnvioOverride(storeId, String(numeroOrden), tipo ?? null);
+  await setEnvioOverride(storeId, String(numeroOrden), override);
   return NextResponse.json({ ok: true });
 }

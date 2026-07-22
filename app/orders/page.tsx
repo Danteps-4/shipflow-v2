@@ -5,18 +5,37 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { TnOrder, OrdersApiResponse } from "@/types/orders";
 import { isSucursalOption } from "@/lib/convertTnOrders";
+import type { TipoEnvio, EnvioOverride } from "@/lib/pedidoEnvioDb";
+import { ANDREANI_SUCURSALES } from "@/lib/andreaniData";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import OrderExtrasModal, { PedidoExtra } from "@/components/OrderExtrasModal";
-
-type TipoEnvio = "domicilio" | "sucursal" | "retiro";
 
 const TIPO_ENVIO_INFO: Record<TipoEnvio, { label: string; icon: string }> = {
   domicilio: { label: "Domicilio",         icon: "fas fa-house" },
   sucursal:  { label: "Sucursal",          icon: "fas fa-building" },
   retiro:    { label: "Retiro presencial", icon: "fas fa-store" },
 };
+
+const OVERRIDE_VACIO: EnvioOverride = {
+  tipo: null, direccion: null, numeroDireccion: null, piso: null,
+  localidad: null, provincia: null, codigoPostal: null, sucursal: null,
+};
+
+function esOverrideVacio(o: EnvioOverride): boolean {
+  return Object.values(o).every(v => v === null);
+}
+
+interface DireccionForm {
+  direccion: string;
+  numeroDireccion: string;
+  piso: string;
+  localidad: string;
+  provincia: string;
+  codigoPostal: string;
+  sucursal: string;
+}
 
 // ── Filter presets ───────────────────────────────────────────────
 type FilterPreset = "all" | "paid" | "to_ship" | "shipped" | "delivered";
@@ -97,9 +116,11 @@ export default function OrdersPage() {
   const [extras, setExtras]           = useState<Record<string, PedidoExtra[]>>({});
   const [extrasModalOrden, setExtrasModalOrden] = useState<number | null>(null);
 
-  const [envioOverrides, setEnvioOverrides] = useState<Record<string, TipoEnvio>>({});
+  const [envioOverrides, setEnvioOverrides] = useState<Record<string, EnvioOverride>>({});
   const [envioMenuAbierto, setEnvioMenuAbierto] = useState<{ numero: number; top: number; left: number } | null>(null);
   const [guardandoEnvio, setGuardandoEnvio] = useState<number | null>(null);
+
+  const [direccionModal, setDireccionModal] = useState<{ numero: number; tipo: TipoEnvio; form: DireccionForm } | null>(null);
 
   const router = useRouter();
   const totalPages = Math.ceil(total / PER_PAGE);
@@ -167,26 +188,72 @@ export default function OrdersPage() {
       .catch(() => {});
   }, [orders]);
 
-  async function handleSetEnvio(numero: number, tipo: TipoEnvio | null) {
+  // Manda siempre el override completo (tipo + dirección/sucursal), para no
+  // pisar campos que ya estaban guardados al cambiar solo uno de ellos.
+  async function guardarOverride(numero: number, override: EnvioOverride) {
     setGuardandoEnvio(numero);
     try {
       const res = await fetch("/api/pedidos/envio", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numeroOrden: numero, tipo }),
+        body: JSON.stringify({ numeroOrden: numero, ...override }),
       });
       if (res.ok) {
         setEnvioOverrides(prev => {
           const next = { ...prev };
-          if (tipo === null) delete next[String(numero)];
-          else next[String(numero)] = tipo;
+          if (esOverrideVacio(override)) delete next[String(numero)];
+          else next[String(numero)] = override;
           return next;
         });
       }
+      return res.ok;
     } finally {
       setGuardandoEnvio(null);
-      setEnvioMenuAbierto(null);
     }
+  }
+
+  async function handleSetEnvio(numero: number, tipo: TipoEnvio | null) {
+    const actual = envioOverrides[String(numero)] ?? OVERRIDE_VACIO;
+    await guardarOverride(numero, { ...actual, tipo });
+    setEnvioMenuAbierto(null);
+  }
+
+  function abrirDireccionModal(order: TnOrder) {
+    const ov = envioOverrides[String(order.number)];
+    const addr = order.shipping_address;
+    const provinciaStr = addr ? (typeof addr.province === "string" ? addr.province : addr.province?.name ?? "") : "";
+    const tipoActual = ov?.tipo ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
+    setDireccionModal({
+      numero: order.number,
+      tipo: tipoActual,
+      form: {
+        direccion:       ov?.direccion       ?? addr?.address  ?? "",
+        numeroDireccion: ov?.numeroDireccion  ?? addr?.number   ?? "",
+        piso:            ov?.piso            ?? addr?.floor    ?? "",
+        localidad:       ov?.localidad       ?? addr?.locality ?? addr?.city ?? "",
+        provincia:       ov?.provincia       ?? provinciaStr,
+        codigoPostal:    ov?.codigoPostal    ?? addr?.zipcode  ?? "",
+        sucursal:        ov?.sucursal        ?? (tipoActual === "sucursal" ? (addr?.name ?? "") : ""),
+      },
+    });
+  }
+
+  async function guardarDireccion() {
+    if (!direccionModal) return;
+    const { numero, tipo, form } = direccionModal;
+    const actual = envioOverrides[String(numero)] ?? OVERRIDE_VACIO;
+    const ok = await guardarOverride(numero, {
+      ...actual,
+      tipo,
+      direccion: form.direccion.trim() || null,
+      numeroDireccion: form.numeroDireccion.trim() || null,
+      piso: form.piso.trim() || null,
+      localidad: form.localidad.trim() || null,
+      provincia: form.provincia.trim() || null,
+      codigoPostal: form.codigoPostal.trim() || null,
+      sucursal: form.sucursal.trim() || null,
+    });
+    if (ok) setDireccionModal(null);
   }
 
   function toggleAll() {
@@ -434,33 +501,50 @@ export default function OrdersPage() {
                                   <span style={{ color: "var(--text-muted)" }}>, {typeof order.shipping_address.province === "string" ? order.shipping_address.province : order.shipping_address.province?.name}</span></>
                               : <span style={{ color: "var(--text-muted)" }}>—</span>
                             }
-                            <div style={{ marginTop: "0.3rem" }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ marginTop: "0.3rem", display: "flex", alignItems: "center", gap: "0.3rem" }} onClick={(e) => e.stopPropagation()}>
                               {(() => {
-                                const tipoActual = envioOverrides[String(order.number)] ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
-                                const esManual = envioOverrides[String(order.number)] !== undefined;
+                                const ov = envioOverrides[String(order.number)];
+                                const tipoActual = ov?.tipo ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
+                                const esManual = ov !== undefined;
                                 const info = TIPO_ENVIO_INFO[tipoActual];
                                 return (
-                                  <button
-                                    onClick={(e) => {
-                                      const rect = e.currentTarget.getBoundingClientRect();
-                                      setEnvioMenuAbierto(prev =>
-                                        prev?.numero === order.number ? null : { numero: order.number, top: rect.bottom + 4, left: rect.left }
-                                      );
-                                    }}
-                                    disabled={guardandoEnvio === order.number}
-                                    title={esManual ? "Editado manualmente" : "Detectado automáticamente"}
-                                    style={{
-                                      display: "inline-flex", alignItems: "center", gap: "0.3rem",
-                                      background: esManual ? "rgba(99,102,241,0.1)" : "var(--bg-secondary)",
-                                      border: `1px solid ${esManual ? "rgba(99,102,241,0.4)" : "var(--border-color)"}`,
-                                      borderRadius: "var(--radius)", color: "var(--text-color)",
-                                      cursor: "pointer", padding: "0.1rem 0.45rem", fontSize: "0.7rem",
-                                    }}
-                                  >
-                                    <i className={info.icon} style={{ fontSize: "0.65rem", color: "var(--primary-color)" }} />
-                                    {info.label}
-                                    {esManual && <i className="fas fa-pen" style={{ fontSize: "0.55rem", color: "var(--text-muted)" }} />}
-                                  </button>
+                                  <>
+                                    <button
+                                      onClick={(e) => {
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        setEnvioMenuAbierto(prev =>
+                                          prev?.numero === order.number ? null : { numero: order.number, top: rect.bottom + 4, left: rect.left }
+                                        );
+                                      }}
+                                      disabled={guardandoEnvio === order.number}
+                                      title={esManual ? "Editado manualmente" : "Detectado automáticamente"}
+                                      style={{
+                                        display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                                        background: esManual ? "rgba(99,102,241,0.1)" : "var(--bg-secondary)",
+                                        border: `1px solid ${esManual ? "rgba(99,102,241,0.4)" : "var(--border-color)"}`,
+                                        borderRadius: "var(--radius)", color: "var(--text-color)",
+                                        cursor: "pointer", padding: "0.1rem 0.45rem", fontSize: "0.7rem",
+                                      }}
+                                    >
+                                      <i className={info.icon} style={{ fontSize: "0.65rem", color: "var(--primary-color)" }} />
+                                      {info.label}
+                                      {esManual && <i className="fas fa-pen" style={{ fontSize: "0.55rem", color: "var(--text-muted)" }} />}
+                                    </button>
+                                    {tipoActual !== "retiro" && (
+                                      <button
+                                        onClick={() => abrirDireccionModal(order)}
+                                        disabled={guardandoEnvio === order.number}
+                                        title={tipoActual === "sucursal" ? "Cambiar sucursal" : "Cambiar dirección"}
+                                        style={{
+                                          background: "none", border: "1px dashed var(--border-color)",
+                                          borderRadius: "var(--radius)", color: "var(--text-muted)",
+                                          cursor: "pointer", padding: "0.1rem 0.35rem", fontSize: "0.65rem", lineHeight: 1.4,
+                                        }}
+                                      >
+                                        <i className="fas fa-map-pin" />
+                                      </button>
+                                    )}
+                                  </>
                                 );
                               })()}
                             </div>
@@ -557,6 +641,88 @@ export default function OrdersPage() {
           </div>
         </>,
         document.body
+      )}
+
+      {direccionModal && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setDireccionModal(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(560px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-map-pin" style={{ color: "var(--primary-color)" }} />
+                {direccionModal.tipo === "sucursal" ? "Cambiar sucursal" : "Cambiar dirección"}
+                <span style={{ fontFamily: "monospace", color: "var(--text-muted)", fontWeight: 400 }}>
+                  &nbsp;#{direccionModal.numero}
+                </span>
+              </h3>
+              <button className="sf-close-btn" onClick={() => setDireccionModal(null)}><i className="fas fa-times" /></button>
+            </div>
+
+            <div className="sf-modal-body">
+              {direccionModal.tipo === "sucursal" ? (
+                <div className="sf-form-field">
+                  <label className="sf-form-label">Sucursal Andreani</label>
+                  <input
+                    className="sf-form-input" list="sucursales-list-orders"
+                    value={direccionModal.form.sucursal}
+                    onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, sucursal: e.target.value } })}
+                    autoFocus
+                  />
+                  <datalist id="sucursales-list-orders">
+                    {ANDREANI_SUCURSALES.map(s => <option key={s} value={s} />)}
+                  </datalist>
+                </div>
+              ) : (
+                <>
+                  <div className="sf-form-grid" style={{ gridTemplateColumns: "2fr 1fr 1fr" }}>
+                    <div className="sf-form-field">
+                      <label className="sf-form-label">Calle</label>
+                      <input className="sf-form-input" value={direccionModal.form.direccion} autoFocus
+                        onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, direccion: e.target.value } })} />
+                    </div>
+                    <div className="sf-form-field">
+                      <label className="sf-form-label">Número</label>
+                      <input className="sf-form-input" value={direccionModal.form.numeroDireccion}
+                        onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, numeroDireccion: e.target.value } })} />
+                    </div>
+                    <div className="sf-form-field">
+                      <label className="sf-form-label">Piso</label>
+                      <input className="sf-form-input" value={direccionModal.form.piso}
+                        onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, piso: e.target.value } })} />
+                    </div>
+                  </div>
+                  <div className="sf-form-grid" style={{ gridTemplateColumns: "2fr 2fr 1fr" }}>
+                    <div className="sf-form-field">
+                      <label className="sf-form-label">Localidad</label>
+                      <input className="sf-form-input" value={direccionModal.form.localidad}
+                        onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, localidad: e.target.value } })} />
+                    </div>
+                    <div className="sf-form-field">
+                      <label className="sf-form-label">Provincia</label>
+                      <input className="sf-form-input" value={direccionModal.form.provincia}
+                        onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, provincia: e.target.value } })} />
+                    </div>
+                    <div className="sf-form-field">
+                      <label className="sf-form-label">Código Postal</label>
+                      <input className="sf-form-input" value={direccionModal.form.codigoPostal}
+                        onChange={e => setDireccionModal(prev => prev && { ...prev, form: { ...prev.form, codigoPostal: e.target.value } })} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setDireccionModal(null)}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarDireccion} disabled={guardandoEnvio === direccionModal.numero}>
+                {guardandoEnvio === direccionModal.numero
+                  ? <><i className="fas fa-spinner fa-spin" /> Guardando...</>
+                  : <><i className="fas fa-floppy-disk" /> Guardar</>
+                }
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
