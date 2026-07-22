@@ -93,6 +93,10 @@ export default function EtiquetasPage() {
   const [nuevoSku, setNuevoSku]   = useState("");
   const [nuevaCant, setNuevaCant] = useState(1);
 
+  // Agregar pedido manual (cambios/envíos que no tienen venta ni número
+  // detectable en el PDF)
+  const [manualOrden, setManualOrden] = useState("");
+
   // ── Reset on mode switch ──
   function reset() {
     setCsv(null);
@@ -101,25 +105,63 @@ export default function EtiquetasPage() {
     setParseStatus("");
     setError(null);
     setDone(false);
+    setManualOrden("");
   }
 
   // ── Andreani: parse CSV ──
   async function handleCsvChange(f: FileState) {
     setCsv(f);
-    setParsedOrders(null);
     setDone(false);
-    if (!f) return;
+    if (!f) { setParsedOrders(null); return; }
     setParseStatus("Leyendo pedidos…");
     try {
       const form = new FormData();
       form.append("csv", f.file);
       const res = await fetch("/api/etiquetas/parse", { method: "POST", body: form });
       if (res.ok) {
-        const { orders } = await res.json();
-        setParsedOrders(orders ?? null);
+        const { orders } = await res.json() as { orders: ParsedOrders };
+        // El CSV manda: pisa cualquier entrada previa, pero conserva los
+        // pedidos agregados a mano desde el PDF (cambios/envíos sin venta)
+        // que el CSV no trae.
+        setParsedOrders(prev => {
+          const merged: ParsedOrders = { ...(orders ?? {}) };
+          if (prev) {
+            for (const [num, info] of Object.entries(prev)) {
+              if (!merged[num]) merged[num] = info;
+            }
+          }
+          return merged;
+        });
       }
     } catch { /* ignore */ }
     setParseStatus("");
+  }
+
+  // ── Andreani: además del CSV, leer los números de orden impresos en el
+  // PDF. Sirve para detectar etiquetas de cambios/envíos manuales que no
+  // están en el CSV de ventas, y agregarlas a la lista con SKU vacío para
+  // que el usuario les asigne uno a mano.
+  async function handlePdfAndreani(f: FileState) {
+    setPdf(f);
+    setDone(false);
+    if (!f) return;
+
+    try {
+      const extractForm = new FormData();
+      extractForm.append("pdf", f.file);
+      const extractRes = await fetch("/api/etiquetas/extract", { method: "POST", body: extractForm });
+      if (!extractRes.ok) return; // el CSV sigue siendo la fuente principal, no bloqueamos por esto
+      const { orderNumbers } = await extractRes.json() as { orderNumbers: string[] };
+      if (!orderNumbers?.length) return;
+
+      setParsedOrders(prev => {
+        const merged: ParsedOrders = { ...(prev ?? {}) };
+        for (const num of orderNumbers) {
+          if (!merged[num]) merged[num] = { nombre: "", skus: [] };
+        }
+        return merged;
+      });
+    } catch { /* el CSV sigue funcionando aunque falle la lectura del PDF */ }
   }
 
   // ── Envío Nube: extract orders from PDF → fetch SKUs from TN ──
@@ -195,6 +237,23 @@ export default function EtiquetasPage() {
       [editModal.orden]: { nombre: editModal.nombre, skus: [...editSkus] },
     }));
     setEditModal(null);
+  }
+
+  // Agrega a mano un pedido (ej: cambio o envío sin venta registrada) que
+  // no apareció ni en el CSV ni en la detección automática del PDF, y abre
+  // directo el editor para cargarle el SKU.
+  function addManualOrden() {
+    const orden = manualOrden.trim();
+    if (!orden) return;
+    setParsedOrders(prev => ({
+      ...(prev ?? {}),
+      [orden]: prev?.[orden] ?? { nombre: "", skus: [] },
+    }));
+    setManualOrden("");
+    setEditSkus([]);
+    setNuevoSku("");
+    setNuevaCant(1);
+    setEditModal({ orden, nombre: "" });
   }
 
   // ── Generate PDF ──
@@ -343,13 +402,19 @@ export default function EtiquetasPage() {
                 value={csv}
                 onChange={handleCsvChange}
               />
-              <DropZone
-                label="PDF de etiquetas (Andreani)"
-                accept=".pdf,application/pdf"
-                icon="fas fa-file-pdf"
-                value={pdf}
-                onChange={f => { setPdf(f); setDone(false); }}
-              />
+              <div>
+                <DropZone
+                  label="PDF de etiquetas (Andreani)"
+                  accept=".pdf,application/pdf"
+                  icon="fas fa-file-pdf"
+                  value={pdf}
+                  onChange={handlePdfAndreani}
+                />
+                <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                  <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
+                  Las etiquetas de cambios o envíos sin venta registrada (que no están en el CSV) también se agregan a la lista para poder asignarles un SKU a mano.
+                </p>
+              </div>
             </div>
           ) : (
             <div style={{ maxWidth: 360, marginBottom: "1.5rem" }}>
@@ -382,6 +447,28 @@ export default function EtiquetasPage() {
                   </p>
                 </div>
               </div>
+
+              {!parseLoading && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+                  <input
+                    type="text"
+                    className="sf-input"
+                    placeholder="N° de pedido / interno de una etiqueta sin venta"
+                    value={manualOrden}
+                    onChange={e => setManualOrden(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && addManualOrden()}
+                    style={{ maxWidth: 300 }}
+                  />
+                  <button
+                    className="sf-btn sf-btn-secondary"
+                    onClick={addManualOrden}
+                    disabled={!manualOrden.trim()}
+                    style={{ opacity: manualOrden.trim() ? 1 : 0.5 }}
+                  >
+                    <i className="fas fa-plus" /> Agregar pedido manual
+                  </button>
+                </div>
+              )}
 
               {parseLoading ? (
                 <div style={{ color: "var(--text-muted)", fontSize: "0.875rem", padding: "0.5rem 0 1.5rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>

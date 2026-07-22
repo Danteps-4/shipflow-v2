@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import path from "path";
+import { requireModule } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const guard = await requireModule(req, "pedidos");
+  if (!guard.ok) return guard.response;
+
   let formData: FormData;
   try {
     formData = await req.formData();
