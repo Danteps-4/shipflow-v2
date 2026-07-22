@@ -72,7 +72,7 @@ function resolveSucursal(
 // -------------------------------------------------------------------
 // Determina si el shipping_option corresponde a retiro en sucursal
 // -------------------------------------------------------------------
-function isSucursalOption(opt: TnOrder["shipping_option"]): boolean {
+export function isSucursalOption(opt: TnOrder["shipping_option"]): boolean {
   const raw = typeof opt === "string" ? opt : opt?.name ?? "";
   const low = raw.toLowerCase();
   return low.includes("sucursal") || low.includes("retiro") || low.includes("punto");

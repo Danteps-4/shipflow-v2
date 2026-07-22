@@ -3,10 +3,18 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import type { TnOrder, OrdersApiResponse } from "@/types/orders";
+import { isSucursalOption } from "@/lib/convertTnOrders";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import OrderExtrasModal, { PedidoExtra } from "@/components/OrderExtrasModal";
+
+type TipoEnvio = "domicilio" | "sucursal";
+
+const TIPO_ENVIO_INFO: Record<TipoEnvio, { label: string; icon: string }> = {
+  domicilio: { label: "Domicilio", icon: "fas fa-house" },
+  sucursal:  { label: "Sucursal",  icon: "fas fa-building" },
+};
 
 // ── Filter presets ───────────────────────────────────────────────
 type FilterPreset = "all" | "paid" | "to_ship" | "shipped" | "delivered";
@@ -87,6 +95,10 @@ export default function OrdersPage() {
   const [extras, setExtras]           = useState<Record<string, PedidoExtra[]>>({});
   const [extrasModalOrden, setExtrasModalOrden] = useState<number | null>(null);
 
+  const [envioOverrides, setEnvioOverrides] = useState<Record<string, TipoEnvio>>({});
+  const [envioMenuAbierto, setEnvioMenuAbierto] = useState<number | null>(null);
+  const [guardandoEnvio, setGuardandoEnvio] = useState<number | null>(null);
+
   const router = useRouter();
   const totalPages = Math.ceil(total / PER_PAGE);
 
@@ -142,6 +154,38 @@ export default function OrdersPage() {
       .then(d => setExtras(d.extras ?? {}))
       .catch(() => {});
   }, [orders]);
+
+  // Override manual de domicilio/sucursal por pedido (se respeta solo al procesar)
+  useEffect(() => {
+    if (!orders.length) { setEnvioOverrides({}); return; }
+    const numeros = orders.map(o => o.number).join(",");
+    fetch(`/api/pedidos/envio?numeros=${numeros}`)
+      .then(r => r.json())
+      .then(d => setEnvioOverrides(d.overrides ?? {}))
+      .catch(() => {});
+  }, [orders]);
+
+  async function handleSetEnvio(numero: number, tipo: TipoEnvio | null) {
+    setGuardandoEnvio(numero);
+    try {
+      const res = await fetch("/api/pedidos/envio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numeroOrden: numero, tipo }),
+      });
+      if (res.ok) {
+        setEnvioOverrides(prev => {
+          const next = { ...prev };
+          if (tipo === null) delete next[String(numero)];
+          else next[String(numero)] = tipo;
+          return next;
+        });
+      }
+    } finally {
+      setGuardandoEnvio(null);
+      setEnvioMenuAbierto(null);
+    }
+  }
 
   function toggleAll() {
     if (selected.size === orders.length) {
@@ -388,6 +432,61 @@ export default function OrdersPage() {
                                   <span style={{ color: "var(--text-muted)" }}>, {typeof order.shipping_address.province === "string" ? order.shipping_address.province : order.shipping_address.province?.name}</span></>
                               : <span style={{ color: "var(--text-muted)" }}>—</span>
                             }
+                            <div style={{ position: "relative", marginTop: "0.3rem" }} onClick={(e) => e.stopPropagation()}>
+                              {(() => {
+                                const tipoActual = envioOverrides[String(order.number)] ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
+                                const esManual = envioOverrides[String(order.number)] !== undefined;
+                                const info = TIPO_ENVIO_INFO[tipoActual];
+                                return (
+                                  <button
+                                    onClick={() => setEnvioMenuAbierto(o => o === order.number ? null : order.number)}
+                                    disabled={guardandoEnvio === order.number}
+                                    title={esManual ? "Editado manualmente" : "Detectado automáticamente"}
+                                    style={{
+                                      display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                                      background: esManual ? "rgba(99,102,241,0.1)" : "var(--bg-secondary)",
+                                      border: `1px solid ${esManual ? "rgba(99,102,241,0.4)" : "var(--border-color)"}`,
+                                      borderRadius: "var(--radius)", color: "var(--text-color)",
+                                      cursor: "pointer", padding: "0.1rem 0.45rem", fontSize: "0.7rem",
+                                    }}
+                                  >
+                                    <i className={info.icon} style={{ fontSize: "0.65rem", color: "var(--primary-color)" }} />
+                                    {info.label}
+                                    {esManual && <i className="fas fa-pen" style={{ fontSize: "0.55rem", color: "var(--text-muted)" }} />}
+                                  </button>
+                                );
+                              })()}
+                              {envioMenuAbierto === order.number && (
+                                <>
+                                  <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={() => setEnvioMenuAbierto(null)} />
+                                  <div style={{
+                                    position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 901,
+                                    background: "var(--surface-color)", border: "1px solid var(--border-color)",
+                                    borderRadius: "var(--radius)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+                                    minWidth: 170, padding: "0.3rem", display: "flex", flexDirection: "column", gap: "0.1rem",
+                                  }}>
+                                    <button
+                                      onClick={() => handleSetEnvio(order.number, null)}
+                                      style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+                                    >
+                                      <i className="fas fa-wand-magic-sparkles" style={{ width: 14, color: "var(--text-muted)" }} /> Automático
+                                    </button>
+                                    <button
+                                      onClick={() => handleSetEnvio(order.number, "domicilio")}
+                                      style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+                                    >
+                                      <i className="fas fa-house" style={{ width: 14, color: "var(--text-muted)" }} /> A domicilio
+                                    </button>
+                                    <button
+                                      onClick={() => handleSetEnvio(order.number, "sucursal")}
+                                      style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+                                    >
+                                      <i className="fas fa-building" style={{ width: 14, color: "var(--text-muted)" }} /> A sucursal
+                                    </button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </td>
                           <td style={{ textAlign: "right", fontWeight: 600, fontFamily: "monospace", whiteSpace: "nowrap" }}>
                             {fmtTotal(order.total, order.currency)}

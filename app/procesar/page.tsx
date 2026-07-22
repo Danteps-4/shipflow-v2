@@ -14,11 +14,39 @@ import { groupOrders } from "@/lib/groupOrders";
 import { transformOrders } from "@/lib/transformOrders";
 import { exportAndreaniWorkbook } from "@/lib/exportAndreaniWorkbook";
 import { ProcessingResult, GroupedOrder, ValidationError } from "@/types/orders";
+import type { TipoEnvio } from "@/lib/pedidoEnvioDb";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
 type Tab = "domicilio" | "sucursal" | "errores" | "retiro";
+
+// Trae los overrides manuales de domicilio/sucursal cargados en /orders para
+// estos números de pedido (silencioso ante error: si falla, se usa la
+// detección automática como si no hubiera overrides).
+async function fetchEnvioOverrides(numeros: string[]): Promise<Record<string, TipoEnvio>> {
+  if (!numeros.length) return {};
+  try {
+    const res = await fetch(`/api/pedidos/envio?numeros=${numeros.join(",")}`);
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data.overrides ?? {};
+  } catch {
+    return {};
+  }
+}
+
+// Fuerza el medioEnvio (y limpia la sucursal si pasa a domicilio) según el
+// override manual, antes de que transformOrders decida en qué hoja entra.
+function applyEnvioOverrides(orders: GroupedOrder[], overrides: Record<string, TipoEnvio>): GroupedOrder[] {
+  return orders.map(o => {
+    const tipo = overrides[o.numeroOrden];
+    if (!tipo) return o;
+    const medioEnvio = tipo === "sucursal" ? "Punto de retiro" : "Andreani a Domicilio";
+    if (medioEnvio === o.medioEnvio) return o;
+    return { ...o, medioEnvio, sucursal: tipo === "sucursal" ? o.sucursal : "" };
+  });
+}
 
 export default function ProcesarPage() {
   const [sidebarOpen, setSidebarOpen]   = useState(false);
@@ -41,25 +69,29 @@ export default function ProcesarPage() {
       try {
         const tnOrders = JSON.parse(pending);
         const converted = convertTnOrders(tnOrders);
-        const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(converted);
-        setResult({
-          totalFilas: converted.length,
-          ordenesUnicas: converted.length,
-          domicilio, sucursal, errores, retiroPresencial, groupedOrders: converted,
+        fetchEnvioOverrides(converted.map(o => o.numeroOrden)).then(overrides => {
+          const withOverrides = applyEnvioOverrides(converted, overrides);
+          const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(withOverrides);
+          setResult({
+            totalFilas: withOverrides.length,
+            ordenesUnicas: withOverrides.length,
+            domicilio, sucursal, errores, retiroPresencial, groupedOrders: withOverrides,
+          });
+          if (errores.length > 0)        setActiveTab("errores");
+          else if (domicilio.length > 0) setActiveTab("domicilio");
+          else                           setActiveTab("sucursal");
         });
-        if (errores.length > 0)        setActiveTab("errores");
-        else if (domicilio.length > 0) setActiveTab("domicilio");
-        else                           setActiveTab("sucursal");
       } catch { /* ignore malformed data */ }
     }
   }, []);
 
-  function handleTnImport(imported: GroupedOrder[]) {
+  async function handleTnImport(imported: GroupedOrder[]) {
     setShowPicker(false);
     const existing = result?.groupedOrders ?? [];
     const existingNums = new Set(existing.map((o) => o.numeroOrden));
     const newOrders = imported.filter((o) => !existingNums.has(o.numeroOrden));
-    const merged = [...existing, ...newOrders];
+    const overrides = await fetchEnvioOverrides(newOrders.map(o => o.numeroOrden));
+    const merged = [...existing, ...applyEnvioOverrides(newOrders, overrides)];
     const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(merged);
     setResult({
       totalFilas: (result?.totalFilas ?? 0) + newOrders.length,
@@ -71,7 +103,7 @@ export default function ProcesarPage() {
     else                           setActiveTab("sucursal");
   }
 
-  function handleFile(content: string) {
+  async function handleFile(content: string) {
     setIsLoading(true);
     setParseWarning(null);
     try {
@@ -87,9 +119,11 @@ export default function ProcesarPage() {
       }
 
       const grouped = groupOrders(rows, columnMap);
-      const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(grouped);
+      const overrides = await fetchEnvioOverrides(grouped.map(o => o.numeroOrden));
+      const withOverrides = applyEnvioOverrides(grouped, overrides);
+      const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(withOverrides);
 
-      setResult({ totalFilas: rows.length, ordenesUnicas: grouped.length, domicilio, sucursal, errores, retiroPresencial, groupedOrders: grouped });
+      setResult({ totalFilas: rows.length, ordenesUnicas: withOverrides.length, domicilio, sucursal, errores, retiroPresencial, groupedOrders: withOverrides });
 
       if (errores.length > 0)        setActiveTab("errores");
       else if (domicilio.length > 0) setActiveTab("domicilio");
