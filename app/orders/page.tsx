@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { TnOrder, OrdersApiResponse } from "@/types/orders";
 import { isSucursalOption } from "@/lib/convertTnOrders";
@@ -96,7 +97,7 @@ export default function OrdersPage() {
   const [extrasModalOrden, setExtrasModalOrden] = useState<number | null>(null);
 
   const [envioOverrides, setEnvioOverrides] = useState<Record<string, TipoEnvio>>({});
-  const [envioMenuAbierto, setEnvioMenuAbierto] = useState<number | null>(null);
+  const [envioMenuAbierto, setEnvioMenuAbierto] = useState<{ numero: number; top: number; left: number } | null>(null);
   const [guardandoEnvio, setGuardandoEnvio] = useState<number | null>(null);
 
   const router = useRouter();
@@ -432,14 +433,19 @@ export default function OrdersPage() {
                                   <span style={{ color: "var(--text-muted)" }}>, {typeof order.shipping_address.province === "string" ? order.shipping_address.province : order.shipping_address.province?.name}</span></>
                               : <span style={{ color: "var(--text-muted)" }}>—</span>
                             }
-                            <div style={{ position: "relative", marginTop: "0.3rem" }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ marginTop: "0.3rem" }} onClick={(e) => e.stopPropagation()}>
                               {(() => {
                                 const tipoActual = envioOverrides[String(order.number)] ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
                                 const esManual = envioOverrides[String(order.number)] !== undefined;
                                 const info = TIPO_ENVIO_INFO[tipoActual];
                                 return (
                                   <button
-                                    onClick={() => setEnvioMenuAbierto(o => o === order.number ? null : order.number)}
+                                    onClick={(e) => {
+                                      const rect = e.currentTarget.getBoundingClientRect();
+                                      setEnvioMenuAbierto(prev =>
+                                        prev?.numero === order.number ? null : { numero: order.number, top: rect.bottom + 4, left: rect.left }
+                                      );
+                                    }}
                                     disabled={guardandoEnvio === order.number}
                                     title={esManual ? "Editado manualmente" : "Detectado automáticamente"}
                                     style={{
@@ -456,36 +462,6 @@ export default function OrdersPage() {
                                   </button>
                                 );
                               })()}
-                              {envioMenuAbierto === order.number && (
-                                <>
-                                  <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={() => setEnvioMenuAbierto(null)} />
-                                  <div style={{
-                                    position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 901,
-                                    background: "var(--surface-color)", border: "1px solid var(--border-color)",
-                                    borderRadius: "var(--radius)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-                                    minWidth: 170, padding: "0.3rem", display: "flex", flexDirection: "column", gap: "0.1rem",
-                                  }}>
-                                    <button
-                                      onClick={() => handleSetEnvio(order.number, null)}
-                                      style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
-                                    >
-                                      <i className="fas fa-wand-magic-sparkles" style={{ width: 14, color: "var(--text-muted)" }} /> Automático
-                                    </button>
-                                    <button
-                                      onClick={() => handleSetEnvio(order.number, "domicilio")}
-                                      style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
-                                    >
-                                      <i className="fas fa-house" style={{ width: 14, color: "var(--text-muted)" }} /> A domicilio
-                                    </button>
-                                    <button
-                                      onClick={() => handleSetEnvio(order.number, "sucursal")}
-                                      style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
-                                    >
-                                      <i className="fas fa-building" style={{ width: 14, color: "var(--text-muted)" }} /> A sucursal
-                                    </button>
-                                  </div>
-                                </>
-                              )}
                             </div>
                           </td>
                           <td style={{ textAlign: "right", fontWeight: 600, fontFamily: "monospace", whiteSpace: "nowrap" }}>
@@ -542,6 +518,38 @@ export default function OrdersPage() {
           onClose={() => setExtrasModalOrden(null)}
           onChange={(next) => setExtras(prev => ({ ...prev, [String(extrasModalOrden)]: next }))}
         />
+      )}
+
+      {envioMenuAbierto !== null && createPortal(
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 900 }} onClick={() => setEnvioMenuAbierto(null)} />
+          <div style={{
+            position: "fixed", top: envioMenuAbierto.top, left: envioMenuAbierto.left, zIndex: 901,
+            background: "var(--surface-color)", border: "1px solid var(--border-color)",
+            borderRadius: "var(--radius)", boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            minWidth: 170, padding: "0.3rem", display: "flex", flexDirection: "column", gap: "0.1rem",
+          }}>
+            <button
+              onClick={() => handleSetEnvio(envioMenuAbierto.numero, null)}
+              style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+            >
+              <i className="fas fa-wand-magic-sparkles" style={{ width: 14, color: "var(--text-muted)" }} /> Automático
+            </button>
+            <button
+              onClick={() => handleSetEnvio(envioMenuAbierto.numero, "domicilio")}
+              style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+            >
+              <i className="fas fa-house" style={{ width: 14, color: "var(--text-muted)" }} /> A domicilio
+            </button>
+            <button
+              onClick={() => handleSetEnvio(envioMenuAbierto.numero, "sucursal")}
+              style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
+            >
+              <i className="fas fa-building" style={{ width: 14, color: "var(--text-muted)" }} /> A sucursal
+            </button>
+          </div>
+        </>,
+        document.body
       )}
     </div>
   );
