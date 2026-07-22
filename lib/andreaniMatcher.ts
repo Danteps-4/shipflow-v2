@@ -80,6 +80,14 @@ export function matchSucursal(value: string): string {
   return matched ?? value;
 }
 
+// Indica si el valor corresponde a una sucursal/punto HOP oficial de
+// Andreani (a diferencia de matchSucursal, que siempre devuelve algo aunque
+// no haya match, esto permite distinguir "encontrado" de "no encontrado").
+export function sucursalExiste(value: string): boolean {
+  if (!value) return false;
+  return sucursalMap.has(slugify(value));
+}
+
 // ----------------------------------------------------------------
 // Word-level Levenshtein distance (for fuzzy spelling tolerance).
 // Handles "THOMAS" ↔ "TOMAS" (edit distance 1), etc.

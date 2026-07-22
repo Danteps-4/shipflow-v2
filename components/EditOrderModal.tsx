@@ -22,6 +22,7 @@ const ERROR_FIELD_MAP: Record<string, keyof GroupedOrder> = {
   "Falta provincia": "provincia",
   "Falta código postal": "codigoPostal",
   "Falta sucursal de retiro": "sucursal",
+  "Sucursal no reconocida": "sucursal",
 };
 
 export default function EditOrderModal({ order, error, onSave, onClose }: EditOrderModalProps) {

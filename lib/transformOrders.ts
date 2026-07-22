@@ -6,7 +6,7 @@ import {
   ProcessingResult,
 } from "@/types/orders";
 import { splitNombreApellido, sanitizeAndreani } from "./normalizers";
-import { matchProvLocCp, matchSucursal } from "./andreaniMatcher";
+import { matchProvLocCp, matchSucursal, sucursalExiste } from "./andreaniMatcher";
 
 // -------------------------------------------------------------------
 // Valores fijos para todos los pedidos (según reglas de negocio)
@@ -52,6 +52,7 @@ function validarSucursal(order: GroupedOrder): string[] {
   if (!order.nombreEnvio) errores.push("Falta nombre para el envío");
   if (!order.telefono) errores.push("Falta teléfono");
   if (!order.sucursal) errores.push("Falta sucursal de retiro");
+  else if (!sucursalExiste(order.sucursal)) errores.push("Sucursal no reconocida");
   return errores;
 }
 

@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import type { TnOrder, OrdersApiResponse } from "@/types/orders";
 import { isSucursalOption } from "@/lib/convertTnOrders";
+import { sucursalExiste } from "@/lib/andreaniMatcher";
 import type { TipoEnvio, EnvioOverride } from "@/lib/pedidoEnvioDb";
 import { ANDREANI_SUCURSALES } from "@/lib/andreaniData";
 import StoreSwitcher from "@/components/StoreSwitcher";
@@ -218,11 +219,11 @@ export default function OrdersPage() {
     setEnvioMenuAbierto(null);
   }
 
-  function abrirDireccionModal(order: TnOrder) {
+  function abrirDireccionModal(order: TnOrder, tipoForzado?: TipoEnvio) {
     const ov = envioOverrides[String(order.number)];
     const addr = order.shipping_address;
     const provinciaStr = addr ? (typeof addr.province === "string" ? addr.province : addr.province?.name ?? "") : "";
-    const tipoActual = ov?.tipo ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
+    const tipoActual = tipoForzado ?? ov?.tipo ?? (isSucursalOption(order.shipping_option) ? "sucursal" : "domicilio");
     setDireccionModal({
       numero: order.number,
       tipo: tipoActual,
@@ -627,7 +628,11 @@ export default function OrdersPage() {
               <i className="fas fa-house" style={{ width: 14, color: "var(--text-muted)" }} /> A domicilio
             </button>
             <button
-              onClick={() => handleSetEnvio(envioMenuAbierto.numero, "sucursal")}
+              onClick={() => {
+                const order = orders.find(o => o.number === envioMenuAbierto.numero);
+                setEnvioMenuAbierto(null);
+                if (order) abrirDireccionModal(order, "sucursal");
+              }}
               style={{ display: "flex", alignItems: "center", gap: "0.4rem", background: "none", border: "none", textAlign: "left", padding: "0.35rem 0.5rem", borderRadius: "4px", cursor: "pointer", fontSize: "0.78rem", color: "var(--text-color)" }}
             >
               <i className="fas fa-building" style={{ width: 14, color: "var(--text-muted)" }} /> A sucursal
@@ -661,7 +666,7 @@ export default function OrdersPage() {
             <div className="sf-modal-body">
               {direccionModal.tipo === "sucursal" ? (
                 <div className="sf-form-field">
-                  <label className="sf-form-label">Sucursal Andreani</label>
+                  <label className="sf-form-label">Sucursal o punto HOP Andreani</label>
                   <input
                     className="sf-form-input" list="sucursales-list-orders"
                     value={direccionModal.form.sucursal}
@@ -671,6 +676,19 @@ export default function OrdersPage() {
                   <datalist id="sucursales-list-orders">
                     {ANDREANI_SUCURSALES.map(s => <option key={s} value={s} />)}
                   </datalist>
+                  {direccionModal.form.sucursal.trim() && (
+                    sucursalExiste(direccionModal.form.sucursal.trim()) ? (
+                      <p style={{ fontSize: "0.75rem", color: "var(--success-color)", marginTop: "0.4rem" }}>
+                        <i className="fas fa-circle-check" style={{ marginRight: "0.3rem" }} />
+                        Sucursal reconocida
+                      </p>
+                    ) : (
+                      <p style={{ fontSize: "0.75rem", color: "var(--error-color)", marginTop: "0.4rem" }}>
+                        <i className="fas fa-triangle-exclamation" style={{ marginRight: "0.3rem" }} />
+                        No es una sucursal ni punto HOP reconocido — al procesar, este pedido va a caer en la pestaña de Errores.
+                      </p>
+                    )
+                  )}
                 </div>
               ) : (
                 <>
