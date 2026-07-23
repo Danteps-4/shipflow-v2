@@ -101,6 +101,14 @@ const TOOL_GROUPS = [
         description: "Registrá gastos puntuales y suscripciones recurrentes para tener un panorama claro de los costos mensuales de tu negocio.",
         tags: ["Gastos", "Suscripciones", "Costos"],
       },
+      {
+        href: "/finanzas/transferencias",
+        icon: "fas fa-money-bill-transfer",
+        color: "#3b82f6",
+        title: "Transferencias",
+        description: "Cargá las transferencias desviadas a la financiera, marcá enviada/recibida y cerrá el día para llevar un historial claro.",
+        tags: ["Transferencias", "Comprobantes", "Cierre diario"],
+      },
     ],
   },
   {

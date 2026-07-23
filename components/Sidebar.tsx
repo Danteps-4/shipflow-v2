@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
 import { ModuleKey } from "@/lib/modules";
 
@@ -56,9 +56,11 @@ const GROUPS: NavGroup[] = [
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href;
+  const groupHasActiveLink = (group: NavGroup) => group.links.some((l) => isActive(l.href));
 
   const [role, setRole]       = useState<"admin" | "member" | null>(null);
   const [modules, setModules] = useState<ModuleKey[]>([]);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetch("/api/user/me")
@@ -70,8 +72,24 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       .catch(() => {});
   }, []);
 
+  // Al cargar, abre solo el grupo que contiene la página actual.
+  useEffect(() => {
+    setExpanded((prev) => {
+      const next = { ...prev };
+      for (const group of GROUPS) {
+        if (groupHasActiveLink(group) && next[group.label] === undefined) next[group.label] = true;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   const isAdmin = role === "admin";
   const visibleGroups = GROUPS.filter((g) => isAdmin || modules.includes(g.module));
+
+  function toggleGroup(label: string) {
+    setExpanded((prev) => ({ ...prev, [label]: !(prev[label] ?? groupHasActiveLink(GROUPS.find((g) => g.label === label)!)) }));
+  }
 
   return (
     <>
@@ -87,16 +105,32 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             <i className={TOP_LINK.icon} /> {TOP_LINK.label}
           </a>
 
-          {visibleGroups.map((group) => (
-            <div key={group.label}>
-              <div className="sf-nav-group-label">{group.label}</div>
-              {group.links.map((link) => (
-                <a key={link.href} href={link.href} className={isActive(link.href) ? "active" : ""}>
-                  <i className={link.icon} /> {link.label}
-                </a>
-              ))}
-            </div>
-          ))}
+          {visibleGroups.map((group) => {
+            const isOpen = expanded[group.label] ?? groupHasActiveLink(group);
+            return (
+              <div key={group.label} className="sf-nav-group">
+                <button
+                  type="button"
+                  className={`sf-nav-group-label sf-nav-group-toggle ${isOpen ? "open" : ""}`}
+                  onClick={() => toggleGroup(group.label)}
+                  aria-expanded={isOpen}
+                >
+                  <span>{group.label}</span>
+                  <i
+                    className="fas fa-chevron-down sf-nav-group-chevron"
+                    style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                  />
+                </button>
+                <CollapsibleLinks isOpen={isOpen}>
+                  {group.links.map((link) => (
+                    <a key={link.href} href={link.href} className={isActive(link.href) ? "active" : ""}>
+                      <i className={link.icon} /> {link.label}
+                    </a>
+                  ))}
+                </CollapsibleLinks>
+              </div>
+            );
+          })}
 
           {isAdmin && (
             <div>
@@ -111,5 +145,28 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
       <div className={`sf-overlay ${open ? "open" : ""}`} onClick={onClose} />
     </>
+  );
+}
+
+// Colapsa/expande midiendo la altura real del contenido y aplicándola
+// directamente al DOM (más confiable que animar grid-template-rows, que no
+// se recalcula bien en todos los navegadores).
+function CollapsibleLinks({ isOpen, children }: { isOpen: boolean; children: React.ReactNode }) {
+  const outerRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (!outerRef.current || !innerRef.current) return;
+    outerRef.current.style.maxHeight = isOpen ? `${innerRef.current.scrollHeight}px` : "0px";
+  }, [isOpen]);
+
+  return (
+    <div
+      ref={outerRef}
+      className={`sf-nav-group-links ${isOpen ? "open" : ""}`}
+      style={{ maxHeight: isOpen ? undefined : 0 }}
+    >
+      <div ref={innerRef}>{children}</div>
+    </div>
   );
 }

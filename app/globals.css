@@ -54,7 +54,9 @@ body {
   padding: 1rem 2rem;
   display: flex;
   align-items: center;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
   height: 64px;
 }
 
@@ -146,6 +148,36 @@ body {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-muted);
+}
+
+.sf-nav-group-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.sf-nav-group-toggle:hover {
+  color: var(--text-color);
+}
+
+.sf-nav-group-chevron {
+  font-size: 0.65rem;
+  transition: transform 0.2s ease;
+}
+
+.sf-nav-group-links {
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+}
+
+.sf-nav-group-links > div {
+  display: flex;
+  flex-direction: column;
 }
 
 .sf-nav a:hover,
