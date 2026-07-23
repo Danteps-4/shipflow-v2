@@ -14,6 +14,7 @@ import {
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 async function getStoreId(req: NextRequest): Promise<string | null> {
   const sfUserId = await getSessionUserId(req);
