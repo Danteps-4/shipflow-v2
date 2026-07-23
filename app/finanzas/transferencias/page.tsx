@@ -58,6 +58,7 @@ export default function TransferenciasPage() {
   const [cerrandoDia, setCerrandoDia]         = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
   const [editingId, setEditingId]             = useState<number | null>(null);
+  const [editingCierreId, setEditingCierreId] = useState<number | null>(null);
   const [nuevoMonto, setNuevoMonto]           = useState("");
   const [nuevoComprobante, setNuevoComprobante] = useState<{ url: string; publicId: string } | null>(null);
   const [subiendoComprobante, setSubiendoComprobante] = useState(false);
@@ -112,6 +113,7 @@ export default function TransferenciasPage() {
 
   function openNewTransferencia() {
     setEditingId(null);
+    setEditingCierreId(null);
     setNuevoMonto("");
     setNuevoComprobante(null);
     setNuevoNumeroPedido("");
@@ -121,8 +123,11 @@ export default function TransferenciasPage() {
     setTransferModalOpen(true);
   }
 
-  function openEditTransferencia(t: Transferencia) {
+  // cierreId no-null significa que la transferencia ya está en un cierre
+  // cerrado — se puede seguir corrigiendo (ej. un monto mal cargado).
+  function openEditTransferencia(t: Transferencia, cierreId: number | null = null) {
     setEditingId(t.id);
+    setEditingCierreId(cierreId);
     setNuevoMonto(String(t.monto));
     setNuevoComprobante(
       t.comprobante_url ? { url: t.comprobante_url, publicId: t.comprobante_public_id ?? "" } : null,
@@ -207,7 +212,21 @@ export default function TransferenciasPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
           });
-      if (r.ok) { await fetchTransferencias(); setTransferModalOpen(false); }
+      if (r.ok) {
+        if (editingId && editingCierreId !== null) {
+          // Es una transferencia de un cierre ya cerrado: actualizar solo
+          // ese detalle y refrescar los totales (el monto pudo cambiar).
+          const { transferencia } = await r.json();
+          setCierreDetalle(prev => ({
+            ...prev,
+            [editingCierreId]: (prev[editingCierreId] ?? []).map(x => x.id === transferencia.id ? transferencia : x),
+          }));
+          await fetchCierres();
+        } else {
+          await fetchTransferencias();
+        }
+        setTransferModalOpen(false);
+      }
     } finally {
       setSavingT(false);
     }
@@ -519,6 +538,7 @@ export default function TransferenciasPage() {
                                         key={t.id}
                                         t={t}
                                         onToggle={campo => toggleFlag(t, campo, c.id)}
+                                        onEdit={() => openEditTransferencia(t, c.id)}
                                         onPreview={setPreviewImage}
                                         saving={guardandoFlagId === t.id}
                                       />
