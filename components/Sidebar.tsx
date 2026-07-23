@@ -41,6 +41,7 @@ const GROUPS: NavGroup[] = [
     module: "finanzas",
     links: [
       { href: "/finanzas", icon: "fas fa-chart-pie", label: "Gastos y Suscripciones" },
+      { href: "/finanzas/transferencias", icon: "fas fa-money-bill-transfer", label: "Transferencias" },
     ],
   },
   {
