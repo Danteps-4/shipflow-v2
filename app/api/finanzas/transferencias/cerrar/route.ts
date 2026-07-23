@@ -16,6 +16,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 
 // Junta todas las transferencias activas en un nuevo cierre (suma el total y
 // las saca de la cuenta "de hoy"), y arranca una cuenta nueva en cero.
+// Body: { porcentaje } — lo que cobra la financiera sobre el total de ese cierre.
 export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
@@ -23,8 +24,14 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
+  const { porcentaje } = await req.json().catch(() => ({ porcentaje: 0 }));
+  const porcentajeNum = Number(porcentaje) || 0;
+  if (porcentajeNum < 0 || porcentajeNum > 100) {
+    return NextResponse.json({ error: "Porcentaje inválido" }, { status: 400 });
+  }
+
   await initFinanzasTables();
-  const cierre = await cerrarDiaTransferencias(storeId, guard.user.name);
+  const cierre = await cerrarDiaTransferencias(storeId, guard.user.name, porcentajeNum);
   if (!cierre) return NextResponse.json({ error: "No hay transferencias para cerrar" }, { status: 400 });
   return NextResponse.json({ cierre });
 }

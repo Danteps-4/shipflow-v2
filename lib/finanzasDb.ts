@@ -43,6 +43,8 @@ export interface Transferencia {
   monto: number;
   comprobante_url: string | null;
   comprobante_public_id: string | null;
+  numero_pedido: string | null;
+  nombre_pedido: string | null;
   enviada: boolean;
   recibida: boolean;
   cierre_id: number | null;
@@ -58,6 +60,9 @@ export interface TransferenciaCierre {
   total: number;
   enviadas: number;
   recibidas: number;
+  porcentaje: number;
+  comision: number;
+  neto: number;
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -112,6 +117,11 @@ export async function initFinanzasTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS transferencia_cierres_store
     ON transferencia_cierres (store_id, created_at DESC)
   `;
+  // Porcentaje que cobra la financiera sobre el total, fijado al momento de
+  // cerrar el día (puede variar de un cierre a otro).
+  await sql`
+    ALTER TABLE transferencia_cierres ADD COLUMN IF NOT EXISTS porcentaje NUMERIC(5,2) NOT NULL DEFAULT 0
+  `;
 
   // Transferencias recibidas de clientes y desviadas a la cuenta de la
   // financiera. Mientras cierre_id sea NULL, la transferencia está "activa"
@@ -135,6 +145,9 @@ export async function initFinanzasTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS transferencias_store_cierre
     ON transferencias (store_id, cierre_id)
   `;
+  // Para poder identificar a qué pedido corresponde cada transferencia.
+  await sql`ALTER TABLE transferencias ADD COLUMN IF NOT EXISTS numero_pedido TEXT`;
+  await sql`ALTER TABLE transferencias ADD COLUMN IF NOT EXISTS nombre_pedido TEXT`;
 }
 
 // ─── Gastos ──────────────────────────────────────────────────────────────────
@@ -275,7 +288,7 @@ export async function deleteSuscripcion(
 export async function getTransferenciasActivas(storeId: string): Promise<Transferencia[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+    SELECT id, monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida, cierre_id, created_by, created_at
     FROM transferencias
     WHERE store_id = ${storeId} AND cierre_id IS NULL
     ORDER BY created_at
@@ -286,12 +299,22 @@ export async function getTransferenciasActivas(storeId: string): Promise<Transfe
 export async function getTransferenciasPorCierre(storeId: string, cierreId: number): Promise<Transferencia[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+    SELECT id, monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida, cierre_id, created_by, created_at
     FROM transferencias
     WHERE store_id = ${storeId} AND cierre_id = ${cierreId}
     ORDER BY created_at
   `;
   return rows as Transferencia[];
+}
+
+export async function getTransferenciaById(storeId: string, id: number): Promise<Transferencia | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida, cierre_id, created_by, created_at
+    FROM transferencias
+    WHERE store_id = ${storeId} AND id = ${id}
+  ` as Transferencia[];
+  return rows[0] ?? null;
 }
 
 export async function createTransferencia(
@@ -300,6 +323,8 @@ export async function createTransferencia(
     monto: number;
     comprobanteUrl: string | null;
     comprobantePublicId: string | null;
+    numeroPedido: string | null;
+    nombrePedido: string | null;
     enviada: boolean;
     recibida: boolean;
     createdBy: string;
@@ -307,35 +332,53 @@ export async function createTransferencia(
 ): Promise<Transferencia> {
   const sql = getDb();
   const rows = await sql`
-    INSERT INTO transferencias (store_id, monto, comprobante_url, comprobante_public_id, enviada, recibida, created_by, created_at)
-    VALUES (${storeId}, ${data.monto}, ${data.comprobanteUrl}, ${data.comprobantePublicId}, ${data.enviada}, ${data.recibida}, ${data.createdBy}, NOW())
-    RETURNING id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+    INSERT INTO transferencias (store_id, monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida, created_by, created_at)
+    VALUES (${storeId}, ${data.monto}, ${data.comprobanteUrl}, ${data.comprobantePublicId}, ${data.numeroPedido}, ${data.nombrePedido}, ${data.enviada}, ${data.recibida}, ${data.createdBy}, NOW())
+    RETURNING id, monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida, cierre_id, created_by, created_at
   ` as Transferencia[];
   return rows[0];
 }
 
-// El caller manda siempre el valor completo de monto/enviada/recibida (no
-// solo el campo que cambió), tomando como base la fila actual.
+// El caller manda siempre el valor completo de cada campo (no solo el que
+// cambió), tomando como base la fila actual.
 export async function updateTransferencia(
   storeId: string,
   id: number,
-  data: { monto?: number; enviada?: boolean; recibida?: boolean },
+  data: {
+    monto?: number;
+    comprobanteUrl?: string | null;
+    comprobantePublicId?: string | null;
+    numeroPedido?: string | null;
+    nombrePedido?: string | null;
+    enviada?: boolean;
+    recibida?: boolean;
+  },
 ): Promise<Transferencia | null> {
   const sql = getDb();
   const actualRows = await sql`
-    SELECT monto, enviada, recibida FROM transferencias WHERE store_id = ${storeId} AND id = ${id}
-  ` as { monto: number; enviada: boolean; recibida: boolean }[];
+    SELECT monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida
+    FROM transferencias WHERE store_id = ${storeId} AND id = ${id}
+  ` as {
+    monto: number; comprobante_url: string | null; comprobante_public_id: string | null;
+    numero_pedido: string | null; nombre_pedido: string | null; enviada: boolean; recibida: boolean;
+  }[];
   if (!actualRows[0]) return null;
+  const current = actualRows[0];
 
-  const monto    = data.monto    ?? actualRows[0].monto;
-  const enviada  = data.enviada  ?? actualRows[0].enviada;
-  const recibida = data.recibida ?? actualRows[0].recibida;
+  const monto               = data.monto               ?? current.monto;
+  const comprobanteUrl      = data.comprobanteUrl      !== undefined ? data.comprobanteUrl      : current.comprobante_url;
+  const comprobantePublicId = data.comprobantePublicId !== undefined ? data.comprobantePublicId : current.comprobante_public_id;
+  const numeroPedido        = data.numeroPedido        !== undefined ? data.numeroPedido        : current.numero_pedido;
+  const nombrePedido        = data.nombrePedido        !== undefined ? data.nombrePedido        : current.nombre_pedido;
+  const enviada              = data.enviada  ?? current.enviada;
+  const recibida             = data.recibida ?? current.recibida;
 
   const rows = await sql`
     UPDATE transferencias
-    SET monto = ${monto}, enviada = ${enviada}, recibida = ${recibida}
+    SET monto = ${monto}, comprobante_url = ${comprobanteUrl}, comprobante_public_id = ${comprobantePublicId},
+        numero_pedido = ${numeroPedido}, nombre_pedido = ${nombrePedido}, enviada = ${enviada}, recibida = ${recibida}
     WHERE store_id = ${storeId} AND id = ${id}
-    RETURNING id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+    RETURNING id, monto, comprobante_url, comprobante_public_id, numero_pedido, nombre_pedido, enviada, recibida, cierre_id, created_by, created_at
   ` as Transferencia[];
   return rows[0] ?? null;
 }
@@ -371,8 +414,9 @@ async function getCierreStats(
 
 // Cierra el día: junta todas las transferencias activas en un nuevo cierre y
 // devuelve el resumen. Si no hay ninguna activa, no crea nada (null).
+// porcentaje es lo que cobra la financiera sobre el total de ese cierre.
 export async function cerrarDiaTransferencias(
-  storeId: string, createdBy: string,
+  storeId: string, createdBy: string, porcentaje: number,
 ): Promise<TransferenciaCierre | null> {
   const sql = getDb();
   const activas = await sql`
@@ -381,10 +425,10 @@ export async function cerrarDiaTransferencias(
   if (!activas.length) return null;
 
   const cierreRows = await sql`
-    INSERT INTO transferencia_cierres (store_id, created_by, created_at)
-    VALUES (${storeId}, ${createdBy}, NOW())
-    RETURNING id, created_by, created_at
-  ` as { id: number; created_by: string; created_at: string }[];
+    INSERT INTO transferencia_cierres (store_id, created_by, created_at, porcentaje)
+    VALUES (${storeId}, ${createdBy}, NOW(), ${porcentaje})
+    RETURNING id, created_by, created_at, porcentaje
+  ` as { id: number; created_by: string; created_at: string; porcentaje: number }[];
   const cierre = cierreRows[0];
 
   await sql`
@@ -393,7 +437,9 @@ export async function cerrarDiaTransferencias(
   `;
 
   const stats = await getCierreStats(storeId, cierre.id);
-  return { ...cierre, ...stats };
+  const comision = Math.round(stats.total * cierre.porcentaje) / 100;
+  const neto = Math.round((stats.total - comision) * 100) / 100;
+  return { ...cierre, ...stats, comision, neto };
 }
 
 // Historial de cierres, con los totales calculados en vivo (recibida puede
@@ -402,15 +448,17 @@ export async function getCierres(storeId: string): Promise<TransferenciaCierre[]
   const sql = getDb();
   const rows = await sql`
     SELECT
-      tc.id, tc.created_by, tc.created_at,
+      tc.id, tc.created_by, tc.created_at, tc.porcentaje,
       COUNT(t.id)::int AS cantidad,
       COALESCE(SUM(t.monto), 0)::float AS total,
       COUNT(t.id) FILTER (WHERE t.enviada)::int AS enviadas,
-      COUNT(t.id) FILTER (WHERE t.recibida)::int AS recibidas
+      COUNT(t.id) FILTER (WHERE t.recibida)::int AS recibidas,
+      ROUND(COALESCE(SUM(t.monto), 0) * tc.porcentaje / 100.0, 2)::float AS comision,
+      ROUND(COALESCE(SUM(t.monto), 0) * (1 - tc.porcentaje / 100.0), 2)::float AS neto
     FROM transferencia_cierres tc
     LEFT JOIN transferencias t ON t.cierre_id = tc.id
     WHERE tc.store_id = ${storeId}
-    GROUP BY tc.id, tc.created_by, tc.created_at
+    GROUP BY tc.id, tc.created_by, tc.created_at, tc.porcentaje
     ORDER BY tc.created_at DESC
   `;
   return rows as TransferenciaCierre[];

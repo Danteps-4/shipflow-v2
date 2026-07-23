@@ -12,6 +12,8 @@ interface Transferencia {
   monto: number;
   comprobante_url: string | null;
   comprobante_public_id: string | null;
+  numero_pedido: string | null;
+  nombre_pedido: string | null;
   enviada: boolean;
   recibida: boolean;
   cierre_id: number | null;
@@ -27,6 +29,9 @@ interface TransferenciaCierre {
   total: number;
   enviadas: number;
   recibidas: number;
+  porcentaje: number;
+  comision: number;
+  neto: number;
 }
 
 function fmtMoney(n: number) {
@@ -52,14 +57,20 @@ export default function TransferenciasPage() {
   const [cierreDetalle, setCierreDetalle]     = useState<Record<number, Transferencia[]>>({});
   const [cerrandoDia, setCerrandoDia]         = useState(false);
   const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [editingId, setEditingId]             = useState<number | null>(null);
   const [nuevoMonto, setNuevoMonto]           = useState("");
   const [nuevoComprobante, setNuevoComprobante] = useState<{ url: string; publicId: string } | null>(null);
   const [subiendoComprobante, setSubiendoComprobante] = useState(false);
+  const [nuevoNumeroPedido, setNuevoNumeroPedido] = useState("");
+  const [nuevoNombrePedido, setNuevoNombrePedido] = useState("");
   const [nuevaEnviada, setNuevaEnviada]       = useState(false);
   const [nuevaRecibida, setNuevaRecibida]     = useState(false);
   const [savingT, setSavingT]                 = useState(false);
   const [guardandoFlagId, setGuardandoFlagId] = useState<number | null>(null);
   const comprobanteInputRef = useRef<HTMLInputElement>(null);
+
+  const [cierreModalOpen, setCierreModalOpen] = useState(false);
+  const [porcentajeFinanciera, setPorcentajeFinanciera] = useState("");
 
   // ── Carga inicial ────────────────────────────────────────────────────────────
 
@@ -87,10 +98,26 @@ export default function TransferenciasPage() {
   // ── CRUD ─────────────────────────────────────────────────────────────────────
 
   function openNewTransferencia() {
+    setEditingId(null);
     setNuevoMonto("");
     setNuevoComprobante(null);
+    setNuevoNumeroPedido("");
+    setNuevoNombrePedido("");
     setNuevaEnviada(false);
     setNuevaRecibida(false);
+    setTransferModalOpen(true);
+  }
+
+  function openEditTransferencia(t: Transferencia) {
+    setEditingId(t.id);
+    setNuevoMonto(String(t.monto));
+    setNuevoComprobante(
+      t.comprobante_url ? { url: t.comprobante_url, publicId: t.comprobante_public_id ?? "" } : null,
+    );
+    setNuevoNumeroPedido(t.numero_pedido ?? "");
+    setNuevoNombrePedido(t.nombre_pedido ?? "");
+    setNuevaEnviada(t.enviada);
+    setNuevaRecibida(t.recibida);
     setTransferModalOpen(true);
   }
 
@@ -147,17 +174,26 @@ export default function TransferenciasPage() {
     if (!monto || monto <= 0) return;
     setSavingT(true);
     try {
-      const r = await fetch("/api/finanzas/transferencias", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          monto,
-          comprobanteUrl: nuevoComprobante?.url ?? null,
-          comprobantePublicId: nuevoComprobante?.publicId ?? null,
-          enviada: nuevaEnviada,
-          recibida: nuevaRecibida,
-        }),
-      });
+      const body = {
+        monto,
+        comprobanteUrl: nuevoComprobante?.url ?? null,
+        comprobantePublicId: nuevoComprobante?.publicId ?? null,
+        numeroPedido: nuevoNumeroPedido || null,
+        nombrePedido: nuevoNombrePedido || null,
+        enviada: nuevaEnviada,
+        recibida: nuevaRecibida,
+      };
+      const r = editingId
+        ? await fetch("/api/finanzas/transferencias", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: editingId, ...body }),
+          })
+        : await fetch("/api/finanzas/transferencias", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
       if (r.ok) { await fetchTransferencias(); setTransferModalOpen(false); }
     } finally {
       setSavingT(false);
@@ -218,16 +254,26 @@ export default function TransferenciasPage() {
     }
   }
 
-  async function cerrarDia() {
+  function abrirModalCierre() {
     if (!transferencias.length) return;
-    const total = transferencias.reduce((s, t) => s + Number(t.monto), 0);
-    if (!confirm(`¿Cerrar el día con ${transferencias.length} transferencia${transferencias.length !== 1 ? "s" : ""} por un total de ${fmtMoney(total)}? Empezás una cuenta nueva en cero.`)) return;
+    setPorcentajeFinanciera(cierres[0] ? String(cierres[0].porcentaje) : "");
+    setCierreModalOpen(true);
+  }
+
+  async function confirmarCierre() {
+    const porcentaje = parseFloat(porcentajeFinanciera) || 0;
+    if (porcentaje < 0 || porcentaje > 100) return;
     setCerrandoDia(true);
     try {
-      const r = await fetch("/api/finanzas/transferencias/cerrar", { method: "POST" });
+      const r = await fetch("/api/finanzas/transferencias/cerrar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ porcentaje }),
+      });
       if (r.ok) {
         await fetchTransferencias();
         await fetchCierres();
+        setCierreModalOpen(false);
       } else {
         const d = await r.json().catch(() => ({}));
         alert(d.error ?? "Error al cerrar el día");
@@ -274,7 +320,7 @@ export default function TransferenciasPage() {
                 </strong>
                 <span style={{ color: "var(--text-muted)" }}> ({transferencias.length})</span>
               </div>
-              <button className="sf-btn sf-btn-secondary" onClick={cerrarDia} disabled={!transferencias.length || cerrandoDia}>
+              <button className="sf-btn sf-btn-secondary" onClick={abrirModalCierre} disabled={!transferencias.length || cerrandoDia}>
                 {cerrandoDia
                   ? <><i className="fas fa-spinner fa-spin" /> Cerrando…</>
                   : <><i className="fas fa-lock" /> Cerrar el día</>
@@ -295,10 +341,11 @@ export default function TransferenciasPage() {
                 <thead>
                   <tr>
                     <th>Comprobante</th>
+                    <th>Pedido</th>
                     <th style={{ textAlign: "right" }}>Monto</th>
                     <th>Enviada</th>
                     <th>Recibida</th>
-                    <th style={{ width: 40 }}></th>
+                    <th style={{ width: 70 }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -307,6 +354,7 @@ export default function TransferenciasPage() {
                       key={t.id}
                       t={t}
                       onToggle={campo => toggleFlag(t, campo, null)}
+                      onEdit={() => openEditTransferencia(t)}
                       onDelete={() => deleteTransferencia(t.id)}
                       saving={guardandoFlagId === t.id}
                     />
@@ -314,7 +362,7 @@ export default function TransferenciasPage() {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <td style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Total</td>
+                    <td colSpan={2} style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Total</td>
                     <td style={{ textAlign: "right", fontWeight: 700, fontFamily: "monospace" }}>
                       {fmtMoney(transferencias.reduce((s, t) => s + Number(t.monto), 0))}
                     </td>
@@ -347,6 +395,9 @@ export default function TransferenciasPage() {
                     <th>Cierre</th>
                     <th style={{ textAlign: "right" }}>Cantidad</th>
                     <th style={{ textAlign: "right" }}>Total</th>
+                    <th style={{ textAlign: "right" }}>% Financiera</th>
+                    <th style={{ textAlign: "right" }}>Comisión</th>
+                    <th style={{ textAlign: "right" }}>Neto</th>
                     <th style={{ textAlign: "right" }}>Enviadas</th>
                     <th style={{ textAlign: "right" }}>Recibidas</th>
                   </tr>
@@ -363,6 +414,9 @@ export default function TransferenciasPage() {
                           <td style={{ whiteSpace: "nowrap" }}>{fmtDateTime(c.created_at)}</td>
                           <td style={{ textAlign: "right" }}>{c.cantidad}</td>
                           <td style={{ textAlign: "right", fontWeight: 600, fontFamily: "monospace" }}>{fmtMoney(c.total)}</td>
+                          <td style={{ textAlign: "right", color: "var(--text-muted)" }}>{c.porcentaje}%</td>
+                          <td style={{ textAlign: "right", fontFamily: "monospace", color: "var(--warning-color)" }}>{fmtMoney(c.comision)}</td>
+                          <td style={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>{fmtMoney(c.neto)}</td>
                           <td style={{ textAlign: "right", color: c.enviadas === c.cantidad ? "var(--success-color)" : "var(--text-muted)" }}>
                             {c.enviadas} / {c.cantidad}
                           </td>
@@ -372,7 +426,7 @@ export default function TransferenciasPage() {
                         </tr>
                         {expanded && (
                           <tr>
-                            <td colSpan={6} style={{ padding: 0, background: "rgba(15,23,42,0.3)" }}>
+                            <td colSpan={9} style={{ padding: 0, background: "rgba(15,23,42,0.3)" }}>
                               {!cierreDetalle[c.id] ? (
                                 <div style={{ padding: "1rem", textAlign: "center", color: "var(--text-muted)" }}>
                                   <i className="fas fa-spinner fa-spin" />
@@ -418,7 +472,7 @@ export default function TransferenciasPage() {
             <div className="sf-modal-header">
               <h3 className="sf-modal-title">
                 <i className="fas fa-money-bill-transfer" style={{ color: "var(--primary-color)" }} />
-                Nueva transferencia
+                {editingId ? "Editar transferencia" : "Nueva transferencia"}
               </h3>
               <button className="sf-close-btn" onClick={() => setTransferModalOpen(false)}>
                 <i className="fas fa-times" />
@@ -469,6 +523,26 @@ export default function TransferenciasPage() {
                   autoFocus
                 />
               </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <label className="sf-label">
+                  Número de pedido
+                  <input
+                    className="sf-input"
+                    value={nuevoNumeroPedido}
+                    onChange={e => setNuevoNumeroPedido(e.target.value)}
+                    placeholder="ej. 1234"
+                  />
+                </label>
+                <label className="sf-label">
+                  Nombre del pedido
+                  <input
+                    className="sf-input"
+                    value={nuevoNombrePedido}
+                    onChange={e => setNuevoNombrePedido(e.target.value)}
+                    placeholder="ej. Juan Pérez"
+                  />
+                </label>
+              </div>
               <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.875rem", cursor: "pointer" }}>
                   <input type="checkbox" checked={nuevaEnviada} onChange={e => setNuevaEnviada(e.target.checked)} />
@@ -493,6 +567,70 @@ export default function TransferenciasPage() {
           </div>
         </>
       )}
+
+      {/* ── Modal Cerrar el día ──────────────────────────────────────────────── */}
+      {cierreModalOpen && (() => {
+        const total = transferencias.reduce((s, t) => s + Number(t.monto), 0);
+        const porcentaje = parseFloat(porcentajeFinanciera) || 0;
+        const comision = Math.round(total * porcentaje) / 100;
+        const neto = total - comision;
+        return (
+          <>
+            <div className="sf-modal-backdrop" onClick={() => setCierreModalOpen(false)} />
+            <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(420px, calc(100vw - 2rem))" }}>
+              <div className="sf-modal-header">
+                <h3 className="sf-modal-title">
+                  <i className="fas fa-lock" style={{ color: "var(--primary-color)" }} />
+                  Cerrar el día
+                </h3>
+                <button className="sf-close-btn" onClick={() => setCierreModalOpen(false)}>
+                  <i className="fas fa-times" />
+                </button>
+              </div>
+              <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+                  Vas a cerrar {transferencias.length} transferencia{transferencias.length !== 1 ? "s" : ""} por un total de{" "}
+                  <strong style={{ color: "var(--text-color)" }}>{fmtMoney(total)}</strong>. Empezás una cuenta nueva en cero.
+                </p>
+                <label className="sf-label">
+                  Porcentaje que cobra la financiera (%)
+                  <input
+                    className="sf-input"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={porcentajeFinanciera}
+                    onChange={e => setPorcentajeFinanciera(e.target.value)}
+                    placeholder="0"
+                    autoFocus
+                  />
+                </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", background: "rgba(15,23,42,0.4)", borderRadius: "var(--radius)", padding: "0.75rem 1rem" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.85rem" }}>
+                    <span style={{ color: "var(--text-muted)" }}>Comisión</span>
+                    <strong style={{ fontFamily: "monospace", color: "var(--warning-color)" }}>{fmtMoney(comision)}</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.9rem" }}>
+                    <span style={{ color: "var(--text-muted)" }}>Neto a depositar</span>
+                    <strong style={{ fontFamily: "monospace" }}>{fmtMoney(neto)}</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="sf-modal-footer">
+                <button className="sf-btn sf-btn-secondary" onClick={() => setCierreModalOpen(false)}>Cancelar</button>
+                <button
+                  className="sf-btn"
+                  onClick={confirmarCierre}
+                  disabled={cerrandoDia || porcentaje < 0 || porcentaje > 100}
+                >
+                  {cerrandoDia ? <><i className="fas fa-spinner fa-spin" /> Cerrando…</> : <><i className="fas fa-lock" /> Confirmar cierre</>}
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -512,13 +650,16 @@ interface TransferenciaFE {
   id: number;
   monto: number;
   comprobante_url: string | null;
+  numero_pedido: string | null;
+  nombre_pedido: string | null;
   enviada: boolean;
   recibida: boolean;
 }
 
-function TransferenciaRow({ t, onToggle, onDelete, saving }: {
+function TransferenciaRow({ t, onToggle, onEdit, onDelete, saving }: {
   t: TransferenciaFE;
   onToggle: (campo: "enviada" | "recibida") => void;
+  onEdit?: () => void;
   onDelete?: () => void;
   saving: boolean;
 }) {
@@ -529,6 +670,16 @@ function TransferenciaRow({ t, onToggle, onDelete, saving }: {
           <a href={t.comprobante_url} target="_blank" rel="noopener noreferrer">
             <img src={t.comprobante_url} alt="Comprobante" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
           </a>
+        ) : (
+          <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>—</span>
+        )}
+      </td>
+      <td>
+        {t.numero_pedido || t.nombre_pedido ? (
+          <>
+            {t.numero_pedido && <div style={{ fontWeight: 600 }}>#{t.numero_pedido}</div>}
+            {t.nombre_pedido && <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{t.nombre_pedido}</div>}
+          </>
         ) : (
           <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>—</span>
         )}
@@ -551,11 +702,18 @@ function TransferenciaRow({ t, onToggle, onDelete, saving }: {
         </label>
       </td>
       <td>
-        {onDelete && (
-          <button className="sf-icon-btn danger" title="Eliminar" onClick={onDelete}>
-            <i className="fas fa-trash" />
-          </button>
-        )}
+        <div style={{ display: "flex", gap: "0.4rem" }}>
+          {onEdit && (
+            <button className="sf-icon-btn" title="Editar" onClick={onEdit}>
+              <i className="fas fa-pen" />
+            </button>
+          )}
+          {onDelete && (
+            <button className="sf-icon-btn danger" title="Eliminar" onClick={onDelete}>
+              <i className="fas fa-trash" />
+            </button>
+          )}
+        </div>
       </td>
     </tr>
   );

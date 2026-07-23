@@ -6,6 +6,7 @@ import {
   initFinanzasTables,
   getTransferenciasActivas,
   getTransferenciasPorCierre,
+  getTransferenciaById,
   createTransferencia,
   updateTransferencia,
   deleteTransferencia,
@@ -46,7 +47,7 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { monto, comprobanteUrl, comprobantePublicId, enviada, recibida } = await req.json();
+  const { monto, comprobanteUrl, comprobantePublicId, numeroPedido, nombrePedido, enviada, recibida } = await req.json();
   const montoNum = Number(monto);
   if (!montoNum || montoNum <= 0) {
     return NextResponse.json({ error: "Monto inválido" }, { status: 400 });
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest) {
     monto: montoNum,
     comprobanteUrl: comprobanteUrl ?? null,
     comprobantePublicId: comprobantePublicId ?? null,
+    numeroPedido: numeroPedido || null,
+    nombrePedido: nombrePedido || null,
     enviada: !!enviada,
     recibida: !!recibida,
     createdBy: guard.user.name,
@@ -64,8 +67,9 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ transferencia });
 }
 
-// Body: { id, monto?, enviada?, recibida? } — para tildar enviada/recibida
-// o corregir el monto, incluso en transferencias de un día ya cerrado.
+// Body: { id, monto?, comprobanteUrl?, comprobantePublicId?, numeroPedido?,
+// nombrePedido?, enviada?, recibida? } — para tildar enviada/recibida o
+// editar cualquier otro dato, incluso en transferencias de un día ya cerrado.
 export async function PATCH(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
@@ -73,15 +77,20 @@ export async function PATCH(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { id, monto, enviada, recibida } = await req.json();
+  const { id, monto, comprobanteUrl, comprobantePublicId, numeroPedido, nombrePedido, enviada, recibida } = await req.json();
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initFinanzasTables();
+  const previous = comprobanteUrl !== undefined ? await getTransferenciaById(storeId, Number(id)) : null;
   const transferencia = await updateTransferencia(storeId, Number(id), {
     monto: monto !== undefined ? Number(monto) : undefined,
-    enviada, recibida,
+    comprobanteUrl, comprobantePublicId, numeroPedido, nombrePedido, enviada, recibida,
   });
   if (!transferencia) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
+
+  if (previous?.comprobante_public_id && previous.comprobante_public_id !== transferencia.comprobante_public_id) {
+    await destroyAsset(previous.comprobante_public_id, "image").catch(() => {});
+  }
   return NextResponse.json({ transferencia });
 }
 
