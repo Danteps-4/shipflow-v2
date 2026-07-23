@@ -122,6 +122,26 @@ export default function TransferenciasPage() {
     }
   }
 
+  // Permite pegar (Ctrl+V) una imagen copiada de WhatsApp u otra app mientras
+  // el modal de nueva transferencia está abierto.
+  useEffect(() => {
+    if (!transferModalOpen) return;
+    function handlePaste(e: ClipboardEvent) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) subirComprobante(file);
+          e.preventDefault();
+          break;
+        }
+      }
+    }
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [transferModalOpen]);
+
   async function saveTransferencia() {
     const monto = parseFloat(nuevoMonto);
     if (!monto || monto <= 0) return;
@@ -431,7 +451,7 @@ export default function TransferenciasPage() {
                   ) : (
                     <>
                       <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
-                      <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
+                      <span style={{ fontWeight: 600 }}>Arrastrá, hacé click o pegá con Ctrl+V</span>
                     </>
                   )}
                 </div>
