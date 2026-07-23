@@ -275,7 +275,7 @@ export default function SoportePage() {
             <i className="fas fa-spinner fa-spin" style={{ fontSize: "1.5rem" }} />
           </div>
         ) : (
-          <div style={{ display: "flex", gap: "1rem", padding: "1.5rem 2rem", overflowX: "auto", alignItems: "flex-start" }}>
+          <div style={{ display: "flex", gap: "1rem", padding: "1.5rem 2rem", overflowX: "auto", alignItems: "flex-start", justifyContent: "center" }}>
             {COLUMNAS.map((col) => {
               const items = tickets.filter((t) => t.estado === col.estado);
               return (
