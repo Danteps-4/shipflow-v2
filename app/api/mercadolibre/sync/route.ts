@@ -16,7 +16,7 @@ const DIAS_ATRAS = 7;
 // reprocesar pedidos ya descontados por webhook, gracias a la
 // idempotencia de deducirStock().
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "mercadolibre");
+  const guard = await requireModule(req, "mercadolibre", "/mercadolibre");
   if (!guard.ok) return guard.response;
 
   const store = getActiveStore();

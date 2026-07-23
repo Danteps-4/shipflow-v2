@@ -13,7 +13,7 @@ function tnHeaders(token: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/orders");
   if (!guard.ok) return guard.response;
 
   const tokens = readTokens();

@@ -5,7 +5,7 @@ import { getUploadSignature } from "@/lib/cloudinary";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
 
   return NextResponse.json(getUploadSignature());

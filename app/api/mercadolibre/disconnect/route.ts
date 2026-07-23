@@ -6,7 +6,7 @@ import { deleteMlConexion } from "@/lib/mlDb";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "mercadolibre");
+  const guard = await requireModule(req, "mercadolibre", "/mercadolibre");
   if (!guard.ok) return guard.response;
 
   const store = getActiveStore();

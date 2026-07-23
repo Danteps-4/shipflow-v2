@@ -19,7 +19,7 @@ const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio"];
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 // manual de winner/regular/malo. Body: { id, metaAdId, winnerOverride }
 // (metaAdId/winnerOverride pueden venir en null para desvincular/volver a auto).
 export async function PATCH(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -86,7 +86,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

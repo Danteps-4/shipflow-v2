@@ -6,7 +6,7 @@ import { updateNodeStatus } from "@/lib/metaAdsClient";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
 
   const token = await getValidMetaAccessToken();

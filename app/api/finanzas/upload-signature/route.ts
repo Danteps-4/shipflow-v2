@@ -5,7 +5,7 @@ import { getUploadSignature } from "@/lib/cloudinary";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   return NextResponse.json(getUploadSignature("shipflow-finanzas"));

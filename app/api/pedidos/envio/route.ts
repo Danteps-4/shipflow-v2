@@ -17,6 +17,8 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 const TIPOS_VALIDOS: TipoEnvio[] = ["domicilio", "sucursal", "retiro"];
 
 export async function GET(req: NextRequest) {
+  // Se usa tanto desde /orders como desde /procesar, así que se gatea solo
+  // por módulo (no hay un único sub apartado dueño de esta ruta).
   const guard = await requireModule(req, "pedidos");
   if (!guard.ok) return guard.response;
 
@@ -37,6 +39,8 @@ export async function GET(req: NextRequest) {
 // provincia?, codigoPostal?, sucursal? }. Cualquier campo omitido o en null
 // significa "sin override para ese campo" (se usa lo que vino de Tienda Nube).
 export async function POST(req: NextRequest) {
+  // Se usa tanto desde /orders como desde /procesar, así que se gatea solo
+  // por módulo (no hay un único sub apartado dueño de esta ruta).
   const guard = await requireModule(req, "pedidos");
   if (!guard.ok) return guard.response;
 

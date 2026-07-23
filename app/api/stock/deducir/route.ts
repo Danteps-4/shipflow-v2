@@ -15,7 +15,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "stock");
+  const guard = await requireModule(req, "stock", "/stock");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

@@ -3,63 +3,20 @@
 import { useState, useEffect, useRef, useLayoutEffect } from "react";
 import { usePathname } from "next/navigation";
 import { ModuleKey } from "@/lib/modules";
+import { NAV_GROUPS, Apartado, hasLinkAccess } from "@/lib/navGroups";
 
 type NavLink = { href: string; icon: string; label: string };
-type NavGroup = { label: string; module: ModuleKey; links: NavLink[] };
 
 const TOP_LINK: NavLink = { href: "/", icon: "fas fa-house", label: "Inicio" };
-
-const GROUPS: NavGroup[] = [
-  {
-    label: "Pedidos",
-    module: "pedidos",
-    links: [
-      { href: "/orders", icon: "fas fa-receipt", label: "Pedidos" },
-      { href: "/procesar", icon: "fas fa-file-excel", label: "Procesar Pedidos" },
-      { href: "/etiquetas", icon: "fas fa-tags", label: "Agregar SKU a Etiquetas" },
-      { href: "/tracking", icon: "fas fa-truck", label: "Subir Tracking" },
-    ],
-  },
-  {
-    label: "Mercado Libre",
-    module: "mercadolibre",
-    links: [
-      { href: "/mercadolibre", icon: "fas fa-plug", label: "Conectar Mercado Libre" },
-      { href: "/mercadolibre/pedidos", icon: "fas fa-receipt", label: "Pedidos ML" },
-      { href: "/etiquetas-ml", icon: "fas fa-barcode", label: "Etiquetas ML (ZPL → PDF)" },
-    ],
-  },
-  {
-    label: "Stock",
-    module: "stock",
-    links: [
-      { href: "/stock", icon: "fas fa-warehouse", label: "Stock de Productos" },
-    ],
-  },
-  {
-    label: "Finanzas",
-    module: "finanzas",
-    links: [
-      { href: "/finanzas", icon: "fas fa-chart-pie", label: "Gastos y Suscripciones" },
-      { href: "/finanzas/transferencias", icon: "fas fa-money-bill-transfer", label: "Transferencias" },
-    ],
-  },
-  {
-    label: "Creativo",
-    module: "creativo",
-    links: [
-      { href: "/creativo", icon: "fas fa-clapperboard", label: "Ángulos, guiones y formatos" },
-    ],
-  },
-];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const isActive = (href: string) => pathname === href;
-  const groupHasActiveLink = (group: NavGroup) => group.links.some((l) => isActive(l.href));
+  const groupHasActiveLink = (group: Apartado) => group.subApartados.some((l) => isActive(l.href));
 
   const [role, setRole]       = useState<"admin" | "member" | null>(null);
   const [modules, setModules] = useState<ModuleKey[]>([]);
+  const [linkAccess, setLinkAccess] = useState<string[] | undefined>(undefined);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -68,6 +25,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       .then((d) => {
         setRole(d.user?.role ?? null);
         setModules(d.user?.modules ?? []);
+        setLinkAccess(d.user?.linkAccess);
       })
       .catch(() => {});
   }, []);
@@ -76,7 +34,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   useEffect(() => {
     setExpanded((prev) => {
       const next = { ...prev };
-      for (const group of GROUPS) {
+      for (const group of NAV_GROUPS) {
         if (groupHasActiveLink(group) && next[group.label] === undefined) next[group.label] = true;
       }
       return next;
@@ -85,10 +43,16 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   }, [pathname]);
 
   const isAdmin = role === "admin";
-  const visibleGroups = GROUPS.filter((g) => isAdmin || modules.includes(g.module));
+  const visibleGroups = NAV_GROUPS
+    .filter((g) => isAdmin || modules.includes(g.module))
+    .map((g) => ({
+      ...g,
+      subApartados: g.subApartados.filter((l) => isAdmin || hasLinkAccess(linkAccess, l.href)),
+    }))
+    .filter((g) => g.subApartados.length > 0);
 
   function toggleGroup(label: string) {
-    setExpanded((prev) => ({ ...prev, [label]: !(prev[label] ?? groupHasActiveLink(GROUPS.find((g) => g.label === label)!)) }));
+    setExpanded((prev) => ({ ...prev, [label]: !(prev[label] ?? groupHasActiveLink(NAV_GROUPS.find((g) => g.label === label)!)) }));
   }
 
   return (
@@ -122,7 +86,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
                   />
                 </button>
                 <CollapsibleLinks isOpen={isOpen}>
-                  {group.links.map((link) => (
+                  {group.subApartados.map((link) => (
                     <a key={link.href} href={link.href} className={isActive(link.href) ? "active" : ""}>
                       <i className={link.icon} /> {link.label}
                     </a>

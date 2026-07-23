@@ -18,6 +18,9 @@ export interface User {
   createdAt: string;
   role: UserRole;
   modules: ModuleKey[];
+  // undefined = sin restricciones puntuales (todo lo del módulo permitido).
+  // Definido = lista exacta de sub apartados (hrefs) permitidos.
+  linkAccess?: string[];
 }
 
 // Usuarios creados antes de que existiera role/modules no tienen esos campos
@@ -79,13 +82,14 @@ export function createUser(data: { name: string; email: string; passwordHash: st
 
 export function updateUserAccess(
   id: string,
-  access: { role: UserRole; modules: ModuleKey[] }
+  access: { role: UserRole; modules: ModuleKey[]; linkAccess?: string[] }
 ): User | null {
   const users = readUsers();
   const user = users.find((u) => u.id === id);
   if (!user) return null;
   user.role = access.role;
   user.modules = access.modules;
+  user.linkAccess = access.linkAccess;
   writeUsers(users);
   return user;
 }

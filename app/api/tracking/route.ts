@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
   const cl = req.headers.get("content-length") ?? "?";
   console.log("[tracking] POST recibido — content-type:", ct, "content-length:", cl);
 
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/tracking");
   if (!guard.ok) return guard.response;
   const tokens = readTokens();
   if (!tokens) {

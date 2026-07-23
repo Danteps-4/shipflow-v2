@@ -18,7 +18,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 // las saca de la cuenta "de hoy"), y arranca una cuenta nueva en cero.
 // Body: { porcentaje } — lo que cobra la financiera sobre el total de ese cierre.
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

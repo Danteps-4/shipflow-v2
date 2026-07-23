@@ -43,7 +43,7 @@ async function fetchOrderByNumber(
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/etiquetas");
   if (!guard.ok) return guard.response;
 
   const tokens = readTokens();

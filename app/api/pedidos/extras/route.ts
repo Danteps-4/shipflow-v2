@@ -15,7 +15,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/orders");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/orders");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/orders");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

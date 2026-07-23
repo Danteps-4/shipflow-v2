@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // particular, así que estas rutas no dependen de qué tienda esté activa.
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas");
   if (!guard.ok) return guard.response;
 
   await initFinanzasTables();
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas");
   if (!guard.ok) return guard.response;
 
   const { fecha, descripcion, monto } = await req.json();
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas");
   if (!guard.ok) return guard.response;
 
   const { id, fecha, descripcion, monto } = await req.json();
@@ -53,7 +53,7 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas");
   if (!guard.ok) return guard.response;
 
   const { id } = await req.json();

@@ -5,7 +5,7 @@ import { requireModule } from "@/lib/permissions";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "creativo");
+  const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) {
     const dest = guard.response.status === 401 ? "/login?error=session_expired" : "/?error=no_access";
     return NextResponse.redirect(new URL(dest, req.url));

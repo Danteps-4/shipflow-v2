@@ -27,7 +27,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 // GET ?cierreId=123 trae las transferencias de ese cierre (historial).
 // Sin cierreId trae las activas (todavía sin cerrar).
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
 // nombrePedido?, enviada?, recibida? } — para tildar enviada/recibida o
 // editar cualquier otro dato, incluso en transferencias de un día ya cerrado.
 export async function PATCH(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -96,7 +96,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

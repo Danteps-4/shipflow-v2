@@ -17,7 +17,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 // Body: { id } — borra un cierre entero del historial junto con todas las
 // transferencias que quedaron agrupadas ahí (y sus comprobantes en Cloudinary).
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

@@ -6,7 +6,7 @@ import { requireModule } from "@/lib/permissions";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "pedidos");
+  const guard = await requireModule(req, "pedidos", "/etiquetas");
   if (!guard.ok) return guard.response;
 
   // Parse form data

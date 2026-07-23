@@ -13,7 +13,7 @@ function base64url(buf: Buffer): string {
 // a la tienda de Tienda Nube activa del usuario, que es la partición
 // (store_id) que ya usa el módulo de stock.
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "mercadolibre");
+  const guard = await requireModule(req, "mercadolibre", "/mercadolibre");
   if (!guard.ok) {
     const dest = guard.response.status === 401 ? "/login?error=session_expired" : "/?error=no_access";
     return NextResponse.redirect(new URL(dest, req.url));

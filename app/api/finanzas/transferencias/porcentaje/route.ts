@@ -18,7 +18,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 // Porcentaje "fijo" que cobra la financiera, para no tener que cargarlo de
 // nuevo cada vez que se cierra el día.
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const guard = await requireModule(req, "finanzas");
+  const guard = await requireModule(req, "finanzas", "/finanzas/transferencias");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);

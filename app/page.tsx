@@ -5,6 +5,7 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import { ModuleKey } from "@/lib/modules";
+import { hasLinkAccess } from "@/lib/navGroups";
 
 const TOOL_GROUPS = [
   {
@@ -131,6 +132,7 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [role, setRole]               = useState<"admin" | "member" | null>(null);
   const [modules, setModules]         = useState<ModuleKey[]>([]);
+  const [linkAccess, setLinkAccess]   = useState<string[] | undefined>(undefined);
 
   useEffect(() => {
     fetch("/api/user/me")
@@ -138,12 +140,16 @@ export default function HomePage() {
       .then((d) => {
         setRole(d.user?.role ?? null);
         setModules(d.user?.modules ?? []);
+        setLinkAccess(d.user?.linkAccess);
       })
       .catch(() => {});
   }, []);
 
   const isAdmin = role === "admin";
-  const visibleGroups = TOOL_GROUPS.filter((g) => isAdmin || modules.includes(g.module));
+  const visibleGroups = TOOL_GROUPS
+    .filter((g) => isAdmin || modules.includes(g.module))
+    .map((g) => ({ ...g, tools: g.tools.filter((t) => isAdmin || hasLinkAccess(linkAccess, t.href)) }))
+    .filter((g) => g.tools.length > 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>

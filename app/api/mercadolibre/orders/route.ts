@@ -7,7 +7,7 @@ import { getValidMlAccessToken } from "@/lib/mlTokens";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "mercadolibre");
+  const guard = await requireModule(req, "mercadolibre", "/mercadolibre/pedidos");
   if (!guard.ok) return guard.response;
 
   const store = getActiveStore();

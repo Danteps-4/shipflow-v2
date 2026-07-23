@@ -16,7 +16,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 
 // GET /api/stock/kits — todos los kits de la tienda
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "stock");
+  const guard = await requireModule(req, "stock", "/stock");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
 // POST /api/stock/kits — guardar kit
 // Body: { kitSku: string, components: [{ component_sku, cantidad }] }
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "stock");
+  const guard = await requireModule(req, "stock", "/stock");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/stock/kits?sku=XXX — eliminar definición de kit
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "stock");
+  const guard = await requireModule(req, "stock", "/stock");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
