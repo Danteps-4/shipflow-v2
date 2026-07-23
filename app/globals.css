@@ -844,6 +844,124 @@ body {
   color: var(--card-color, var(--primary-color));
 }
 
+/* ── Inputs ───────────────────────────────────────────────────── */
+.sf-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.sf-input {
+  background-color: rgba(15, 23, 42, 0.6);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  color: var(--text-color);
+  font-size: 0.9rem;
+  font-weight: 400;
+  font-family: inherit;
+  padding: 0.6rem 0.8rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+  color-scheme: dark;
+}
+
+.sf-input::placeholder {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.sf-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.sf-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+select.sf-input {
+  cursor: pointer;
+}
+
+textarea.sf-input {
+  resize: vertical;
+  min-height: 5rem;
+  line-height: 1.5;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--primary-color);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+/* ── Card (login/register, etc.) ─────────────────────────────── */
+.sf-card {
+  background-color: var(--surface-color);
+  border: 1px solid var(--border-color);
+  border-radius: calc(var(--radius) * 1.5);
+  box-shadow: var(--shadow);
+}
+
+/* ── Icon button (editar/eliminar inline) ─────────────────────── */
+.sf-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+  background-color: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.sf-icon-btn:hover {
+  background-color: rgba(59, 130, 246, 0.12);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.sf-icon-btn.danger:hover {
+  background-color: rgba(239, 68, 68, 0.12);
+  border-color: var(--error-color);
+  color: var(--error-color);
+}
+
+.sf-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Modal overlay (alias de sf-modal-backdrop para componentes viejos) ── */
+.sf-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Estados disabled de botones ──────────────────────────────── */
+.sf-btn:disabled,
+.sf-btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* ── Footer ───────────────────────────────────────────────────── */
 .sf-footer {
   border-top: 1px solid var(--border-color);
