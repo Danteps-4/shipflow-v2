@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
-import { initFinanzasTables, cerrarDiaTransferencias } from "@/lib/finanzasDb";
+import { initFinanzasTables, cerrarDiaTransferencias, setPorcentajeFinancieraDefault } from "@/lib/finanzasDb";
 
 export const runtime = "nodejs";
 
@@ -33,5 +33,6 @@ export async function POST(req: NextRequest) {
   await initFinanzasTables();
   const cierre = await cerrarDiaTransferencias(storeId, guard.user.name, porcentajeNum);
   if (!cierre) return NextResponse.json({ error: "No hay transferencias para cerrar" }, { status: 400 });
+  await setPorcentajeFinancieraDefault(storeId, porcentajeNum);
   return NextResponse.json({ cierre });
 }

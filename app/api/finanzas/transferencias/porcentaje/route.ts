@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
-import { initFinanzasTables, getCierres, deleteCierre } from "@/lib/finanzasDb";
-import { destroyAsset } from "@/lib/cloudinary";
+import { initFinanzasTables, getPorcentajeFinancieraDefault, setPorcentajeFinancieraDefault } from "@/lib/finanzasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +15,8 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
+// Porcentaje "fijo" que cobra la financiera, para no tener que cargarlo de
+// nuevo cada vez que se cierra el día.
 export async function GET(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
@@ -24,26 +25,24 @@ export async function GET(req: NextRequest) {
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   await initFinanzasTables();
-  const cierres = await getCierres(storeId);
-  return NextResponse.json({ cierres });
+  const porcentaje = await getPorcentajeFinancieraDefault(storeId);
+  return NextResponse.json({ porcentaje });
 }
 
-// Body: { id } — borra un cierre entero del historial junto con todas las
-// transferencias que quedaron agrupadas ahí (y sus comprobantes en Cloudinary).
-export async function DELETE(req: NextRequest) {
+export async function PUT(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { id } = await req.json();
-  if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
+  const { porcentaje } = await req.json();
+  const porcentajeNum = Number(porcentaje);
+  if (isNaN(porcentajeNum) || porcentajeNum < 0 || porcentajeNum > 100) {
+    return NextResponse.json({ error: "Porcentaje inválido" }, { status: 400 });
+  }
 
   await initFinanzasTables();
-  const borrado = await deleteCierre(storeId, Number(id));
-  if (!borrado) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-
-  await Promise.all(borrado.comprobantePublicIds.map(publicId => destroyAsset(publicId, "image").catch(() => {})));
-  return NextResponse.json({ ok: true });
+  const guardado = await setPorcentajeFinancieraDefault(storeId, porcentajeNum);
+  return NextResponse.json({ porcentaje: guardado });
 }

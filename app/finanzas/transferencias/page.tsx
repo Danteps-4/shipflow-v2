@@ -71,12 +71,20 @@ export default function TransferenciasPage() {
 
   const [cierreModalOpen, setCierreModalOpen] = useState(false);
   const [porcentajeFinanciera, setPorcentajeFinanciera] = useState("");
+  const [porcentajeDefault, setPorcentajeDefault]       = useState(0);
+  const [editandoPorcentaje, setEditandoPorcentaje]     = useState(false);
+  const [porcentajeEditValue, setPorcentajeEditValue]   = useState("");
+  const [savingPorcentaje, setSavingPorcentaje]         = useState(false);
+
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [eliminandoCierreId, setEliminandoCierreId] = useState<number | null>(null);
 
   // ── Carga inicial ────────────────────────────────────────────────────────────
 
   useEffect(() => {
     fetchTransferencias();
     fetchCierres();
+    fetchPorcentaje();
   }, []);
 
   async function fetchTransferencias() {
@@ -93,6 +101,11 @@ export default function TransferenciasPage() {
       const r = await fetch("/api/finanzas/transferencias/cierres");
       if (r.ok) setCierres((await r.json()).cierres ?? []);
     } finally { setLoadingCierres(false); }
+  }
+
+  async function fetchPorcentaje() {
+    const r = await fetch("/api/finanzas/transferencias/porcentaje");
+    if (r.ok) setPorcentajeDefault((await r.json()).porcentaje ?? 0);
   }
 
   // ── CRUD ─────────────────────────────────────────────────────────────────────
@@ -256,7 +269,7 @@ export default function TransferenciasPage() {
 
   function abrirModalCierre() {
     if (!transferencias.length) return;
-    setPorcentajeFinanciera(cierres[0] ? String(cierres[0].porcentaje) : "");
+    setPorcentajeFinanciera(String(porcentajeDefault));
     setCierreModalOpen(true);
   }
 
@@ -273,6 +286,7 @@ export default function TransferenciasPage() {
       if (r.ok) {
         await fetchTransferencias();
         await fetchCierres();
+        setPorcentajeDefault(porcentaje);
         setCierreModalOpen(false);
       } else {
         const d = await r.json().catch(() => ({}));
@@ -280,6 +294,53 @@ export default function TransferenciasPage() {
       }
     } finally {
       setCerrandoDia(false);
+    }
+  }
+
+  function abrirEditarPorcentaje() {
+    setPorcentajeEditValue(String(porcentajeDefault));
+    setEditandoPorcentaje(true);
+  }
+
+  async function guardarPorcentajeDefault() {
+    const porcentaje = parseFloat(porcentajeEditValue) || 0;
+    if (porcentaje < 0 || porcentaje > 100) return;
+    setSavingPorcentaje(true);
+    try {
+      const r = await fetch("/api/finanzas/transferencias/porcentaje", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ porcentaje }),
+      });
+      if (r.ok) {
+        setPorcentajeDefault((await r.json()).porcentaje ?? porcentaje);
+        setEditandoPorcentaje(false);
+      }
+    } finally {
+      setSavingPorcentaje(false);
+    }
+  }
+
+  async function eliminarCierre(cierreId: number) {
+    if (!confirm("¿Eliminar este cierre? Se van a borrar también todas las transferencias que quedaron agrupadas ahí. Esta acción no se puede deshacer.")) return;
+    setEliminandoCierreId(cierreId);
+    try {
+      const r = await fetch("/api/finanzas/transferencias/cierres", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: cierreId }),
+      });
+      if (r.ok) {
+        setCierres(prev => prev.filter(c => c.id !== cierreId));
+        setCierreDetalle(prev => {
+          const next = { ...prev };
+          delete next[cierreId];
+          return next;
+        });
+        if (expandedCierre === cierreId) setExpandedCierre(null);
+      }
+    } finally {
+      setEliminandoCierreId(null);
     }
   }
 
@@ -308,7 +369,7 @@ export default function TransferenciasPage() {
             Transferencias desviadas a la financiera: cargá el comprobante, marcá enviada/recibida, y cerrá el día cuando termines.
           </p>
 
-          <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
             <button className="sf-btn" onClick={openNewTransferencia}>
               <i className="fas fa-plus" /> Agregar transferencia
             </button>
@@ -327,6 +388,13 @@ export default function TransferenciasPage() {
                 }
               </button>
             </div>
+          </div>
+
+          <div style={{ marginBottom: "1rem", fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+            Comisión fija de la financiera: <strong style={{ color: "var(--text-color)" }}>{porcentajeDefault}%</strong>
+            <button className="sf-icon-btn" title="Editar comisión fija" onClick={abrirEditarPorcentaje}>
+              <i className="fas fa-pen" style={{ fontSize: "0.7rem" }} />
+            </button>
           </div>
 
           {loadingT ? (
@@ -356,6 +424,7 @@ export default function TransferenciasPage() {
                       onToggle={campo => toggleFlag(t, campo, null)}
                       onEdit={() => openEditTransferencia(t)}
                       onDelete={() => deleteTransferencia(t.id)}
+                      onPreview={setPreviewImage}
                       saving={guardandoFlagId === t.id}
                     />
                   ))}
@@ -400,6 +469,7 @@ export default function TransferenciasPage() {
                     <th style={{ textAlign: "right" }}>Neto</th>
                     <th style={{ textAlign: "right" }}>Enviadas</th>
                     <th style={{ textAlign: "right" }}>Recibidas</th>
+                    <th style={{ width: 40 }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -423,10 +493,20 @@ export default function TransferenciasPage() {
                           <td style={{ textAlign: "right", color: c.recibidas === c.cantidad ? "var(--success-color)" : "var(--warning-color)" }}>
                             {c.recibidas} / {c.cantidad}
                           </td>
+                          <td>
+                            <button
+                              className="sf-icon-btn danger"
+                              title="Eliminar cierre"
+                              onClick={e => { e.stopPropagation(); eliminarCierre(c.id); }}
+                              disabled={eliminandoCierreId === c.id}
+                            >
+                              {eliminandoCierreId === c.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+                            </button>
+                          </td>
                         </tr>
                         {expanded && (
                           <tr>
-                            <td colSpan={9} style={{ padding: 0, background: "rgba(15,23,42,0.3)" }}>
+                            <td colSpan={10} style={{ padding: 0, background: "rgba(15,23,42,0.3)" }}>
                               {!cierreDetalle[c.id] ? (
                                 <div style={{ padding: "1rem", textAlign: "center", color: "var(--text-muted)" }}>
                                   <i className="fas fa-spinner fa-spin" />
@@ -439,6 +519,7 @@ export default function TransferenciasPage() {
                                         key={t.id}
                                         t={t}
                                         onToggle={campo => toggleFlag(t, campo, c.id)}
+                                        onPreview={setPreviewImage}
                                         saving={guardandoFlagId === t.id}
                                       />
                                     ))}
@@ -631,6 +712,83 @@ export default function TransferenciasPage() {
           </>
         );
       })()}
+
+      {/* ── Modal Editar comisión fija ───────────────────────────────────────── */}
+      {editandoPorcentaje && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setEditandoPorcentaje(false)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(360px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-percent" style={{ color: "var(--primary-color)" }} />
+                Comisión fija de la financiera
+              </h3>
+              <button className="sf-close-btn" onClick={() => setEditandoPorcentaje(false)}>
+                <i className="fas fa-times" />
+              </button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <label className="sf-label">
+                Porcentaje (%)
+                <input
+                  className="sf-input"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={porcentajeEditValue}
+                  onChange={e => setPorcentajeEditValue(e.target.value)}
+                  placeholder="0"
+                  autoFocus
+                />
+              </label>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Se va a usar como valor por defecto la próxima vez que cierres el día, para no tener que cargarlo de nuevo.
+              </p>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setEditandoPorcentaje(false)}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarPorcentajeDefault} disabled={savingPorcentaje}>
+                {savingPorcentaje ? <><i className="fas fa-spinner fa-spin" /> Guardando…</> : <><i className="fas fa-check" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Modal Vista previa de imagen ─────────────────────────────────────── */}
+      {previewImage && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setPreviewImage(null)} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: "fixed", inset: 0, zIndex: 3100,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              padding: "2rem", pointerEvents: "none",
+            }}
+          >
+            <div style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh", pointerEvents: "auto" }}>
+              <button
+                className="sf-close-btn"
+                onClick={() => setPreviewImage(null)}
+                style={{
+                  position: "absolute", top: "-2.5rem", right: 0,
+                  color: "#fff", fontSize: "1.5rem",
+                }}
+              >
+                <i className="fas fa-times" />
+              </button>
+              <img
+                src={previewImage}
+                alt="Comprobante"
+                style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: "var(--radius)", boxShadow: "var(--shadow)" }}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -656,20 +814,26 @@ interface TransferenciaFE {
   recibida: boolean;
 }
 
-function TransferenciaRow({ t, onToggle, onEdit, onDelete, saving }: {
+function TransferenciaRow({ t, onToggle, onEdit, onDelete, onPreview, saving }: {
   t: TransferenciaFE;
   onToggle: (campo: "enviada" | "recibida") => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onPreview?: (url: string) => void;
   saving: boolean;
 }) {
   return (
     <tr>
       <td>
         {t.comprobante_url ? (
-          <a href={t.comprobante_url} target="_blank" rel="noopener noreferrer">
+          <button
+            type="button"
+            onClick={() => onPreview?.(t.comprobante_url!)}
+            style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+            title="Ver comprobante"
+          >
             <img src={t.comprobante_url} alt="Comprobante" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
-          </a>
+          </button>
         ) : (
           <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>—</span>
         )}

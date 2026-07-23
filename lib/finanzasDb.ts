@@ -148,6 +148,16 @@ export async function initFinanzasTables(): Promise<void> {
   // Para poder identificar a qué pedido corresponde cada transferencia.
   await sql`ALTER TABLE transferencias ADD COLUMN IF NOT EXISTS numero_pedido TEXT`;
   await sql`ALTER TABLE transferencias ADD COLUMN IF NOT EXISTS nombre_pedido TEXT`;
+
+  // Porcentaje "fijo" de la financiera, para no tener que cargarlo de nuevo
+  // cada vez que se cierra el día (se puede seguir ajustando puntualmente).
+  await sql`
+    CREATE TABLE IF NOT EXISTS finanzas_config (
+      store_id             TEXT PRIMARY KEY,
+      porcentaje_financiera NUMERIC(5,2) NOT NULL DEFAULT 0,
+      updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
 }
 
 // ─── Gastos ──────────────────────────────────────────────────────────────────
@@ -440,6 +450,47 @@ export async function cerrarDiaTransferencias(
   const comision = Math.round(stats.total * cierre.porcentaje) / 100;
   const neto = Math.round((stats.total - comision) * 100) / 100;
   return { ...cierre, ...stats, comision, neto };
+}
+
+export async function deleteCierre(
+  storeId: string,
+  cierreId: number,
+): Promise<{ comprobantePublicIds: string[] } | null> {
+  const sql = getDb();
+  const existe = await sql`
+    SELECT id FROM transferencia_cierres WHERE store_id = ${storeId} AND id = ${cierreId}
+  ` as { id: number }[];
+  if (!existe.length) return null;
+
+  const transferencias = await sql`
+    SELECT comprobante_public_id FROM transferencias WHERE store_id = ${storeId} AND cierre_id = ${cierreId}
+  ` as { comprobante_public_id: string | null }[];
+
+  await sql`DELETE FROM transferencias WHERE store_id = ${storeId} AND cierre_id = ${cierreId}`;
+  await sql`DELETE FROM transferencia_cierres WHERE store_id = ${storeId} AND id = ${cierreId}`;
+
+  return { comprobantePublicIds: transferencias.map(t => t.comprobante_public_id).filter((id): id is string => !!id) };
+}
+
+// ─── Config de finanzas ──────────────────────────────────────────────────────
+
+export async function getPorcentajeFinancieraDefault(storeId: string): Promise<number> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT porcentaje_financiera FROM finanzas_config WHERE store_id = ${storeId}
+  ` as { porcentaje_financiera: number }[];
+  return rows[0] ? Number(rows[0].porcentaje_financiera) : 0;
+}
+
+export async function setPorcentajeFinancieraDefault(storeId: string, porcentaje: number): Promise<number> {
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO finanzas_config (store_id, porcentaje_financiera, updated_at)
+    VALUES (${storeId}, ${porcentaje}, NOW())
+    ON CONFLICT (store_id) DO UPDATE SET porcentaje_financiera = ${porcentaje}, updated_at = NOW()
+    RETURNING porcentaje_financiera
+  ` as { porcentaje_financiera: number }[];
+  return Number(rows[0].porcentaje_financiera);
 }
 
 // Historial de cierres, con los totales calculados en vivo (recibida puede
