@@ -38,6 +38,28 @@ export interface Suscripcion {
   created_at: string;
 }
 
+export interface Transferencia {
+  id: number;
+  monto: number;
+  comprobante_url: string | null;
+  comprobante_public_id: string | null;
+  enviada: boolean;
+  recibida: boolean;
+  cierre_id: number | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface TransferenciaCierre {
+  id: number;
+  created_by: string;
+  created_at: string;
+  cantidad: number;
+  total: number;
+  enviadas: number;
+  recibidas: number;
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 export async function initFinanzasTables(): Promise<void> {
@@ -74,6 +96,44 @@ export async function initFinanzasTables(): Promise<void> {
   await sql`
     CREATE INDEX IF NOT EXISTS suscripciones_store
     ON suscripciones (store_id, activa)
+  `;
+
+  // Cada "cierre" es el momento en que se cierra el día y se suman todas las
+  // transferencias acumuladas hasta ese punto.
+  await sql`
+    CREATE TABLE IF NOT EXISTS transferencia_cierres (
+      id         SERIAL PRIMARY KEY,
+      store_id   TEXT NOT NULL,
+      created_by TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS transferencia_cierres_store
+    ON transferencia_cierres (store_id, created_at DESC)
+  `;
+
+  // Transferencias recibidas de clientes y desviadas a la cuenta de la
+  // financiera. Mientras cierre_id sea NULL, la transferencia está "activa"
+  // (todavía no se cerró el día). enviada/recibida se pueden seguir editando
+  // después del cierre, porque la financiera confirma en un momento indefinido.
+  await sql`
+    CREATE TABLE IF NOT EXISTS transferencias (
+      id                    SERIAL PRIMARY KEY,
+      store_id              TEXT NOT NULL,
+      monto                 NUMERIC(12,2) NOT NULL,
+      comprobante_url       TEXT,
+      comprobante_public_id TEXT,
+      enviada               BOOLEAN NOT NULL DEFAULT FALSE,
+      recibida              BOOLEAN NOT NULL DEFAULT FALSE,
+      cierre_id             INTEGER REFERENCES transferencia_cierres(id) ON DELETE SET NULL,
+      created_by            TEXT NOT NULL DEFAULT '',
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS transferencias_store_cierre
+    ON transferencias (store_id, cierre_id)
   `;
 }
 
@@ -207,4 +267,151 @@ export async function deleteSuscripcion(
     RETURNING id
   ` as { id: number }[];
   return rows.length > 0;
+}
+
+// ─── Transferencias ──────────────────────────────────────────────────────────
+
+// Transferencias todavía no incluidas en ningún cierre (la cuenta "de hoy").
+export async function getTransferenciasActivas(storeId: string): Promise<Transferencia[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+    FROM transferencias
+    WHERE store_id = ${storeId} AND cierre_id IS NULL
+    ORDER BY created_at
+  `;
+  return rows as Transferencia[];
+}
+
+export async function getTransferenciasPorCierre(storeId: string, cierreId: number): Promise<Transferencia[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+    FROM transferencias
+    WHERE store_id = ${storeId} AND cierre_id = ${cierreId}
+    ORDER BY created_at
+  `;
+  return rows as Transferencia[];
+}
+
+export async function createTransferencia(
+  storeId: string,
+  data: {
+    monto: number;
+    comprobanteUrl: string | null;
+    comprobantePublicId: string | null;
+    enviada: boolean;
+    recibida: boolean;
+    createdBy: string;
+  },
+): Promise<Transferencia> {
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO transferencias (store_id, monto, comprobante_url, comprobante_public_id, enviada, recibida, created_by, created_at)
+    VALUES (${storeId}, ${data.monto}, ${data.comprobanteUrl}, ${data.comprobantePublicId}, ${data.enviada}, ${data.recibida}, ${data.createdBy}, NOW())
+    RETURNING id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+  ` as Transferencia[];
+  return rows[0];
+}
+
+// El caller manda siempre el valor completo de monto/enviada/recibida (no
+// solo el campo que cambió), tomando como base la fila actual.
+export async function updateTransferencia(
+  storeId: string,
+  id: number,
+  data: { monto?: number; enviada?: boolean; recibida?: boolean },
+): Promise<Transferencia | null> {
+  const sql = getDb();
+  const actualRows = await sql`
+    SELECT monto, enviada, recibida FROM transferencias WHERE store_id = ${storeId} AND id = ${id}
+  ` as { monto: number; enviada: boolean; recibida: boolean }[];
+  if (!actualRows[0]) return null;
+
+  const monto    = data.monto    ?? actualRows[0].monto;
+  const enviada  = data.enviada  ?? actualRows[0].enviada;
+  const recibida = data.recibida ?? actualRows[0].recibida;
+
+  const rows = await sql`
+    UPDATE transferencias
+    SET monto = ${monto}, enviada = ${enviada}, recibida = ${recibida}
+    WHERE store_id = ${storeId} AND id = ${id}
+    RETURNING id, monto, comprobante_url, comprobante_public_id, enviada, recibida, cierre_id, created_by, created_at
+  ` as Transferencia[];
+  return rows[0] ?? null;
+}
+
+export async function deleteTransferencia(
+  storeId: string,
+  id: number,
+): Promise<{ comprobante_public_id: string | null } | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT comprobante_public_id FROM transferencias WHERE store_id = ${storeId} AND id = ${id}
+  ` as { comprobante_public_id: string | null }[];
+  if (!rows[0]) return null;
+  await sql`DELETE FROM transferencias WHERE store_id = ${storeId} AND id = ${id}`;
+  return rows[0];
+}
+
+async function getCierreStats(
+  storeId: string, cierreId: number,
+): Promise<{ cantidad: number; total: number; enviadas: number; recibidas: number }> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      COUNT(*)::int AS cantidad,
+      COALESCE(SUM(monto), 0)::float AS total,
+      COUNT(*) FILTER (WHERE enviada)::int AS enviadas,
+      COUNT(*) FILTER (WHERE recibida)::int AS recibidas
+    FROM transferencias
+    WHERE store_id = ${storeId} AND cierre_id = ${cierreId}
+  ` as { cantidad: number; total: number; enviadas: number; recibidas: number }[];
+  return rows[0];
+}
+
+// Cierra el día: junta todas las transferencias activas en un nuevo cierre y
+// devuelve el resumen. Si no hay ninguna activa, no crea nada (null).
+export async function cerrarDiaTransferencias(
+  storeId: string, createdBy: string,
+): Promise<TransferenciaCierre | null> {
+  const sql = getDb();
+  const activas = await sql`
+    SELECT id FROM transferencias WHERE store_id = ${storeId} AND cierre_id IS NULL
+  ` as { id: number }[];
+  if (!activas.length) return null;
+
+  const cierreRows = await sql`
+    INSERT INTO transferencia_cierres (store_id, created_by, created_at)
+    VALUES (${storeId}, ${createdBy}, NOW())
+    RETURNING id, created_by, created_at
+  ` as { id: number; created_by: string; created_at: string }[];
+  const cierre = cierreRows[0];
+
+  await sql`
+    UPDATE transferencias SET cierre_id = ${cierre.id}
+    WHERE store_id = ${storeId} AND cierre_id IS NULL
+  `;
+
+  const stats = await getCierreStats(storeId, cierre.id);
+  return { ...cierre, ...stats };
+}
+
+// Historial de cierres, con los totales calculados en vivo (recibida puede
+// seguir cambiando después del cierre, así que no se guarda un total fijo).
+export async function getCierres(storeId: string): Promise<TransferenciaCierre[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT
+      tc.id, tc.created_by, tc.created_at,
+      COUNT(t.id)::int AS cantidad,
+      COALESCE(SUM(t.monto), 0)::float AS total,
+      COUNT(t.id) FILTER (WHERE t.enviada)::int AS enviadas,
+      COUNT(t.id) FILTER (WHERE t.recibida)::int AS recibidas
+    FROM transferencia_cierres tc
+    LEFT JOIN transferencias t ON t.cierre_id = tc.id
+    WHERE tc.store_id = ${storeId}
+    GROUP BY tc.id, tc.created_by, tc.created_at
+    ORDER BY tc.created_at DESC
+  `;
+  return rows as TransferenciaCierre[];
 }

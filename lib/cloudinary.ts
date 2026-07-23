@@ -15,10 +15,10 @@ export interface UploadSignature {
 
 // Firma server-side para que el navegador suba el archivo directo a
 // Cloudinary (no pasa por nuestra API route) sin exponer el API secret.
-export function getUploadSignature(): UploadSignature {
+export function getUploadSignature(folder = "shipflow-creativo"): UploadSignature {
   const timestamp = Math.round(Date.now() / 1000);
   const signature = cloudinary.utils.api_sign_request(
-    { timestamp, folder: "shipflow-creativo" },
+    { timestamp, folder },
     process.env.CLOUDINARY_API_SECRET ?? "",
   );
   return {
