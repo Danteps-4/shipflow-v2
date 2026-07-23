@@ -1,35 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readTokens } from "@/lib/tnTokens";
-import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
 import {
   initFinanzasTables,
-  getGastos,
-  createGasto,
-  updateGasto,
-  deleteGasto,
+  getGastosPersonales,
+  createGastoPersonal,
+  updateGastoPersonal,
+  deleteGastoPersonal,
 } from "@/lib/finanzasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function getStoreId(req: NextRequest): Promise<string | null> {
-  const sfUserId = await getSessionUserId(req);
-  if (!sfUserId) return null;
-  const tokens = readTokens();
-  if (!tokens) return null;
-  return String(tokens.user_id);
-}
+// Gastos personales: son de la cuenta en general, no de una tienda en
+// particular, así que estas rutas no dependen de qué tienda esté activa.
 
 export async function GET(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
 
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-
   await initFinanzasTables();
-  const gastos = await getGastos(storeId);
+  const gastos = await getGastosPersonales();
   return NextResponse.json({ gastos });
 }
 
@@ -37,15 +27,13 @@ export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
 
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-
-  const { descripcion, monto, categoria, fecha } = await req.json();
-  if (!descripcion || !monto || !fecha)
+  const { fecha, descripcion, monto } = await req.json();
+  const montoNum = Number(monto);
+  if (!fecha || !descripcion || !montoNum || montoNum <= 0)
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
 
   await initFinanzasTables();
-  const gasto = await createGasto(storeId, descripcion, Number(monto), categoria ?? "Otros", fecha);
+  const gasto = await createGastoPersonal(fecha, descripcion, montoNum);
   return NextResponse.json({ gasto });
 }
 
@@ -53,15 +41,13 @@ export async function PUT(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
 
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-
-  const { id, descripcion, monto, categoria, fecha } = await req.json();
-  if (!id || !descripcion || !monto || !fecha)
+  const { id, fecha, descripcion, monto } = await req.json();
+  const montoNum = Number(monto);
+  if (!id || !fecha || !descripcion || !montoNum || montoNum <= 0)
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
 
   await initFinanzasTables();
-  const gasto = await updateGasto(storeId, Number(id), descripcion, Number(monto), categoria ?? "Otros", fecha);
+  const gasto = await updateGastoPersonal(Number(id), fecha, descripcion, montoNum);
   if (!gasto) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ gasto });
 }
@@ -70,14 +56,11 @@ export async function DELETE(req: NextRequest) {
   const guard = await requireModule(req, "finanzas");
   if (!guard.ok) return guard.response;
 
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-
   const { id } = await req.json();
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initFinanzasTables();
-  const ok = await deleteGasto(storeId, Number(id));
+  const ok = await deleteGastoPersonal(Number(id));
   if (!ok) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

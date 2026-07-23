@@ -2,25 +2,41 @@ import { getDb } from "./db";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-export const CATEGORIAS_GASTO = [
-  "Operaciones",
-  "Marketing",
-  "Software",
-  "Logística",
-  "Impuestos y tasas",
-  "Personal",
+// Gastos del negocio: se cargan por persona/categoría/detalle, como en el
+// excel. Son de la cuenta en general, no de una tienda en particular.
+export const CATEGORIAS_GASTO_NEGOCIO = [
+  "Videos",
+  "Guiones",
+  "Redes sociales",
+  "Imágenes",
+  "Servidor",
+  "AT cliente",
+  "Finanzas",
+  "Google ADS",
+  "Profit",
   "Otros",
 ] as const;
 
-export type CategoriaGasto = (typeof CATEGORIAS_GASTO)[number];
+export type CategoriaGastoNegocio = (typeof CATEGORIAS_GASTO_NEGOCIO)[number];
 
-export interface Gasto {
+export interface GastoNegocio {
   id: number;
-  store_id: string;
+  fecha: string; // ISO date string YYYY-MM-DD
+  persona: string | null;
+  categoria: CategoriaGastoNegocio;
+  detalle: string | null;
+  cantidad: number | null;
+  monto: number;
+  pagado: boolean;
+  created_at: string;
+}
+
+// Gastos personales: mucho más simples, solo fecha/descripción/monto.
+export interface GastoPersonal {
+  id: number;
+  fecha: string;
   descripcion: string;
   monto: number;
-  categoria: CategoriaGasto;
-  fecha: string; // ISO date string YYYY-MM-DD
   created_at: string;
 }
 
@@ -70,20 +86,38 @@ export interface TransferenciaCierre {
 export async function initFinanzasTables(): Promise<void> {
   const sql = getDb();
 
+  // Gastos del negocio y gastos personales son de la cuenta en general (no
+  // se filtran por tienda): no llevan store_id.
   await sql`
-    CREATE TABLE IF NOT EXISTS gastos (
+    CREATE TABLE IF NOT EXISTS gastos_negocio (
+      id         SERIAL PRIMARY KEY,
+      fecha      DATE    NOT NULL,
+      persona    TEXT,
+      categoria  TEXT    NOT NULL DEFAULT 'Otros',
+      detalle    TEXT,
+      cantidad   NUMERIC(10,2),
+      monto      NUMERIC(12,2) NOT NULL,
+      pagado     BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS gastos_negocio_fecha
+    ON gastos_negocio (fecha DESC)
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS gastos_personales (
       id          SERIAL PRIMARY KEY,
-      store_id    TEXT    NOT NULL,
-      descripcion TEXT    NOT NULL,
+      fecha       DATE NOT NULL,
+      descripcion TEXT NOT NULL,
       monto       NUMERIC(12,2) NOT NULL,
-      categoria   TEXT    NOT NULL DEFAULT 'Otros',
-      fecha       DATE    NOT NULL,
       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
   await sql`
-    CREATE INDEX IF NOT EXISTS gastos_store_fecha
-    ON gastos (store_id, fecha DESC)
+    CREATE INDEX IF NOT EXISTS gastos_personales_fecha
+    ON gastos_personales (fecha DESC)
   `;
 
   await sql`
@@ -160,69 +194,136 @@ export async function initFinanzasTables(): Promise<void> {
   `;
 }
 
-// ─── Gastos ──────────────────────────────────────────────────────────────────
+// ─── Gastos del negocio ──────────────────────────────────────────────────────
+// Son de la cuenta en general (no de una tienda en particular).
 
-export async function getGastos(
-  storeId: string,
-  limit = 200,
-): Promise<Gasto[]> {
+export async function getGastosNegocio(limit = 300): Promise<GastoNegocio[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT id, store_id, descripcion, monto, categoria, fecha, created_at
-    FROM gastos
-    WHERE store_id = ${storeId}
+    SELECT id, fecha, persona, categoria, detalle, cantidad, monto, pagado, created_at
+    FROM gastos_negocio
     ORDER BY fecha DESC, id DESC
     LIMIT ${limit}
   `;
-  return rows as Gasto[];
+  return rows as GastoNegocio[];
 }
 
-export async function createGasto(
-  storeId: string,
-  descripcion: string,
-  monto: number,
-  categoria: string,
-  fecha: string,
-): Promise<Gasto> {
+export async function createGastoNegocio(data: {
+  fecha: string;
+  persona: string | null;
+  categoria: string;
+  detalle: string | null;
+  cantidad: number | null;
+  monto: number;
+  pagado: boolean;
+}): Promise<GastoNegocio> {
   const sql = getDb();
   const rows = await sql`
-    INSERT INTO gastos (store_id, descripcion, monto, categoria, fecha)
-    VALUES (${storeId}, ${descripcion}, ${monto}, ${categoria}, ${fecha})
+    INSERT INTO gastos_negocio (fecha, persona, categoria, detalle, cantidad, monto, pagado)
+    VALUES (${data.fecha}, ${data.persona}, ${data.categoria}, ${data.detalle}, ${data.cantidad}, ${data.monto}, ${data.pagado})
     RETURNING *
-  ` as Gasto[];
+  ` as GastoNegocio[];
   return rows[0];
 }
 
-export async function updateGasto(
-  storeId: string,
+// El caller manda siempre el valor completo de cada campo que quiera cambiar;
+// el resto se toma de la fila actual (permite, por ej., tildar "pagado" solo).
+export async function updateGastoNegocio(
   id: number,
-  descripcion: string,
-  monto: number,
-  categoria: string,
-  fecha: string,
-): Promise<Gasto | null> {
+  data: Partial<{
+    fecha: string;
+    persona: string | null;
+    categoria: string;
+    detalle: string | null;
+    cantidad: number | null;
+    monto: number;
+    pagado: boolean;
+  }>,
+): Promise<GastoNegocio | null> {
   const sql = getDb();
+  const actualRows = await sql`
+    SELECT fecha, persona, categoria, detalle, cantidad, monto, pagado
+    FROM gastos_negocio WHERE id = ${id}
+  ` as {
+    fecha: string; persona: string | null; categoria: string; detalle: string | null;
+    cantidad: number | null; monto: number; pagado: boolean;
+  }[];
+  if (!actualRows[0]) return null;
+  const current = actualRows[0];
+
+  const fecha     = data.fecha     ?? current.fecha;
+  const persona   = data.persona   !== undefined ? data.persona   : current.persona;
+  const categoria = data.categoria ?? current.categoria;
+  const detalle   = data.detalle   !== undefined ? data.detalle   : current.detalle;
+  const cantidad  = data.cantidad  !== undefined ? data.cantidad  : current.cantidad;
+  const monto     = data.monto     ?? current.monto;
+  const pagado    = data.pagado    ?? current.pagado;
+
   const rows = await sql`
-    UPDATE gastos
-    SET descripcion = ${descripcion},
-        monto       = ${monto},
-        categoria   = ${categoria},
-        fecha       = ${fecha}
-    WHERE id = ${id} AND store_id = ${storeId}
+    UPDATE gastos_negocio
+    SET fecha = ${fecha}, persona = ${persona}, categoria = ${categoria}, detalle = ${detalle},
+        cantidad = ${cantidad}, monto = ${monto}, pagado = ${pagado}
+    WHERE id = ${id}
     RETURNING *
-  ` as Gasto[];
+  ` as GastoNegocio[];
   return rows[0] ?? null;
 }
 
-export async function deleteGasto(
-  storeId: string,
-  id: number,
-): Promise<boolean> {
+export async function deleteGastoNegocio(id: number): Promise<boolean> {
   const sql = getDb();
   const rows = await sql`
-    DELETE FROM gastos
-    WHERE id = ${id} AND store_id = ${storeId}
-    RETURNING id
+    DELETE FROM gastos_negocio WHERE id = ${id} RETURNING id
+  ` as { id: number }[];
+  return rows.length > 0;
+}
+
+// ─── Gastos personales ───────────────────────────────────────────────────────
+
+export async function getGastosPersonales(limit = 300): Promise<GastoPersonal[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, fecha, descripcion, monto, created_at
+    FROM gastos_personales
+    ORDER BY fecha DESC, id DESC
+    LIMIT ${limit}
+  `;
+  return rows as GastoPersonal[];
+}
+
+export async function createGastoPersonal(
+  fecha: string,
+  descripcion: string,
+  monto: number,
+): Promise<GastoPersonal> {
+  const sql = getDb();
+  const rows = await sql`
+    INSERT INTO gastos_personales (fecha, descripcion, monto)
+    VALUES (${fecha}, ${descripcion}, ${monto})
+    RETURNING *
+  ` as GastoPersonal[];
+  return rows[0];
+}
+
+export async function updateGastoPersonal(
+  id: number,
+  fecha: string,
+  descripcion: string,
+  monto: number,
+): Promise<GastoPersonal | null> {
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE gastos_personales
+    SET fecha = ${fecha}, descripcion = ${descripcion}, monto = ${monto}
+    WHERE id = ${id}
+    RETURNING *
+  ` as GastoPersonal[];
+  return rows[0] ?? null;
+}
+
+export async function deleteGastoPersonal(id: number): Promise<boolean> {
+  const sql = getDb();
+  const rows = await sql`
+    DELETE FROM gastos_personales WHERE id = ${id} RETURNING id
   ` as { id: number }[];
   return rows.length > 0;
 }
