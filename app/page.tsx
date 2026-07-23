@@ -126,6 +126,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Soporte",
+    module: "soporte" as ModuleKey,
+    tools: [
+      {
+        href: "/soporte",
+        icon: "fas fa-headset",
+        color: "#3b82f6",
+        title: "Tickets de Soporte",
+        description: "Cargá los problemas de los clientes en un tablero tipo Trello: Pendiente, En proceso y Resuelto.",
+        tags: ["Atención al cliente", "Tickets", "Tablero"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

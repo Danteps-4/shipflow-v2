@@ -56,6 +56,13 @@ export const NAV_GROUPS: Apartado[] = [
       { href: "/creativo", icon: "fas fa-clapperboard", label: "Ángulos, guiones y formatos" },
     ],
   },
+  {
+    label: "Soporte",
+    module: "soporte",
+    subApartados: [
+      { href: "/soporte", icon: "fas fa-headset", label: "Tickets de Soporte" },
+    ],
+  },
 ];
 
 export const ALL_HREFS: string[] = NAV_GROUPS.flatMap((g) => g.subApartados.map((s) => s.href));
