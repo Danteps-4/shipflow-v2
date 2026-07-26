@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
-import { initSoporteTables, getTickets, createTicket, updateTicketEstado, deleteTicket, ESTADOS_TICKET } from "@/lib/soporteDb";
+import { initSoporteTables, getTickets, createTicket, updateTicketEstado, moveTicketToLista, updateTicketTelefono, deleteTicket, ESTADOS_TICKET } from "@/lib/soporteDb";
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { titulo, descripcion, categoria, imagenes } = await req.json();
+  const { titulo, descripcion, categoria, telefono, imagenes } = await req.json();
   if (!titulo) return NextResponse.json({ error: "Falta el título" }, { status: 400 });
 
   await initSoporteTables();
@@ -44,12 +44,15 @@ export async function POST(req: NextRequest) {
     descripcion: descripcion || null,
     categoria: categoria || "Otro",
     createdBy: guard.user.name,
+    telefono: telefono || null,
     imagenes: Array.isArray(imagenes) ? imagenes : [],
   });
   return NextResponse.json({ ticket });
 }
 
-// Body: { id, estado, resolucion? } — mueve la tarjeta entre columnas.
+// Body: { id, estado, resolucion? } mueve entre columnas fijas;
+// { id, listaId } mueve a una lista personalizada;
+// { id, telefono } solo actualiza el celular.
 export async function PATCH(req: NextRequest) {
   const guard = await requireModule(req, "soporte", "/soporte");
   if (!guard.ok) return guard.response;
@@ -57,12 +60,28 @@ export async function PATCH(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { id, estado, resolucion } = await req.json();
-  if (!id || !ESTADOS_TICKET.includes(estado)) {
-    return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
-  }
+  const body = await req.json();
+  const { id } = body;
+  if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initSoporteTables();
+
+  if (typeof body.listaId !== "undefined") {
+    const ticket = await moveTicketToLista(storeId, Number(id), Number(body.listaId));
+    if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    return NextResponse.json({ ticket });
+  }
+
+  if (typeof body.telefono !== "undefined" && typeof body.estado === "undefined") {
+    const ticket = await updateTicketTelefono(storeId, Number(id), body.telefono || null);
+    if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    return NextResponse.json({ ticket });
+  }
+
+  const { estado, resolucion } = body;
+  if (!ESTADOS_TICKET.includes(estado)) {
+    return NextResponse.json({ error: "Datos inválidos" }, { status: 400 });
+  }
   const ticket = await updateTicketEstado(storeId, Number(id), estado, { resolucion, resolvedBy: guard.user.name });
   if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ ticket });

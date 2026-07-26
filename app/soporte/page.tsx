@@ -18,6 +18,12 @@ const COLUMNAS: { estado: Estado; label: string; icon: string; color: string }[]
   { estado: "resuelto", label: "Resuelto", icon: "fas fa-circle-check", color: "#10b981" },
 ];
 
+interface TicketLista {
+  id: number;
+  nombre: string;
+  orden: number;
+}
+
 interface TicketImagen {
   id: number;
   url: string;
@@ -35,8 +41,14 @@ interface Ticket {
   created_at: string;
   resolved_by: string | null;
   resolved_at: string | null;
+  telefono: string | null;
+  lista_id: number | null;
   imagenes: TicketImagen[];
 }
+
+type ColumnDef =
+  | { type: "fixed"; key: string; estado: Estado; label: string; icon: string; color: string }
+  | { type: "custom"; key: string; listaId: number; label: string };
 
 const CAT_COLORS: Record<string, string> = {
   "Envío": "#3b82f6",
@@ -48,7 +60,7 @@ const CAT_COLORS: Record<string, string> = {
   "Otro": "#6b7280",
 };
 
-const EMPTY_FORM = { titulo: "", descripcion: "", categoria: "Otro" as Categoria };
+const EMPTY_FORM = { titulo: "", descripcion: "", categoria: "Otro" as Categoria, telefono: "" };
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-AR", {
@@ -56,11 +68,16 @@ function fmtDateTime(iso: string) {
   });
 }
 
+function whatsappHref(telefono: string) {
+  return `https://wa.me/${telefono.replace(/\D/g, "")}`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function SoportePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [listas, setListas] = useState<TicketLista[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [newModalOpen, setNewModalOpen] = useState(false);
@@ -80,9 +97,31 @@ export default function SoportePage() {
 
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
+  const [editingTelefono, setEditingTelefono] = useState(false);
+  const [telefonoDraft, setTelefonoDraft] = useState("");
+  const [savingTelefono, setSavingTelefono] = useState(false);
+
+  const [addingLista, setAddingLista] = useState(false);
+  const [newListaNombre, setNewListaNombre] = useState("");
+  const [creatingLista, setCreatingLista] = useState(false);
+  const [deletingListaId, setDeletingListaId] = useState<number | null>(null);
+
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+
+  const columns: ColumnDef[] = [
+    ...COLUMNAS.map((c) => ({ type: "fixed" as const, key: `estado:${c.estado}`, ...c })),
+    ...listas.map((l) => ({ type: "custom" as const, key: `lista:${l.id}`, listaId: l.id, label: l.nombre })),
+  ];
+
   useEffect(() => {
     fetchTickets();
+    fetchListas();
   }, []);
+
+  useEffect(() => {
+    setEditingTelefono(false);
+  }, [detailTicket?.id]);
 
   async function fetchTickets() {
     setLoading(true);
@@ -91,6 +130,51 @@ export default function SoportePage() {
       if (r.ok) setTickets((await r.json()).tickets ?? []);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchListas() {
+    const r = await fetch("/api/soporte/listas");
+    if (r.ok) setListas((await r.json()).listas ?? []);
+  }
+
+  // ── Listas personalizadas ────────────────────────────────────────────────────
+
+  async function saveNewLista() {
+    if (!newListaNombre.trim()) return;
+    setCreatingLista(true);
+    try {
+      const r = await fetch("/api/soporte/listas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: newListaNombre.trim() }),
+      });
+      if (r.ok) {
+        const { lista } = await r.json();
+        setListas((prev) => [...prev, lista]);
+        setAddingLista(false);
+        setNewListaNombre("");
+      }
+    } finally {
+      setCreatingLista(false);
+    }
+  }
+
+  async function deleteListaFn(id: number) {
+    if (!confirm("¿Eliminar esta lista? Las tarjetas que tenga vuelven a Pendiente.")) return;
+    setDeletingListaId(id);
+    try {
+      const r = await fetch("/api/soporte/listas", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (r.ok) {
+        setListas((prev) => prev.filter((l) => l.id !== id));
+        await fetchTickets();
+      }
+    } finally {
+      setDeletingListaId(null);
     }
   }
 
@@ -166,6 +250,7 @@ export default function SoportePage() {
           titulo: form.titulo,
           descripcion: form.descripcion || null,
           categoria: form.categoria,
+          telefono: form.telefono.trim() || null,
           imagenes,
         }),
       });
@@ -190,6 +275,24 @@ export default function SoportePage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: ticket.id, estado: nuevoEstado }),
+      });
+      if (r.ok) {
+        const { ticket: updated } = await r.json();
+        setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        setDetailTicket((prev) => (prev?.id === updated.id ? updated : prev));
+      }
+    } finally {
+      setMovingId(null);
+    }
+  }
+
+  async function moveTicketToListaFn(ticket: Ticket, listaId: number) {
+    setMovingId(ticket.id);
+    try {
+      const r = await fetch("/api/soporte/tickets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: ticket.id, listaId }),
       });
       if (r.ok) {
         const { ticket: updated } = await r.json();
@@ -239,6 +342,66 @@ export default function SoportePage() {
     }
   }
 
+  async function saveTelefono() {
+    if (!detailTicket) return;
+    setSavingTelefono(true);
+    try {
+      const r = await fetch("/api/soporte/tickets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: detailTicket.id, telefono: telefonoDraft.trim() || null }),
+      });
+      if (r.ok) {
+        const { ticket: updated } = await r.json();
+        setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        setDetailTicket(updated);
+        setEditingTelefono(false);
+      }
+    } finally {
+      setSavingTelefono(false);
+    }
+  }
+
+  // ── Drag & drop ──────────────────────────────────────────────────────────────
+
+  function handleDragStart(e: React.DragEvent, ticketId: number) {
+    setDraggingId(ticketId);
+    e.dataTransfer.setData("text/plain", String(ticketId));
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDragEnd() {
+    setDraggingId(null);
+    setDragOverKey(null);
+  }
+
+  function handleColDragOver(e: React.DragEvent, key: string) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverKey !== key) setDragOverKey(key);
+  }
+
+  function handleColDragLeave(key: string) {
+    setDragOverKey((prev) => (prev === key ? null : prev));
+  }
+
+  function handleDrop(e: React.DragEvent, col: ColumnDef) {
+    e.preventDefault();
+    setDragOverKey(null);
+    setDraggingId(null);
+    const ticketId = Number(e.dataTransfer.getData("text/plain"));
+    const ticket = tickets.find((t) => t.id === ticketId);
+    if (!ticket) return;
+
+    if (col.type === "fixed") {
+      if (ticket.lista_id == null && ticket.estado === col.estado) return;
+      moveTicket(ticket, col.estado);
+    } else {
+      if (ticket.lista_id === col.listaId) return;
+      moveTicketToListaFn(ticket, col.listaId);
+    }
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -261,7 +424,7 @@ export default function SoportePage() {
             <div>
               <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Soporte</h1>
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                Cargá el problema del cliente en Pendiente; el supervisor lo revisa y lo va moviendo hasta Resuelto.
+                Cargá el problema del cliente en Pendiente y arrastrá la tarjeta entre listas hasta resolverlo.
               </p>
             </div>
             <button className="sf-btn" onClick={openNewTicket}>
@@ -276,29 +439,90 @@ export default function SoportePage() {
           </div>
         ) : (
           <div style={{ display: "flex", gap: "1rem", padding: "1.5rem 2rem", overflowX: "auto", alignItems: "flex-start", justifyContent: "center" }}>
-            {COLUMNAS.map((col) => {
-              const items = tickets.filter((t) => t.estado === col.estado);
+            {columns.map((col) => {
+              const items = col.type === "fixed"
+                ? tickets.filter((t) => t.lista_id == null && t.estado === col.estado)
+                : tickets.filter((t) => t.lista_id === col.listaId);
+              const isDragOver = dragOverKey === col.key;
               return (
-                <div key={col.estado} style={{ flex: "0 0 300px", minWidth: 280 }}>
+                <div
+                  key={col.key}
+                  onDragOver={(e) => handleColDragOver(e, col.key)}
+                  onDragLeave={() => handleColDragLeave(col.key)}
+                  onDrop={(e) => handleDrop(e, col)}
+                  style={{
+                    flex: "0 0 300px", minWidth: 280, borderRadius: "var(--radius)",
+                    outline: isDragOver ? "2px dashed var(--primary-color)" : "2px dashed transparent",
+                    outlineOffset: 4, transition: "outline-color 0.15s",
+                  }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", padding: "0 0.25rem" }}>
-                    <i className={col.icon} style={{ color: col.color }} />
+                    {col.type === "fixed" ? (
+                      <i className={col.icon} style={{ color: col.color }} />
+                    ) : (
+                      <i className="fas fa-list" style={{ color: "var(--text-muted)" }} />
+                    )}
                     <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{col.label}</span>
-                    <span className="sf-tab-badge" style={{ marginLeft: "auto" }}>{items.length}</span>
+                    <span className="sf-tab-badge" style={{ marginLeft: col.type === "fixed" ? "auto" : 0 }}>{items.length}</span>
+                    {col.type === "custom" && (
+                      <button
+                        className="sf-icon-btn"
+                        title="Eliminar lista"
+                        onClick={() => deleteListaFn(col.listaId)}
+                        disabled={deletingListaId === col.listaId}
+                        style={{ marginLeft: "auto", width: 26, height: 26, fontSize: "0.72rem" }}
+                      >
+                        {deletingListaId === col.listaId ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+                      </button>
+                    )}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", minHeight: 40 }}>
                     {items.length === 0 ? (
                       <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)", fontSize: "0.8rem", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)" }}>
                         Sin tarjetas
                       </div>
                     ) : (
                       items.map((t) => (
-                        <TicketCard key={t.id} t={t} onClick={() => setDetailTicket(t)} />
+                        <TicketCard
+                          key={t.id}
+                          t={t}
+                          isDragging={draggingId === t.id}
+                          onClick={() => setDetailTicket(t)}
+                          onDragStart={(e) => handleDragStart(e, t.id)}
+                          onDragEnd={handleDragEnd}
+                        />
                       ))
                     )}
                   </div>
                 </div>
               );
             })}
+
+            <div style={{ flex: "0 0 260px", minWidth: 240 }}>
+              {addingLista ? (
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <input
+                    className="sf-input"
+                    autoFocus
+                    value={newListaNombre}
+                    onChange={(e) => setNewListaNombre(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveNewLista();
+                      if (e.key === "Escape") setAddingLista(false);
+                    }}
+                    placeholder="Nombre de la lista"
+                  />
+                  <button className="sf-btn" onClick={saveNewLista} disabled={creatingLista || !newListaNombre.trim()}>
+                    {creatingLista ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+                  </button>
+                  <button className="sf-icon-btn" onClick={() => setAddingLista(false)}><i className="fas fa-times" /></button>
+                </div>
+              ) : (
+                <button className="sf-btn sf-btn-secondary" onClick={() => { setAddingLista(true); setNewListaNombre(""); }} style={{ width: "100%" }}>
+                  <i className="fas fa-plus" /> Agregar lista
+                </button>
+              )}
+            </div>
           </div>
         )}
       </main>
@@ -342,6 +566,15 @@ export default function SoportePage() {
                 >
                   {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
+              </label>
+              <label className="sf-label">
+                Celular (opcional)
+                <input
+                  className="sf-input"
+                  value={form.telefono}
+                  onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                  placeholder="ej. 5491122334455"
+                />
               </label>
               <label className="sf-label">
                 Descripción
@@ -436,9 +669,62 @@ export default function SoportePage() {
                 >
                   {detailTicket.categoria}
                 </span>
+                {detailTicket.lista_id != null && (
+                  <span className="sf-badge">
+                    <i className="fas fa-list" /> {listas.find((l) => l.id === detailTicket.lista_id)?.nombre ?? "—"}
+                  </span>
+                )}
                 <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
                   Cargado por {detailTicket.created_by || "—"} · {fmtDateTime(detailTicket.created_at)}
                 </span>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                {editingTelefono ? (
+                  <>
+                    <input
+                      className="sf-input"
+                      style={{ maxWidth: 220 }}
+                      value={telefonoDraft}
+                      onChange={(e) => setTelefonoDraft(e.target.value)}
+                      placeholder="ej. 5491122334455"
+                      autoFocus
+                    />
+                    <button className="sf-icon-btn" onClick={saveTelefono} disabled={savingTelefono} title="Guardar">
+                      {savingTelefono ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+                    </button>
+                    <button className="sf-icon-btn" onClick={() => setEditingTelefono(false)} title="Cancelar">
+                      <i className="fas fa-times" />
+                    </button>
+                  </>
+                ) : detailTicket.telefono ? (
+                  <>
+                    <a
+                      href={whatsappHref(detailTicket.telefono)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: "#25D366", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.35rem", fontWeight: 600 }}
+                    >
+                      <i className="fab fa-whatsapp" /> {detailTicket.telefono}
+                    </a>
+                    <button
+                      className="sf-icon-btn"
+                      title="Editar celular"
+                      onClick={() => { setTelefonoDraft(detailTicket.telefono || ""); setEditingTelefono(true); }}
+                      style={{ width: 26, height: 26, fontSize: "0.7rem" }}
+                    >
+                      <i className="fas fa-pen" />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="sf-btn sf-btn-secondary"
+                    onClick={() => { setTelefonoDraft(""); setEditingTelefono(true); }}
+                    style={{ fontSize: "0.78rem" }}
+                  >
+                    <i className="fab fa-whatsapp" /> Agregar celular
+                  </button>
+                )}
               </div>
 
               {detailTicket.descripcion && (
@@ -460,7 +746,7 @@ export default function SoportePage() {
                 </div>
               )}
 
-              {detailTicket.estado === "resuelto" && (
+              {detailTicket.estado === "resuelto" && detailTicket.lista_id == null && (
                 <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: "var(--radius)", padding: "0.75rem 1rem" }}>
                   <div style={{ fontSize: "0.8rem", color: "var(--success-color)", fontWeight: 700, marginBottom: "0.25rem" }}>
                     <i className="fas fa-circle-check" /> Resuelto por {detailTicket.resolved_by || "—"} · {detailTicket.resolved_at ? fmtDateTime(detailTicket.resolved_at) : ""}
@@ -569,15 +855,28 @@ export default function SoportePage() {
 
 // ─── Helpers de UI ────────────────────────────────────────────────────────────
 
-function TicketCard({ t, onClick }: { t: Ticket; onClick: () => void }) {
+function TicketCard({
+  t, onClick, isDragging, onDragStart, onDragEnd,
+}: {
+  t: Ticket;
+  onClick: () => void;
+  isDragging: boolean;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onClick}
+      onKeyDown={(e) => { if (e.key === "Enter") onClick(); }}
       style={{
         textAlign: "left", background: "rgba(15,23,42,0.5)", border: "1px solid var(--border-color)",
-        borderRadius: "var(--radius)", padding: "0.85rem", cursor: "pointer", display: "flex", flexDirection: "column", gap: "0.5rem",
-        color: "var(--text-color)", font: "inherit",
+        borderRadius: "var(--radius)", padding: "0.85rem", cursor: "grab", display: "flex", flexDirection: "column", gap: "0.5rem",
+        color: "var(--text-color)", font: "inherit", opacity: isDragging ? 0.4 : 1,
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
@@ -588,15 +887,29 @@ function TicketCard({ t, onClick }: { t: Ticket; onClick: () => void }) {
           </span>
         )}
       </div>
-      <span
-        className="sf-badge"
-        style={{
-          alignSelf: "flex-start", background: CAT_COLORS[t.categoria] + "22", color: CAT_COLORS[t.categoria],
-          border: `1px solid ${CAT_COLORS[t.categoria]}44`, fontSize: "0.7rem",
-        }}
-      >
-        {t.categoria}
-      </span>
+      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+        <span
+          className="sf-badge"
+          style={{
+            background: CAT_COLORS[t.categoria] + "22", color: CAT_COLORS[t.categoria],
+            border: `1px solid ${CAT_COLORS[t.categoria]}44`, fontSize: "0.7rem",
+          }}
+        >
+          {t.categoria}
+        </span>
+        {t.telefono && (
+          <a
+            href={whatsappHref(t.telefono)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="Abrir WhatsApp"
+            style={{ color: "#25D366", fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem", fontWeight: 600 }}
+          >
+            <i className="fab fa-whatsapp" /> {t.telefono}
+          </a>
+        )}
+      </div>
       {t.descripcion && (
         <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
           {t.descripcion}
@@ -605,6 +918,6 @@ function TicketCard({ t, onClick }: { t: Ticket; onClick: () => void }) {
       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
         {t.created_by || "—"} · {fmtDateTime(t.created_at)}
       </span>
-    </button>
+    </div>
   );
 }
