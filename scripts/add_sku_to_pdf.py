@@ -21,7 +21,6 @@ from reportlab.pdfgen import canvas
 FONT_NAME       = "Helvetica"
 MARGEN_X        = 8
 MARGEN_Y        = 8
-MAX_ANCHO_TEXTO = 200
 
 ORDER_COL = "Número de orden"
 SKU_COL   = "SKU"
@@ -200,19 +199,26 @@ def process_pdf_labels(pdf_bytes: bytes, skus_map: dict) -> bytes:
                 c = canvas.Canvas(packet, pagesize=(width, height))
                 c.setFont(FONT_NAME, font_size)
 
+                # El ancho de wrap se calcula por página (no un valor fijo):
+                # una etiqueta angosta con un ancho asumido más grande hacía que
+                # el texto se dibujara más allá del borde real y quedara cortado.
+                max_ancho_texto = width - 2 * MARGEN_X
+
                 texto_mostrar = f"SKU: {skus_texto}"
-                lineas = wrap_text(texto_mostrar, MAX_ANCHO_TEXTO, FONT_NAME, font_size, c)
+                lineas = wrap_text(texto_mostrar, max_ancho_texto, FONT_NAME, font_size, c)
 
                 if font_size == 9:  # E-Pick / Envío Nube: debajo del nombre
                     y = posicion_sku_envionube(page)
                     for linea in lineas:
                         c.drawString(MARGEN_X, y, linea)
                         y -= font_size + 2  # hacia abajo
-                else:              # Andreani: margen inferior
-                    y = MARGEN_Y
+                else:              # Andreani: margen inferior, crece hacia arriba
+                    # La primera línea ("SKU: ...") va arriba del bloque y las
+                    # siguientes debajo, para respetar el orden de lectura.
+                    y = MARGEN_Y + (len(lineas) - 1) * (font_size + 1)
                     for linea in lineas:
                         c.drawString(MARGEN_X, y, linea)
-                        y += font_size + 1  # hacia arriba
+                        y -= font_size + 1  # hacia abajo
 
                 c.save()
                 packet.seek(0)
