@@ -5,7 +5,7 @@ import {
   ValidationError,
   ProcessingResult,
 } from "@/types/orders";
-import { splitNombreApellido, sanitizeAndreani } from "./normalizers";
+import { splitNombreApellido, sanitizeAndreani, quitarCaracteresInvalidos, normalizeDni, normalizeTelefono } from "./normalizers";
 import { matchProvLocCp, matchSucursal, sucursalExiste } from "./andreaniMatcher";
 
 // -------------------------------------------------------------------
@@ -78,10 +78,10 @@ function toDomicilio(order: GroupedOrder): AndreaniDomicilio {
     "Numero Interno": order.numeroOrden,
     "Nombre":   sanitizeAndreani(nombre),
     "Apellido": sanitizeAndreani(apellido),
-    "DNI": order.dni,
-    "Email": order.email,
+    "DNI": normalizeDni(order.dni),
+    "Email": quitarCaracteresInvalidos(order.email),
     "Celular código": FIXED_VALUES.celularCodigo,
-    "Celular número": order.telefono,
+    "Celular número": normalizeTelefono(order.telefono),
     "Calle":    sanitizeAndreani(order.direccion),
     "Número":   sanitizeAndreani(order.numeroDireccion),
     "Piso":     sanitizeAndreani(order.piso),
@@ -107,10 +107,10 @@ function toSucursal(order: GroupedOrder): AndreaniSucursal {
     "Numero Interno": order.numeroOrden,
     "Nombre":   sanitizeAndreani(nombre),
     "Apellido": sanitizeAndreani(apellido),
-    "DNI": order.dni,
-    "Email": order.email,
+    "DNI": normalizeDni(order.dni),
+    "Email": quitarCaracteresInvalidos(order.email),
     "Celular código": FIXED_VALUES.celularCodigo,
-    "Celular número": order.telefono,
+    "Celular número": normalizeTelefono(order.telefono),
     "Sucursal": matchSucursal(order.sucursal),
   };
 }

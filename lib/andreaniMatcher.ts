@@ -1,5 +1,5 @@
 import { ANDREANI_SUCURSALES, ANDREANI_PROV_LOC_CP } from "./andreaniData";
-import { slugify } from "./normalizers";
+import { slugify, quitarCaracteresInvalidos } from "./normalizers";
 
 // ----------------------------------------------------------------
 // Build lookup structures once at module load (fast O(1) matching)
@@ -77,7 +77,7 @@ for (const v of ANDREANI_PROV_LOC_CP) {
 export function matchSucursal(value: string): string {
   if (!value) return value;
   const matched = sucursalMap.get(slugify(value));
-  return matched ?? value;
+  return matched ?? quitarCaracteresInvalidos(value);
 }
 
 // Indica si el valor corresponde a una sucursal/punto HOP oficial de
@@ -328,6 +328,12 @@ export function matchProvLocCp(
   localidad: string,
   cp: string
 ): string {
+  // provincia/localidad pueden llegar sin pasar por normalizeProvincia/
+  // normalizeLocalidad (ej. "ciudad" cruda de Tienda Nube), así que se
+  // limpian acá antes de usarlas, para que el fallback nunca devuelva un
+  // caracter que Andreani rechace.
+  provincia = quitarCaracteresInvalidos(provincia);
+  localidad = quitarCaracteresInvalidos(localidad);
   const parts = [provincia, localidad, cp].filter(Boolean);
   const candidate = parts.join(" / ");
   if (!candidate) return candidate;

@@ -50,13 +50,28 @@ export function normalizeDni(value: string): string {
 }
 
 // -------------------------------------------------------------------
-// Normaliza el teléfono:
-// Elimina espacios, guiones, +, comas, puntos y ".0" de Excel
+// Normaliza el teléfono: se queda solo con los dígitos (Andreani espera
+// un número puro; cualquier otro caracter, incluidas comillas/tildes
+// invertidas sueltas, se descarta).
 // -------------------------------------------------------------------
 export function normalizeTelefono(value: string): string {
   return normalizeStr(value)
     .replace(/\.0+$/, "")
-    .replace(/[\s\-+,.]/g, "");
+    .replace(/[^0-9]/g, "");
+}
+
+// -------------------------------------------------------------------
+// Variante liviana de sanitizeAndreani para campos donde "/" o "-" son
+// parte de la estructura del dato (ej. "Provincia / Localidad / CP") y
+// no se pueden reemplazar por un espacio. Solo elimina comillas, tildes
+// invertidas y demás caracteres decorativos que Andreani rechaza.
+// -------------------------------------------------------------------
+export function quitarCaracteresInvalidos(value: string): string {
+  if (!value) return value;
+  return value
+    .replace(/[°'""`´«»#]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 // -------------------------------------------------------------------
@@ -115,14 +130,14 @@ const PROVINCIA_MAP: Record<string, string> = {
 // -------------------------------------------------------------------
 export function normalizeProvincia(value: string): string {
   const key = slugify(value);
-  return PROVINCIA_MAP[key] ?? value.toUpperCase().trim();
+  return PROVINCIA_MAP[key] ?? quitarCaracteresInvalidos(value.toUpperCase().trim());
 }
 
 // -------------------------------------------------------------------
 // Normaliza localidad a mayúsculas
 // -------------------------------------------------------------------
 export function normalizeLocalidad(value: string): string {
-  return normalizeStr(value).toUpperCase();
+  return quitarCaracteresInvalidos(normalizeStr(value).toUpperCase());
 }
 
 // -------------------------------------------------------------------
