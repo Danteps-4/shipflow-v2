@@ -15,7 +15,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
-const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio"];
+const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia"];
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
 
 export async function GET(req: NextRequest) {

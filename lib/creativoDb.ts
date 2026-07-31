@@ -2,7 +2,7 @@ import { getDb } from "./db";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-export type TipoCreativo = "angulo" | "guion" | "formato" | "anuncio";
+export type TipoCreativo = "angulo" | "guion" | "formato" | "anuncio" | "referencia";
 export type TipoArchivo = "image" | "video";
 export type WinnerOverride = "winner" | "regular" | "malo";
 
@@ -54,9 +54,10 @@ export async function initCreativoTables(): Promise<void> {
   `;
 
   // Migración: permitir tipo 'anuncio' y guardar el vínculo con el anuncio
-  // real de Meta + el override manual de winner/regular/malo.
+  // real de Meta + el override manual de winner/regular/malo. Más tarde se
+  // sumó 'referencia' para la galería de ejemplos de video/imagen.
   await sql`ALTER TABLE creativos DROP CONSTRAINT IF EXISTS creativos_tipo_check`;
-  await sql`ALTER TABLE creativos ADD CONSTRAINT creativos_tipo_check CHECK (tipo IN ('angulo','guion','formato','anuncio'))`;
+  await sql`ALTER TABLE creativos ADD CONSTRAINT creativos_tipo_check CHECK (tipo IN ('angulo','guion','formato','anuncio','referencia'))`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS meta_ad_id TEXT`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS winner_override TEXT`;
 

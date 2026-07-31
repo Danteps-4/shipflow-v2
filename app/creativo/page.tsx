@@ -5,13 +5,14 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
-type Tipo = "angulo" | "guion" | "formato" | "anuncio";
+type Tipo = "angulo" | "guion" | "formato" | "anuncio" | "referencia";
 
 const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string }> = {
-  angulo:  { label: "Ángulos",  singular: "ángulo",  icon: "fas fa-arrows-turn-to-dots" },
-  guion:   { label: "Guiones",  singular: "guion",   icon: "fas fa-file-lines" },
-  formato: { label: "Formatos", singular: "formato", icon: "fas fa-clapperboard" },
-  anuncio: { label: "Anuncios", singular: "anuncio", icon: "fas fa-rectangle-ad" },
+  angulo:      { label: "Ángulos",     singular: "ángulo",              icon: "fas fa-arrows-turn-to-dots" },
+  guion:       { label: "Guiones",     singular: "guion",               icon: "fas fa-file-lines" },
+  formato:     { label: "Formatos",    singular: "formato",             icon: "fas fa-clapperboard" },
+  referencia:  { label: "Referencias", singular: "ejemplo de referencia", icon: "fas fa-photo-film" },
+  anuncio:     { label: "Anuncios",    singular: "anuncio",             icon: "fas fa-rectangle-ad" },
 };
 
 interface CreativoArchivo {
@@ -273,7 +274,11 @@ export default function CreativoPage() {
                 <AnunciosGrid items={items} onBorrar={handleBorrar} onRefetch={fetchItems} />
               )}
 
-              {!loading && items.length > 0 && tipo !== "anuncio" && (
+              {!loading && !error && tipo === "referencia" && items.length > 0 && (
+                <ReferenciasGrid items={items} onBorrar={handleBorrar} />
+              )}
+
+              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
                   {items.map(item => (
                     <div key={item.id} style={{
@@ -354,7 +359,11 @@ export default function CreativoPage() {
                     Título *
                   </label>
                   <input type="text" className="sf-input" value={titulo} onChange={e => setTitulo(e.target.value)}
-                    placeholder={tipo === "anuncio" ? "Ej: Video testimonio Marta - hook dolor" : "Ej: Ángulo dolor -> solución rápida"}
+                    placeholder={
+                      tipo === "anuncio" ? "Ej: Video testimonio Marta - hook dolor"
+                      : tipo === "referencia" ? "Ej: Formato unboxing con testimonio"
+                      : "Ej: Ángulo dolor -> solución rápida"
+                    }
                     style={{ width: "100%" }} />
                 </div>
 
@@ -365,7 +374,11 @@ export default function CreativoPage() {
                   <textarea
                     className="sf-input" value={contenido} onChange={e => setContenido(e.target.value)}
                     rows={5} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
-                    placeholder={tipo === "anuncio" ? "Notas: copy usado, hook, variante de texto... (opcional)" : "El guion, la descripción del ángulo o del formato..."}
+                    placeholder={
+                      tipo === "anuncio" ? "Notas: copy usado, hook, variante de texto... (opcional)"
+                      : tipo === "referencia" ? "Qué muestra este ejemplo, en qué fijarse... (opcional)"
+                      : "El guion, la descripción del ángulo o del formato..."
+                    }
                   />
                 </div>
 
@@ -418,7 +431,10 @@ export default function CreativoPage() {
               <button className="sf-btn sf-btn-secondary" onClick={() => setModalOpen(false)}>Cancelar</button>
               <button
                 className="sf-btn" onClick={handleGuardar}
-                disabled={saving || !titulo.trim() || archivos.some(a => a.status === "subiendo")}
+                disabled={
+                  saving || !titulo.trim() || archivos.some(a => a.status === "subiendo") ||
+                  (tipo === "referencia" && archivos.filter(a => a.status === "listo").length === 0)
+                }
               >
                 {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
               </button>
@@ -426,6 +442,97 @@ export default function CreativoPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Referencias (galería de ejemplos, videos e imágenes por separado) ─────
+
+interface ReferenciaCard {
+  item: Creativo;
+  archivo: CreativoArchivo;
+}
+
+function fmtDateReferencia(iso: string) {
+  return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function ReferenciaColumna({
+  titulo, icon, cards, onBorrar,
+}: { titulo: string; icon: string; cards: ReferenciaCard[]; onBorrar: (id: number) => void }) {
+  return (
+    <div style={{ flex: "1 1 320px", minWidth: 300 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+        <i className={icon} style={{ color: "var(--primary-color)" }} />
+        <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{titulo}</h3>
+        <span className="sf-tab-badge">{cards.length}</span>
+      </div>
+      {cards.length === 0 ? (
+        <div className="sf-empty" style={{ padding: "1.5rem" }}>
+          <p style={{ fontSize: "0.83rem", color: "var(--text-muted)" }}>Sin ejemplos todavía.</p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+          {cards.map(({ item, archivo }) => (
+            <div key={archivo.id} style={{
+              border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+              padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                <h4 style={{ fontSize: "0.88rem", fontWeight: 700 }}>{item.titulo}</h4>
+                <button
+                  onClick={() => onBorrar(item.id)}
+                  title="Borrar"
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
+                >
+                  <i className="fas fa-trash" />
+                </button>
+              </div>
+
+              {archivo.tipo_archivo === "image" ? (
+                <img
+                  src={archivo.url} alt=""
+                  style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: "var(--radius)", background: "rgba(255,255,255,0.03)" }}
+                />
+              ) : (
+                <video src={archivo.url} controls style={{ width: "100%", maxHeight: 260, borderRadius: "var(--radius)" }} />
+              )}
+
+              {item.contenido && (
+                <p style={{ fontSize: "0.8rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item.contenido}</p>
+              )}
+
+              {item.tags.length > 0 && (
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                  {item.tags.map(tag => <span key={tag} className="sf-badge" style={{ fontSize: "0.65rem" }}>{tag}</span>)}
+                </div>
+              )}
+
+              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                {item.created_by && <>Cargado por <strong>{item.created_by}</strong> · </>}
+                {fmtDateReferencia(item.created_at)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReferenciasGrid({ items, onBorrar }: { items: Creativo[]; onBorrar: (id: number) => void }) {
+  const videos: ReferenciaCard[] = [];
+  const imagenes: ReferenciaCard[] = [];
+  for (const item of items) {
+    for (const archivo of item.archivos) {
+      (archivo.tipo_archivo === "video" ? videos : imagenes).push({ item, archivo });
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+      <ReferenciaColumna titulo="Videos" icon="fas fa-video" cards={videos} onBorrar={onBorrar} />
+      <ReferenciaColumna titulo="Imágenes" icon="fas fa-image" cards={imagenes} onBorrar={onBorrar} />
     </div>
   );
 }
