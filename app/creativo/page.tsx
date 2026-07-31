@@ -178,6 +178,15 @@ export default function CreativoPage() {
     setItems(prev => prev.filter(i => i.id !== id));
   }
 
+  async function handleEditarReferencia(id: number, data: { titulo: string; contenido: string; tags: string[] }) {
+    const res = await fetch("/api/creativo", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...data }),
+    });
+    if (res.ok) await fetchItems();
+  }
+
   function fmtDate(iso: string) {
     return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
@@ -275,7 +284,7 @@ export default function CreativoPage() {
               )}
 
               {!loading && !error && tipo === "referencia" && items.length > 0 && (
-                <ReferenciasGrid items={items} onBorrar={handleBorrar} />
+                <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarReferencia} />
               )}
 
               {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && (
@@ -457,70 +466,21 @@ function fmtDateReferencia(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
-function ReferenciaColumna({
-  titulo, icon, cards, onBorrar,
-}: { titulo: string; icon: string; cards: ReferenciaCard[]; onBorrar: (id: number) => void }) {
-  return (
-    <div style={{ flex: "1 1 320px", minWidth: 300 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-        <i className={icon} style={{ color: "var(--primary-color)" }} />
-        <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{titulo}</h3>
-        <span className="sf-tab-badge">{cards.length}</span>
-      </div>
-      {cards.length === 0 ? (
-        <div className="sf-empty" style={{ padding: "1.5rem" }}>
-          <p style={{ fontSize: "0.83rem", color: "var(--text-muted)" }}>Sin ejemplos todavía.</p>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {cards.map(({ item, archivo }) => (
-            <div key={archivo.id} style={{
-              border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
-              padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem",
-            }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
-                <h4 style={{ fontSize: "0.88rem", fontWeight: 700 }}>{item.titulo}</h4>
-                <button
-                  onClick={() => onBorrar(item.id)}
-                  title="Borrar"
-                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
-                >
-                  <i className="fas fa-trash" />
-                </button>
-              </div>
-
-              {archivo.tipo_archivo === "image" ? (
-                <img
-                  src={archivo.url} alt=""
-                  style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: "var(--radius)", background: "rgba(255,255,255,0.03)" }}
-                />
-              ) : (
-                <video src={archivo.url} controls style={{ width: "100%", maxHeight: 260, borderRadius: "var(--radius)" }} />
-              )}
-
-              {item.contenido && (
-                <p style={{ fontSize: "0.8rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item.contenido}</p>
-              )}
-
-              {item.tags.length > 0 && (
-                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
-                  {item.tags.map(tag => <span key={tag} className="sf-badge" style={{ fontSize: "0.65rem" }}>{tag}</span>)}
-                </div>
-              )}
-
-              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
-                {item.created_by && <>Cargado por <strong>{item.created_by}</strong> · </>}
-                {fmtDateReferencia(item.created_at)}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+interface ReferenciasSectionProps {
+  items: Creativo[];
+  onBorrar: (id: number) => void;
+  onEditar: (id: number, data: { titulo: string; contenido: string; tags: string[] }) => Promise<void>;
 }
 
-function ReferenciasGrid({ items, onBorrar }: { items: Creativo[]; onBorrar: (id: number) => void }) {
+function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionProps) {
+  const [subTab, setSubTab]     = useState<"video" | "imagen">("video");
+  const [preview, setPreview]   = useState<ReferenciaCard | null>(null);
+  const [editing, setEditing]   = useState<Creativo | null>(null);
+  const [editTitulo, setEditTitulo]       = useState("");
+  const [editContenido, setEditContenido] = useState("");
+  const [editTagsInput, setEditTagsInput] = useState("");
+  const [savingEdit, setSavingEdit]       = useState(false);
+
   const videos: ReferenciaCard[] = [];
   const imagenes: ReferenciaCard[] = [];
   for (const item of items) {
@@ -528,11 +488,193 @@ function ReferenciasGrid({ items, onBorrar }: { items: Creativo[]; onBorrar: (id
       (archivo.tipo_archivo === "video" ? videos : imagenes).push({ item, archivo });
     }
   }
+  const cards = subTab === "video" ? videos : imagenes;
+
+  function abrirEditar(item: Creativo) {
+    setEditing(item);
+    setEditTitulo(item.titulo);
+    setEditContenido(item.contenido);
+    setEditTagsInput(item.tags.join(", "));
+  }
+
+  async function guardarEdicion() {
+    if (!editing || !editTitulo.trim()) return;
+    setSavingEdit(true);
+    try {
+      await onEditar(editing.id, {
+        titulo: editTitulo.trim(),
+        contenido: editContenido.trim(),
+        tags: editTagsInput.split(",").map(t => t.trim()).filter(Boolean),
+      });
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   return (
-    <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
-      <ReferenciaColumna titulo="Videos" icon="fas fa-video" cards={videos} onBorrar={onBorrar} />
-      <ReferenciaColumna titulo="Imágenes" icon="fas fa-image" cards={imagenes} onBorrar={onBorrar} />
+    <div>
+      <div className="sf-tabs" style={{ marginBottom: "1rem" }}>
+        <button className={`sf-tab ${subTab === "video" ? "active" : ""}`} onClick={() => setSubTab("video")}>
+          <i className="fas fa-video" /> Videos <span className="sf-tab-badge">{videos.length}</span>
+        </button>
+        <button className={`sf-tab ${subTab === "imagen" ? "active" : ""}`} onClick={() => setSubTab("imagen")}>
+          <i className="fas fa-image" /> Imágenes <span className="sf-tab-badge">{imagenes.length}</span>
+        </button>
+      </div>
+
+      {cards.length === 0 ? (
+        <div className="sf-empty">
+          <i className={`fas ${subTab === "video" ? "fa-video" : "fa-image"} sf-empty-icon`} />
+          <p style={{ fontWeight: 600, color: "var(--text-color)" }}>
+            Sin {subTab === "video" ? "videos" : "imágenes"} de referencia todavía.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.9rem" }}>
+          {cards.map(card => (
+            <div key={card.archivo.id} style={{
+              border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+              overflow: "hidden", display: "flex", flexDirection: "column", background: "rgba(15,23,42,0.4)",
+            }}>
+              <div
+                onClick={() => setPreview(card)}
+                role="button"
+                tabIndex={0}
+                style={{ position: "relative", width: "100%", height: 110, cursor: "pointer", background: "#000" }}
+              >
+                {card.archivo.tipo_archivo === "image" ? (
+                  <img src={card.archivo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                ) : (
+                  <>
+                    <video src={card.archivo.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <div style={{
+                      position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                      background: "rgba(0,0,0,0.25)",
+                    }}>
+                      <i className="fas fa-circle-play" style={{ fontSize: "1.6rem", color: "#fff" }} />
+                    </div>
+                  </>
+                )}
+              </div>
+              <div style={{ padding: "0.5rem 0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.3rem" }}>
+                  <span style={{
+                    fontSize: "0.78rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis",
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                  }}>
+                    {card.item.titulo}
+                  </span>
+                  <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); abrirEditar(card.item); }}
+                      title="Editar"
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                    >
+                      <i className="fas fa-pen" style={{ fontSize: "0.7rem" }} />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onBorrar(card.item.id); }}
+                      title="Borrar"
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                    >
+                      <i className="fas fa-trash" style={{ fontSize: "0.7rem" }} />
+                    </button>
+                  </div>
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                  {card.item.created_by && <>{card.item.created_by} · </>}{fmtDateReferencia(card.item.created_at)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Lightbox: al apretar la card se abre en grande (video reproduce) ── */}
+      {preview && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setPreview(null)} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: "fixed", inset: 0, zIndex: 3100, display: "flex", alignItems: "center",
+              justifyContent: "center", padding: "2rem", pointerEvents: "none",
+            }}
+          >
+            <div style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh", pointerEvents: "auto" }}>
+              <button
+                className="sf-close-btn"
+                onClick={() => setPreview(null)}
+                style={{ position: "absolute", top: "-2.5rem", right: 0, color: "#fff", fontSize: "1.5rem" }}
+              >
+                <i className="fas fa-times" />
+              </button>
+              {preview.archivo.tipo_archivo === "image" ? (
+                <img src={preview.archivo.url} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: "var(--radius)", boxShadow: "var(--shadow)" }} />
+              ) : (
+                <video
+                  src={preview.archivo.url} controls autoPlay
+                  style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: "var(--radius)", boxShadow: "var(--shadow)" }}
+                />
+              )}
+              <p style={{ color: "#fff", textAlign: "center", marginTop: "0.5rem", fontSize: "0.85rem" }}>{preview.item.titulo}</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Modal editar referencia ────────────────────────────────────────── */}
+      {editing && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setEditing(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(480px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-pen" style={{ color: "var(--primary-color)" }} />
+                Editar referencia
+              </h3>
+              <button className="sf-close-btn" onClick={() => setEditing(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Título *
+                </label>
+                <input
+                  type="text" className="sf-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)}
+                  style={{ width: "100%" }} autoFocus
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Nota
+                </label>
+                <textarea
+                  className="sf-input" value={editContenido} onChange={e => setEditContenido(e.target.value)}
+                  rows={4} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Tags (separados por coma)
+                </label>
+                <input
+                  type="text" className="sf-input" value={editTagsInput} onChange={e => setEditTagsInput(e.target.value)}
+                  style={{ width: "100%" }}
+                />
+              </div>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarEdicion} disabled={savingEdit || !editTitulo.trim()}>
+                {savingEdit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

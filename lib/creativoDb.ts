@@ -162,6 +162,28 @@ export async function deleteCreativo(storeId: string, id: number): Promise<Creat
   return archivos;
 }
 
+// Edita título/contenido/tags de una entrada existente (ej. el editor
+// corrigiendo la nota de un ejemplo de referencia).
+export async function updateCreativoContenido(
+  storeId: string, id: number, data: { titulo: string; contenido: string; tags: string[] },
+): Promise<Creativo | null> {
+  const sql = getDb();
+
+  const rows = await sql`
+    UPDATE creativos
+    SET titulo = ${data.titulo}, contenido = ${data.contenido}, tags = ${data.tags}
+    WHERE store_id = ${storeId} AND id = ${id}
+    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override
+  ` as Omit<Creativo, "archivos">[];
+  if (!rows[0]) return null;
+
+  const archivos = await sql`
+    SELECT id, url, public_id, tipo_archivo FROM creativo_archivos WHERE creativo_id = ${id}
+  ` as CreativoArchivo[];
+
+  return { ...rows[0], archivos };
+}
+
 // Vincula/desvincula un anuncio de Meta y/o fija el override manual de
 // winner/regular/malo. El caller siempre manda el estado completo de ambos
 // campos (no hace falta un UPDATE parcial dinámico).

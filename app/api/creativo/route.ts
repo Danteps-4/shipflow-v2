@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, TipoCreativo, NuevoArchivo, WinnerOverride } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, TipoCreativo, NuevoArchivo, WinnerOverride } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -61,9 +61,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ creativo });
 }
 
-// Vincula/desvincula un anuncio de Meta a un creativo y/o fija su override
-// manual de winner/regular/malo. Body: { id, metaAdId, winnerOverride }
-// (metaAdId/winnerOverride pueden venir en null para desvincular/volver a auto).
+// Body: { id, titulo, contenido, tags } edita el contenido de una entrada
+// (ej. corregir la nota de un ejemplo de referencia);
+// { id, metaAdId, winnerOverride } vincula/desvincula un anuncio de Meta
+// y/o fija el override manual de winner/regular/malo (metaAdId/
+// winnerOverride pueden venir en null para desvincular/volver a auto).
 export async function PATCH(req: NextRequest) {
   const guard = await requireModule(req, "creativo", "/creativo");
   if (!guard.ok) return guard.response;
@@ -71,16 +73,30 @@ export async function PATCH(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { id, metaAdId, winnerOverride } = await req.json() as {
-    id?: number; metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
+  const body = await req.json() as {
+    id?: number; titulo?: string; contenido?: string; tags?: string[];
+    metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
   };
-  if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
-  if (winnerOverride != null && !OVERRIDES_VALIDOS.includes(winnerOverride)) {
+  if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
+
+  await initCreativoTables();
+
+  if (typeof body.titulo === "string") {
+    if (!body.titulo.trim()) return NextResponse.json({ error: "Falta título" }, { status: 400 });
+    const creativo = await updateCreativoContenido(storeId, Number(body.id), {
+      titulo: body.titulo.trim(),
+      contenido: (body.contenido ?? "").trim(),
+      tags: (body.tags ?? []).map(t => t.trim()).filter(Boolean),
+    });
+    if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    return NextResponse.json({ creativo });
+  }
+
+  if (body.winnerOverride != null && !OVERRIDES_VALIDOS.includes(body.winnerOverride)) {
     return NextResponse.json({ error: "winnerOverride inválido" }, { status: 400 });
   }
 
-  await initCreativoTables();
-  const creativo = await updateCreativoMeta(storeId, Number(id), metaAdId ?? null, winnerOverride ?? null);
+  const creativo = await updateCreativoMeta(storeId, Number(body.id), body.metaAdId ?? null, body.winnerOverride ?? null);
   if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ creativo });
 }
