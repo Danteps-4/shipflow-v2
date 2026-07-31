@@ -74,7 +74,7 @@ export async function PATCH(req: NextRequest) {
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const body = await req.json() as {
-    id?: number; titulo?: string; contenido?: string; tags?: string[];
+    id?: number; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[];
     metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
   };
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
@@ -87,6 +87,7 @@ export async function PATCH(req: NextRequest) {
       titulo: body.titulo.trim(),
       contenido: (body.contenido ?? "").trim(),
       tags: (body.tags ?? []).map(t => t.trim()).filter(Boolean),
+      archivosNuevos: body.archivos ?? [],
     });
     if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ creativo });

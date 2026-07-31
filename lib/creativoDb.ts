@@ -163,9 +163,11 @@ export async function deleteCreativo(storeId: string, id: number): Promise<Creat
 }
 
 // Edita título/contenido/tags de una entrada existente (ej. el editor
-// corrigiendo la nota de un ejemplo de referencia).
+// corrigiendo la nota de un ejemplo de referencia) y opcionalmente suma
+// nuevos archivos (ej. agregar más videos a un mismo formato ya creado).
 export async function updateCreativoContenido(
-  storeId: string, id: number, data: { titulo: string; contenido: string; tags: string[] },
+  storeId: string, id: number,
+  data: { titulo: string; contenido: string; tags: string[]; archivosNuevos?: NuevoArchivo[] },
 ): Promise<Creativo | null> {
   const sql = getDb();
 
@@ -176,6 +178,13 @@ export async function updateCreativoContenido(
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
+
+  for (const a of data.archivosNuevos ?? []) {
+    await sql`
+      INSERT INTO creativo_archivos (creativo_id, url, public_id, tipo_archivo)
+      VALUES (${id}, ${a.url}, ${a.publicId}, ${a.tipoArchivo})
+    `;
+  }
 
   const archivos = await sql`
     SELECT id, url, public_id, tipo_archivo FROM creativo_archivos WHERE creativo_id = ${id}

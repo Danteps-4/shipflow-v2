@@ -47,6 +47,32 @@ interface ArchivoEnCarga {
 
 type MainTab = Tipo | "publicidad";
 
+// Sube un archivo a Cloudinary (firmado por el server) y devuelve su url/tipo.
+// Extraído como función standalone (sin estado de React) para poder subir
+// archivos tanto desde el modal de "Nuevo" como desde el de "Editar".
+async function subirUnArchivo(file: File): Promise<{ url: string; publicId: string; tipoArchivo: "image" | "video" } | null> {
+  try {
+    const firmaRes = await fetch("/api/creativo/upload-signature", { method: "POST" });
+    if (!firmaRes.ok) throw new Error("No se pudo firmar la subida");
+    const { timestamp, signature, apiKey, cloudName } = await firmaRes.json();
+
+    const form = new FormData();
+    form.append("file", file);
+    form.append("api_key", apiKey);
+    form.append("timestamp", String(timestamp));
+    form.append("signature", signature);
+    form.append("folder", "shipflow-creativo");
+
+    const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, { method: "POST", body: form });
+    if (!uploadRes.ok) throw new Error("Error al subir a Cloudinary");
+    const data = await uploadRes.json();
+    const tipoArchivo: "image" | "video" = data.resource_type === "video" ? "video" : "image";
+    return { url: data.secure_url, publicId: data.public_id, tipoArchivo };
+  } catch {
+    return null;
+  }
+}
+
 export default function CreativoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mainTab, setMainTab]         = useState<MainTab>("angulo");
@@ -108,36 +134,12 @@ export default function CreativoPage() {
     setArchivos(prev => [...prev, ...nuevos]);
 
     for (const file of Array.from(files)) {
-      try {
-        const firmaRes = await fetch("/api/creativo/upload-signature", { method: "POST" });
-        if (!firmaRes.ok) throw new Error("No se pudo firmar la subida");
-        const { timestamp, signature, apiKey, cloudName } = await firmaRes.json();
-
-        const form = new FormData();
-        form.append("file", file);
-        form.append("api_key", apiKey);
-        form.append("timestamp", String(timestamp));
-        form.append("signature", signature);
-        form.append("folder", "shipflow-creativo");
-
-        const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, {
-          method: "POST",
-          body: form,
-        });
-        if (!uploadRes.ok) throw new Error("Error al subir a Cloudinary");
-        const data = await uploadRes.json();
-        const tipoArchivo: "image" | "video" = data.resource_type === "video" ? "video" : "image";
-
-        setArchivos(prev => prev.map(a =>
-          a.nombre === file.name && a.status === "subiendo"
-            ? { ...a, status: "listo", url: data.secure_url, publicId: data.public_id, tipoArchivo }
-            : a
-        ));
-      } catch {
-        setArchivos(prev => prev.map(a =>
-          a.nombre === file.name && a.status === "subiendo" ? { ...a, status: "error" } : a
-        ));
-      }
+      const resultado = await subirUnArchivo(file);
+      setArchivos(prev => prev.map(a =>
+        a.nombre === file.name && a.status === "subiendo"
+          ? (resultado ? { ...a, status: "listo", ...resultado } : { ...a, status: "error" })
+          : a
+      ));
     }
   }
 
@@ -178,7 +180,10 @@ export default function CreativoPage() {
     setItems(prev => prev.filter(i => i.id !== id));
   }
 
-  async function handleEditarReferencia(id: number, data: { titulo: string; contenido: string; tags: string[] }) {
+  async function handleEditarReferencia(
+    id: number,
+    data: { titulo: string; contenido: string; tags: string[]; archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[] },
+  ) {
     const res = await fetch("/api/creativo", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -462,6 +467,14 @@ interface ReferenciaCard {
   archivo: CreativoArchivo;
 }
 
+// Un "grupo" junta todos los archivos de un mismo tipo (video o imagen) que
+// pertenecen a la misma entrada de referencia, para que varios videos del
+// mismo formato se vean juntos en una sola tarjeta, no como tarjetas sueltas.
+interface ReferenciaGrupo {
+  item: Creativo;
+  archivos: CreativoArchivo[];
+}
+
 function fmtDateReferencia(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
@@ -469,7 +482,10 @@ function fmtDateReferencia(iso: string) {
 interface ReferenciasSectionProps {
   items: Creativo[];
   onBorrar: (id: number) => void;
-  onEditar: (id: number, data: { titulo: string; contenido: string; tags: string[] }) => Promise<void>;
+  onEditar: (
+    id: number,
+    data: { titulo: string; contenido: string; tags: string[]; archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[] },
+  ) => Promise<void>;
 }
 
 function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionProps) {
@@ -479,32 +495,59 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
   const [editTitulo, setEditTitulo]       = useState("");
   const [editContenido, setEditContenido] = useState("");
   const [editTagsInput, setEditTagsInput] = useState("");
+  const [editArchivos, setEditArchivos]   = useState<ArchivoEnCarga[]>([]);
   const [savingEdit, setSavingEdit]       = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
 
-  const videos: ReferenciaCard[] = [];
-  const imagenes: ReferenciaCard[] = [];
+  const gruposVideo: ReferenciaGrupo[] = [];
+  const gruposImagen: ReferenciaGrupo[] = [];
   for (const item of items) {
-    for (const archivo of item.archivos) {
-      (archivo.tipo_archivo === "video" ? videos : imagenes).push({ item, archivo });
-    }
+    const videos = item.archivos.filter(a => a.tipo_archivo === "video");
+    const imagenes = item.archivos.filter(a => a.tipo_archivo === "image");
+    if (videos.length > 0) gruposVideo.push({ item, archivos: videos });
+    if (imagenes.length > 0) gruposImagen.push({ item, archivos: imagenes });
   }
-  const cards = subTab === "video" ? videos : imagenes;
+  const totalVideos = gruposVideo.reduce((n, g) => n + g.archivos.length, 0);
+  const totalImagenes = gruposImagen.reduce((n, g) => n + g.archivos.length, 0);
+  const grupos = subTab === "video" ? gruposVideo : gruposImagen;
 
   function abrirEditar(item: Creativo) {
     setEditing(item);
     setEditTitulo(item.titulo);
     setEditContenido(item.contenido);
     setEditTagsInput(item.tags.join(", "));
+    setEditArchivos([]);
+  }
+
+  async function subirArchivosEdit(files: FileList) {
+    const nuevos: ArchivoEnCarga[] = Array.from(files).map(f => ({ nombre: f.name, status: "subiendo" as const }));
+    setEditArchivos(prev => [...prev, ...nuevos]);
+    for (const file of Array.from(files)) {
+      const resultado = await subirUnArchivo(file);
+      setEditArchivos(prev => prev.map(a =>
+        a.nombre === file.name && a.status === "subiendo"
+          ? (resultado ? { ...a, status: "listo", ...resultado } : { ...a, status: "error" })
+          : a
+      ));
+    }
+  }
+
+  function quitarArchivoEdit(nombre: string) {
+    setEditArchivos(prev => prev.filter(a => a.nombre !== nombre));
   }
 
   async function guardarEdicion() {
     if (!editing || !editTitulo.trim()) return;
     setSavingEdit(true);
     try {
+      const nuevosListos = editArchivos
+        .filter(a => a.status === "listo")
+        .map(a => ({ url: a.url!, publicId: a.publicId!, tipoArchivo: a.tipoArchivo! }));
       await onEditar(editing.id, {
         titulo: editTitulo.trim(),
         contenido: editContenido.trim(),
         tags: editTagsInput.split(",").map(t => t.trim()).filter(Boolean),
+        archivos: nuevosListos,
       });
       setEditing(null);
     } finally {
@@ -516,14 +559,14 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
     <div>
       <div className="sf-tabs" style={{ marginBottom: "1rem" }}>
         <button className={`sf-tab ${subTab === "video" ? "active" : ""}`} onClick={() => setSubTab("video")}>
-          <i className="fas fa-video" /> Videos <span className="sf-tab-badge">{videos.length}</span>
+          <i className="fas fa-video" /> Videos <span className="sf-tab-badge">{totalVideos}</span>
         </button>
         <button className={`sf-tab ${subTab === "imagen" ? "active" : ""}`} onClick={() => setSubTab("imagen")}>
-          <i className="fas fa-image" /> Imágenes <span className="sf-tab-badge">{imagenes.length}</span>
+          <i className="fas fa-image" /> Imágenes <span className="sf-tab-badge">{totalImagenes}</span>
         </button>
       </div>
 
-      {cards.length === 0 ? (
+      {grupos.length === 0 ? (
         <div className="sf-empty">
           <i className={`fas ${subTab === "video" ? "fa-video" : "fa-image"} sf-empty-icon`} />
           <p style={{ fontWeight: 600, color: "var(--text-color)" }}>
@@ -531,31 +574,44 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
           </p>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "0.9rem" }}>
-          {cards.map(card => (
-            <div key={card.archivo.id} style={{
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.9rem" }}>
+          {grupos.map(grupo => (
+            <div key={grupo.item.id} style={{
               border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
               overflow: "hidden", display: "flex", flexDirection: "column", background: "rgba(15,23,42,0.4)",
             }}>
-              <div
-                onClick={() => setPreview(card)}
-                role="button"
-                tabIndex={0}
-                style={{ position: "relative", width: "100%", height: 110, cursor: "pointer", background: "#000" }}
-              >
-                {card.archivo.tipo_archivo === "image" ? (
-                  <img src={card.archivo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                ) : (
-                  <>
-                    <video src={card.archivo.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    <div style={{
-                      position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                      background: "rgba(0,0,0,0.25)",
-                    }}>
-                      <i className="fas fa-circle-play" style={{ fontSize: "1.6rem", color: "#fff" }} />
-                    </div>
-                  </>
-                )}
+              <div style={{
+                display: "grid",
+                gridTemplateColumns: grupo.archivos.length > 1 ? "repeat(2, 1fr)" : "1fr",
+                gap: 2,
+              }}>
+                {grupo.archivos.map(archivo => (
+                  <div
+                    key={archivo.id}
+                    onClick={() => setPreview({ item: grupo.item, archivo })}
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                      position: "relative", width: "100%",
+                      height: grupo.archivos.length > 1 ? 70 : 110,
+                      cursor: "pointer", background: "#000",
+                    }}
+                  >
+                    {archivo.tipo_archivo === "image" ? (
+                      <img src={archivo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <>
+                        <video src={archivo.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <div style={{
+                          position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                          background: "rgba(0,0,0,0.25)",
+                        }}>
+                          <i className="fas fa-circle-play" style={{ fontSize: grupo.archivos.length > 1 ? "1.1rem" : "1.6rem", color: "#fff" }} />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
               </div>
               <div style={{ padding: "0.5rem 0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.3rem" }}>
@@ -563,18 +619,21 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                     fontSize: "0.78rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis",
                     display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                   }}>
-                    {card.item.titulo}
+                    {grupo.item.titulo}
+                    {grupo.archivos.length > 1 && (
+                      <span className="sf-badge" style={{ marginLeft: "0.35rem", fontSize: "0.6rem" }}>{grupo.archivos.length}</span>
+                    )}
                   </span>
                   <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
                     <button
-                      onClick={(e) => { e.stopPropagation(); abrirEditar(card.item); }}
+                      onClick={() => abrirEditar(grupo.item)}
                       title="Editar"
                       style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
                     >
                       <i className="fas fa-pen" style={{ fontSize: "0.7rem" }} />
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); onBorrar(card.item.id); }}
+                      onClick={() => onBorrar(grupo.item.id)}
                       title="Borrar"
                       style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
                     >
@@ -583,7 +642,7 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                   </div>
                 </div>
                 <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
-                  {card.item.created_by && <>{card.item.created_by} · </>}{fmtDateReferencia(card.item.created_at)}
+                  {grupo.item.created_by && <>{grupo.item.created_by} · </>}{fmtDateReferencia(grupo.item.created_at)}
                 </span>
               </div>
             </div>
@@ -665,10 +724,65 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                   style={{ width: "100%" }}
                 />
               </div>
+
+              {editing.archivos.length > 0 && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Ya subidos
+                  </label>
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                    {editing.archivos.map(a => (
+                      a.tipo_archivo === "image" ? (
+                        <img key={a.id} src={a.url} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                      ) : (
+                        <video key={a.id} src={a.url} muted style={{ width: 56, height: 56, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                      )
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Agregar más videos / imágenes
+                </label>
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivosEdit(e.dataTransfer.files); }}
+                  onClick={() => editFileInputRef.current?.click()}
+                  className="sf-dropzone"
+                >
+                  <input
+                    ref={editFileInputRef} type="file" accept="image/*,video/*" multiple style={{ display: "none" }}
+                    onChange={e => { if (e.target.files?.length) subirArchivosEdit(e.target.files); e.target.value = ""; }}
+                  />
+                  <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
+                  <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
+                </div>
+
+                {editArchivos.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                    {editArchivos.map(a => (
+                      <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                        {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
+                        {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
+                        {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
+                        <button onClick={() => quitarArchivoEdit(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="sf-modal-footer">
               <button className="sf-btn sf-btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
-              <button className="sf-btn" onClick={guardarEdicion} disabled={savingEdit || !editTitulo.trim()}>
+              <button
+                className="sf-btn" onClick={guardarEdicion}
+                disabled={savingEdit || !editTitulo.trim() || editArchivos.some(a => a.status === "subiendo")}
+              >
                 {savingEdit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
               </button>
             </div>
