@@ -647,18 +647,15 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
           </p>
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.9rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
           {grupos.map(grupo => (
             <div key={grupo.item.id} style={{
+              display: "flex", alignItems: "flex-start", gap: "0.75rem",
               border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
-              overflow: "hidden", display: "flex", flexDirection: "column", background: "rgba(15,23,42,0.4)",
+              padding: "0.6rem 0.75rem", background: "rgba(15,23,42,0.4)",
             }}>
               {grupo.archivos.length > 0 && (
-                <div style={{
-                  display: "grid",
-                  gridTemplateColumns: grupo.archivos.length > 1 ? "repeat(2, 1fr)" : "1fr",
-                  gap: 2,
-                }}>
+                <div style={{ display: "flex", gap: "0.3rem", flexShrink: 0 }}>
                   {grupo.archivos.map(archivo => (
                     <div
                       key={archivo.id}
@@ -666,9 +663,8 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                       role="button"
                       tabIndex={0}
                       style={{
-                        position: "relative", width: "100%",
-                        height: grupo.archivos.length > 1 ? 70 : 110,
-                        cursor: "pointer", background: "#000",
+                        position: "relative", width: 56, height: 56, flexShrink: 0,
+                        borderRadius: "var(--radius)", overflow: "hidden", cursor: "pointer", background: "#000",
                       }}
                     >
                       {archivo.tipo_archivo === "image" ? (
@@ -680,7 +676,7 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                             position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
                             background: "rgba(0,0,0,0.25)",
                           }}>
-                            <i className="fas fa-circle-play" style={{ fontSize: grupo.archivos.length > 1 ? "1.1rem" : "1.6rem", color: "#fff" }} />
+                            <i className="fas fa-circle-play" style={{ fontSize: "1rem", color: "#fff" }} />
                           </div>
                         </>
                       )}
@@ -688,56 +684,52 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                   ))}
                 </div>
               )}
-              <div style={{ padding: "0.5rem 0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.3rem" }}>
-                  <span style={{
-                    fontSize: "0.78rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis",
-                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-                  }}>
-                    {grupo.item.titulo}
-                    {grupo.archivos.length > 1 && (
-                      <span className="sf-badge" style={{ marginLeft: "0.35rem", fontSize: "0.6rem" }}>{grupo.archivos.length}</span>
-                    )}
-                  </span>
-                  <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
-                    <button
-                      onClick={() => abrirEditar(grupo.item)}
-                      title="Editar"
-                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                    >
-                      <i className="fas fa-pen" style={{ fontSize: "0.7rem" }} />
-                    </button>
-                    <button
-                      onClick={() => onBorrar(grupo.item.id)}
-                      title="Borrar"
-                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                    >
-                      <i className="fas fa-trash" style={{ fontSize: "0.7rem" }} />
-                    </button>
-                  </div>
-                </div>
+
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                <span style={{ fontSize: "0.85rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {grupo.item.titulo}
+                  {grupo.archivos.length > 1 && (
+                    <span className="sf-badge" style={{ marginLeft: "0.35rem", fontSize: "0.6rem" }}>{grupo.archivos.length}</span>
+                  )}
+                </span>
 
                 {subTab === "video" && grupo.item.links.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
                     {grupo.item.links.map((l, idx) => (
                       <a
                         key={idx} href={l} target="_blank" rel="noopener noreferrer"
-                        onClick={e => e.stopPropagation()}
                         style={{
-                          display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem",
+                          display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem",
                           color: "var(--primary-color)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                         }}
                       >
-                        <i className="fas fa-link" style={{ fontSize: "0.65rem", flexShrink: 0 }} />
+                        <i className="fas fa-link" style={{ fontSize: "0.68rem", flexShrink: 0 }} />
                         {l}
                       </a>
                     ))}
                   </div>
                 )}
 
-                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
                   {grupo.item.created_by && <>{grupo.item.created_by} · </>}{fmtDateReferencia(grupo.item.created_at)}
                 </span>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
+                <button
+                  onClick={() => abrirEditar(grupo.item)}
+                  title="Editar"
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                >
+                  <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                </button>
+                <button
+                  onClick={() => onBorrar(grupo.item.id)}
+                  title="Borrar"
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                >
+                  <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                </button>
               </div>
             </div>
           ))}
