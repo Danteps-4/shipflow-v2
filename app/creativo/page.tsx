@@ -5,13 +5,14 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
-type Tipo = "angulo" | "guion" | "formato" | "anuncio" | "referencia";
+type Tipo = "angulo" | "guion" | "formato" | "anuncio" | "referencia" | "renovacion";
 
-const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string }> = {
+const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string; genero?: "f" }> = {
   angulo:      { label: "Ángulos",     singular: "ángulo",              icon: "fas fa-arrows-turn-to-dots" },
   guion:       { label: "Guiones",     singular: "guion",               icon: "fas fa-file-lines" },
   formato:     { label: "Formatos",    singular: "formato",             icon: "fas fa-clapperboard" },
   referencia:  { label: "Referencias", singular: "ejemplo de referencia", icon: "fas fa-photo-film" },
+  renovacion:  { label: "Renovaciones", singular: "carpeta de renovación", icon: "fas fa-folder", genero: "f" },
   anuncio:     { label: "Anuncios",    singular: "anuncio",             icon: "fas fa-rectangle-ad" },
 };
 
@@ -19,7 +20,7 @@ interface CreativoArchivo {
   id: number;
   url: string;
   public_id: string;
-  tipo_archivo: "image" | "video";
+  tipo_archivo: "image" | "video" | "documento";
 }
 
 type WinnerOverrideFE = "winner" | "regular" | "malo";
@@ -43,7 +44,7 @@ interface ArchivoEnCarga {
   status: "subiendo" | "listo" | "error";
   url?: string;
   publicId?: string;
-  tipoArchivo?: "image" | "video";
+  tipoArchivo?: "image" | "video" | "documento";
 }
 
 type MainTab = Tipo | "publicidad";
@@ -51,7 +52,9 @@ type MainTab = Tipo | "publicidad";
 // Sube un archivo a Cloudinary (firmado por el server) y devuelve su url/tipo.
 // Extraído como función standalone (sin estado de React) para poder subir
 // archivos tanto desde el modal de "Nuevo" como desde el de "Editar".
-async function subirUnArchivo(file: File): Promise<{ url: string; publicId: string; tipoArchivo: "image" | "video" } | null> {
+// Los documentos (pdf/doc/txt del guion) llegan de Cloudinary como
+// resource_type "raw", se guardan acá como "documento".
+async function subirUnArchivo(file: File): Promise<{ url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" } | null> {
   try {
     const firmaRes = await fetch("/api/creativo/upload-signature", { method: "POST" });
     if (!firmaRes.ok) throw new Error("No se pudo firmar la subida");
@@ -67,7 +70,8 @@ async function subirUnArchivo(file: File): Promise<{ url: string; publicId: stri
     const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/auto/upload`, { method: "POST", body: form });
     if (!uploadRes.ok) throw new Error("Error al subir a Cloudinary");
     const data = await uploadRes.json();
-    const tipoArchivo: "image" | "video" = data.resource_type === "video" ? "video" : "image";
+    const tipoArchivo: "image" | "video" | "documento" =
+      data.resource_type === "video" ? "video" : data.resource_type === "raw" ? "documento" : "image";
     return { url: data.secure_url, publicId: data.public_id, tipoArchivo };
   } catch {
     return null;
@@ -196,11 +200,11 @@ export default function CreativoPage() {
     setItems(prev => prev.filter(i => i.id !== id));
   }
 
-  async function handleEditarReferencia(
+  async function handleEditarCreativo(
     id: number,
     data: {
       titulo: string; contenido: string; tags: string[]; links?: string[];
-      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[];
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) {
     const res = await fetch("/api/creativo", {
@@ -274,7 +278,7 @@ export default function CreativoPage() {
                   ))}
                 </div>
                 <button className="sf-btn" onClick={abrirModal}>
-                  <i className="fas fa-plus" /> Nuevo {TIPO_LABEL[tipo].singular}
+                  <i className="fas fa-plus" /> {TIPO_LABEL[tipo].genero === "f" ? "Nueva" : "Nuevo"} {TIPO_LABEL[tipo].singular}
                 </button>
               </div>
 
@@ -291,7 +295,7 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && !error && items.length === 0 && tipo !== "anuncio" && (
+              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && (
                 <div className="sf-empty">
                   <i className={`${TIPO_LABEL[tipo].icon} sf-empty-icon`} />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
@@ -308,10 +312,14 @@ export default function CreativoPage() {
               )}
 
               {!loading && !error && tipo === "referencia" && items.length > 0 && (
-                <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarReferencia} />
+                <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
               )}
 
-              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && (
+              {!loading && !error && tipo === "renovacion" && (
+                <RenovacionesSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+              )}
+
+              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
                   {items.map(item => (
                     <div key={item.id} style={{
@@ -380,7 +388,7 @@ export default function CreativoPage() {
             <div className="sf-modal-header">
               <h3 className="sf-modal-title">
                 <i className="fas fa-plus" style={{ color: "var(--primary-color)" }} />
-                Nuevo {TIPO_LABEL[tipo].singular}
+                {TIPO_LABEL[tipo].genero === "f" ? "Nueva" : "Nuevo"} {TIPO_LABEL[tipo].singular}
               </h3>
               <button className="sf-close-btn" onClick={() => setModalOpen(false)}><i className="fas fa-times" /></button>
             </div>
@@ -395,6 +403,7 @@ export default function CreativoPage() {
                     placeholder={
                       tipo === "anuncio" ? "Ej: Video testimonio Marta - hook dolor"
                       : tipo === "referencia" ? "Ej: Formato unboxing con testimonio"
+                      : tipo === "renovacion" ? "Ej: Renovación Producto X - Agosto"
                       : "Ej: Ángulo dolor -> solución rápida"
                     }
                     style={{ width: "100%" }} />
@@ -410,6 +419,7 @@ export default function CreativoPage() {
                     placeholder={
                       tipo === "anuncio" ? "Notas: copy usado, hook, variante de texto... (opcional)"
                       : tipo === "referencia" ? "Qué muestra este ejemplo, en qué fijarse... (opcional)"
+                      : tipo === "renovacion" ? "Escribí el guion acá (opcional, también podés subirlo como archivo abajo)"
                       : "El guion, la descripción del ángulo o del formato..."
                     }
                   />
@@ -425,7 +435,7 @@ export default function CreativoPage() {
 
                 <div>
                   <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                    Imágenes / videos
+                    {tipo === "renovacion" ? "Video editado / archivo de guion (opcional)" : "Imágenes / videos"}
                   </label>
                   <div
                     onDragOver={e => e.preventDefault()}
@@ -434,7 +444,9 @@ export default function CreativoPage() {
                     className="sf-dropzone"
                   >
                     <input
-                      ref={fileInputRef} type="file" accept="image/*,video/*" multiple style={{ display: "none" }}
+                      ref={fileInputRef} type="file"
+                      accept={tipo === "renovacion" ? "video/*,application/pdf,.doc,.docx,.txt" : "image/*,video/*"}
+                      multiple style={{ display: "none" }}
                       onChange={e => { if (e.target.files?.length) subirArchivos(e.target.files); e.target.value = ""; }}
                     />
                     <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
@@ -537,7 +549,7 @@ interface ReferenciasSectionProps {
     id: number,
     data: {
       titulo: string; contenido: string; tags: string[]; links?: string[];
-      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[];
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
 }
@@ -906,6 +918,271 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
         </>
       )}
     </div>
+  );
+}
+
+// ─── Renovaciones (carpetas con guion + video ya editado) ──────────────────
+
+interface RenovacionesSectionProps {
+  items: Creativo[];
+  onBorrar: (id: number) => void;
+  onEditar: (
+    id: number,
+    data: {
+      titulo: string; contenido: string; tags: string[];
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
+    },
+  ) => Promise<void>;
+}
+
+function nombreArchivo(url: string): string {
+  try {
+    return decodeURIComponent(url.split("/").pop() ?? url);
+  } catch {
+    return url;
+  }
+}
+
+function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionProps) {
+  const [detalle, setDetalle] = useState<Creativo | null>(null);
+  const [detalleTitulo, setDetalleTitulo] = useState("");
+  const [guionText, setGuionText] = useState("");
+  const [archivosNuevos, setArchivosNuevos] = useState<ArchivoEnCarga[]>([]);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Mantiene el modal sincronizado con la versión más nueva del item
+  // (después de guardar, el padre re-consulta y `items` cambia).
+  useEffect(() => {
+    if (!detalle) return;
+    const fresh = items.find(i => i.id === detalle.id);
+    if (fresh) setDetalle(fresh);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
+  function abrirDetalle(item: Creativo) {
+    setDetalle(item);
+    setDetalleTitulo(item.titulo);
+    setGuionText(item.contenido);
+    setArchivosNuevos([]);
+  }
+
+  async function subirArchivosDetalle(files: FileList) {
+    const nuevos: ArchivoEnCarga[] = Array.from(files).map(f => ({ nombre: f.name, status: "subiendo" as const }));
+    setArchivosNuevos(prev => [...prev, ...nuevos]);
+    for (const file of Array.from(files)) {
+      const resultado = await subirUnArchivo(file);
+      setArchivosNuevos(prev => prev.map(a =>
+        a.nombre === file.name && a.status === "subiendo"
+          ? (resultado ? { ...a, status: "listo", ...resultado } : { ...a, status: "error" })
+          : a
+      ));
+    }
+  }
+
+  function quitarArchivoNuevo(nombre: string) {
+    setArchivosNuevos(prev => prev.filter(a => a.nombre !== nombre));
+  }
+
+  async function guardarDetalle() {
+    if (!detalle || !detalleTitulo.trim()) return;
+    setSaving(true);
+    try {
+      const nuevosListos = archivosNuevos
+        .filter(a => a.status === "listo")
+        .map(a => ({ url: a.url!, publicId: a.publicId!, tipoArchivo: a.tipoArchivo! }));
+      await onEditar(detalle.id, {
+        titulo: detalleTitulo.trim(),
+        contenido: guionText,
+        tags: detalle.tags,
+        archivos: nuevosListos,
+      });
+      setArchivosNuevos([]);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function fmtDateRenovacion(iso: string) {
+    return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="sf-empty">
+        <i className="fas fa-folder-open sf-empty-icon" />
+        <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
+          Todavía no creaste ninguna carpeta de renovación
+        </p>
+        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+          Hacé click en &quot;Nueva&quot; para empezar.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "1.25rem" }}>
+        {items.map(item => {
+          const videos = item.archivos.filter(a => a.tipo_archivo === "video").length;
+          const docs = item.archivos.filter(a => a.tipo_archivo === "documento").length;
+          return (
+            <div
+              key={item.id}
+              onClick={() => abrirDetalle(item)}
+              role="button"
+              tabIndex={0}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4rem",
+                padding: "1rem 0.5rem", cursor: "pointer", borderRadius: "var(--radius)", position: "relative",
+              }}
+            >
+              <button
+                onClick={e => { e.stopPropagation(); onBorrar(item.id); }}
+                title="Borrar"
+                style={{
+                  position: "absolute", top: 4, right: 4, background: "none", border: "none",
+                  color: "var(--text-muted)", cursor: "pointer", fontSize: "0.75rem",
+                }}
+              >
+                <i className="fas fa-trash" />
+              </button>
+              <i className="fas fa-folder" style={{ fontSize: "2.75rem", color: "#f0b429" }} />
+              <span style={{
+                fontSize: "0.82rem", fontWeight: 600, textAlign: "center", overflow: "hidden",
+                textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+              }}>
+                {item.titulo}
+              </span>
+              <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                {docs > 0 && <>{docs} guión{docs !== 1 ? "es" : ""} · </>}{videos} video{videos !== 1 ? "s" : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {detalle && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setDetalle(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(560px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title" style={{ flex: 1 }}>
+                <i className="fas fa-folder" style={{ color: "#f0b429" }} />
+                <input
+                  type="text" value={detalleTitulo} onChange={e => setDetalleTitulo(e.target.value)}
+                  style={{
+                    background: "none", border: "none", color: "inherit", fontSize: "1rem", fontWeight: 700,
+                    flex: 1, minWidth: 0, outline: "none",
+                  }}
+                />
+              </h3>
+              <button className="sf-close-btn" onClick={() => setDetalle(null)}><i className="fas fa-times" /></button>
+            </div>
+
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Guion
+                </label>
+                <textarea
+                  className="sf-input" value={guionText} onChange={e => setGuionText(e.target.value)}
+                  rows={6} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                  placeholder="Escribí el guion acá..."
+                />
+              </div>
+
+              {detalle.archivos.filter(a => a.tipo_archivo === "documento").length > 0 && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Archivos del guion
+                  </label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                    {detalle.archivos.filter(a => a.tipo_archivo === "documento").map(a => (
+                      <a
+                        key={a.id} href={a.url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.82rem", color: "var(--primary-color)" }}
+                      >
+                        <i className="fas fa-file-lines" /> {nombreArchivo(a.url)}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {detalle.archivos.filter(a => a.tipo_archivo === "video").length > 0 && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Videos editados
+                  </label>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                    {detalle.archivos.filter(a => a.tipo_archivo === "video").map(a => (
+                      <video key={a.id} src={a.url} controls style={{ width: 170, borderRadius: "var(--radius)" }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Subir video editado o archivo de guion
+                </label>
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivosDetalle(e.dataTransfer.files); }}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="sf-dropzone"
+                >
+                  <input
+                    ref={fileInputRef} type="file" accept="video/*,application/pdf,.doc,.docx,.txt" multiple style={{ display: "none" }}
+                    onChange={e => { if (e.target.files?.length) subirArchivosDetalle(e.target.files); e.target.value = ""; }}
+                  />
+                  <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
+                  <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
+                </div>
+
+                {archivosNuevos.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                    {archivosNuevos.map(a => (
+                      <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                        {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
+                        {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
+                        {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
+                        <button onClick={() => quitarArchivoNuevo(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                {detalle.created_by && <>Creada por <strong>{detalle.created_by}</strong> · </>}
+                {fmtDateRenovacion(detalle.created_at)}
+              </span>
+            </div>
+
+            <div className="sf-modal-footer" style={{ justifyContent: "space-between" }}>
+              <button
+                className="sf-icon-btn danger" title="Borrar carpeta"
+                onClick={() => { onBorrar(detalle.id); setDetalle(null); }}
+              >
+                <i className="fas fa-trash" />
+              </button>
+              <button
+                className="sf-btn" onClick={guardarDetalle}
+                disabled={saving || !detalleTitulo.trim() || archivosNuevos.some(a => a.status === "subiendo")}
+              >
+                {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

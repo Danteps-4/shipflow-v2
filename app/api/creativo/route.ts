@@ -15,7 +15,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
-const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia"];
+const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion"];
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
 
 export async function GET(req: NextRequest) {
@@ -119,7 +119,10 @@ export async function DELETE(req: NextRequest) {
   const archivosBorrados = await deleteCreativo(storeId, Number(id));
 
   await Promise.all(
-    archivosBorrados.map(a => destroyAsset(a.public_id, a.tipo_archivo).catch(() => {})),
+    archivosBorrados.map(a => {
+      const resourceType = a.tipo_archivo === "documento" ? "raw" : a.tipo_archivo;
+      return destroyAsset(a.public_id, resourceType).catch(() => {});
+    }),
   );
 
   return NextResponse.json({ ok: true });

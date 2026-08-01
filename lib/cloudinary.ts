@@ -29,6 +29,6 @@ export function getUploadSignature(folder = "shipflow-creativo"): UploadSignatur
   };
 }
 
-export async function destroyAsset(publicId: string, resourceType: "image" | "video"): Promise<void> {
+export async function destroyAsset(publicId: string, resourceType: "image" | "video" | "raw"): Promise<void> {
   await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
 }
