@@ -33,6 +33,7 @@ interface Creativo {
   created_by: string;
   created_at: string;
   archivos: CreativoArchivo[];
+  links: string[];
   meta_ad_id: string | null;
   winner_override: WinnerOverrideFE | null;
 }
@@ -94,6 +95,8 @@ export default function CreativoPage() {
   const [contenido, setContenido] = useState("");
   const [tagsInput, setTagsInput] = useState("");
   const [archivos, setArchivos]   = useState<ArchivoEnCarga[]>([]);
+  const [links, setLinks]         = useState<string[]>([]);
+  const [linkInput, setLinkInput] = useState("");
   const [saving, setSaving]       = useState(false);
   const fileInputRef              = useRef<HTMLInputElement>(null);
 
@@ -126,7 +129,20 @@ export default function CreativoPage() {
     setContenido("");
     setTagsInput("");
     setArchivos([]);
+    setLinks([]);
+    setLinkInput("");
     setModalOpen(true);
+  }
+
+  function agregarLink() {
+    const l = linkInput.trim();
+    if (!l) return;
+    setLinks(prev => [...prev, l]);
+    setLinkInput("");
+  }
+
+  function quitarLink(idx: number) {
+    setLinks(prev => prev.filter((_, i) => i !== idx));
   }
 
   async function subirArchivos(files: FileList) {
@@ -159,7 +175,7 @@ export default function CreativoPage() {
       const res = await fetch("/api/creativo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo, titulo, contenido, tags, archivos: archivosListos }),
+        body: JSON.stringify({ tipo, titulo, contenido, tags, archivos: archivosListos, links }),
       });
       if (res.ok) {
         setModalOpen(false);
@@ -182,7 +198,10 @@ export default function CreativoPage() {
 
   async function handleEditarReferencia(
     id: number,
-    data: { titulo: string; contenido: string; tags: string[]; archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[] },
+    data: {
+      titulo: string; contenido: string; tags: string[]; links?: string[];
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[];
+    },
   ) {
     const res = await fetch("/api/creativo", {
       method: "PATCH",
@@ -438,6 +457,38 @@ export default function CreativoPage() {
                     </div>
                   )}
                 </div>
+
+                {tipo === "referencia" && (
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                      Links (por si no tenés el material descargado)
+                    </label>
+                    <div style={{ display: "flex", gap: "0.4rem" }}>
+                      <input
+                        type="text" className="sf-input" value={linkInput}
+                        onChange={e => setLinkInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); agregarLink(); } }}
+                        placeholder="https://..." style={{ width: "100%" }}
+                      />
+                      <button type="button" className="sf-btn sf-btn-secondary" onClick={agregarLink} disabled={!linkInput.trim()}>
+                        <i className="fas fa-plus" />
+                      </button>
+                    </div>
+                    {links.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                        {links.map((l, idx) => (
+                          <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                            <i className="fas fa-link" style={{ color: "var(--text-muted)" }} />
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l}</span>
+                            <button onClick={() => quitarLink(idx)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                              <i className="fas fa-times" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -447,7 +498,7 @@ export default function CreativoPage() {
                 className="sf-btn" onClick={handleGuardar}
                 disabled={
                   saving || !titulo.trim() || archivos.some(a => a.status === "subiendo") ||
-                  (tipo === "referencia" && archivos.filter(a => a.status === "listo").length === 0)
+                  (tipo === "referencia" && archivos.filter(a => a.status === "listo").length === 0 && links.length === 0)
                 }
               >
                 {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
@@ -484,32 +535,40 @@ interface ReferenciasSectionProps {
   onBorrar: (id: number) => void;
   onEditar: (
     id: number,
-    data: { titulo: string; contenido: string; tags: string[]; archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[] },
+    data: {
+      titulo: string; contenido: string; tags: string[]; links?: string[];
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" }[];
+    },
   ) => Promise<void>;
 }
 
 function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionProps) {
-  const [subTab, setSubTab]     = useState<"video" | "imagen">("video");
+  const [subTab, setSubTab]     = useState<"video" | "imagen" | "link">("video");
   const [preview, setPreview]   = useState<ReferenciaCard | null>(null);
   const [editing, setEditing]   = useState<Creativo | null>(null);
   const [editTitulo, setEditTitulo]       = useState("");
   const [editContenido, setEditContenido] = useState("");
   const [editTagsInput, setEditTagsInput] = useState("");
   const [editArchivos, setEditArchivos]   = useState<ArchivoEnCarga[]>([]);
+  const [editLinks, setEditLinks]         = useState<string[]>([]);
+  const [editLinkInput, setEditLinkInput] = useState("");
   const [savingEdit, setSavingEdit]       = useState(false);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
   const gruposVideo: ReferenciaGrupo[] = [];
   const gruposImagen: ReferenciaGrupo[] = [];
+  const itemsConLinks: Creativo[] = [];
   for (const item of items) {
     const videos = item.archivos.filter(a => a.tipo_archivo === "video");
     const imagenes = item.archivos.filter(a => a.tipo_archivo === "image");
     if (videos.length > 0) gruposVideo.push({ item, archivos: videos });
     if (imagenes.length > 0) gruposImagen.push({ item, archivos: imagenes });
+    if (item.links.length > 0) itemsConLinks.push(item);
   }
   const totalVideos = gruposVideo.reduce((n, g) => n + g.archivos.length, 0);
   const totalImagenes = gruposImagen.reduce((n, g) => n + g.archivos.length, 0);
-  const grupos = subTab === "video" ? gruposVideo : gruposImagen;
+  const totalLinks = itemsConLinks.reduce((n, it) => n + it.links.length, 0);
+  const grupos = subTab === "video" ? gruposVideo : subTab === "imagen" ? gruposImagen : [];
 
   function abrirEditar(item: Creativo) {
     setEditing(item);
@@ -517,6 +576,19 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
     setEditContenido(item.contenido);
     setEditTagsInput(item.tags.join(", "));
     setEditArchivos([]);
+    setEditLinks(item.links);
+    setEditLinkInput("");
+  }
+
+  function agregarLinkEdit() {
+    const l = editLinkInput.trim();
+    if (!l) return;
+    setEditLinks(prev => [...prev, l]);
+    setEditLinkInput("");
+  }
+
+  function quitarLinkEdit(idx: number) {
+    setEditLinks(prev => prev.filter((_, i) => i !== idx));
   }
 
   async function subirArchivosEdit(files: FileList) {
@@ -547,6 +619,7 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
         titulo: editTitulo.trim(),
         contenido: editContenido.trim(),
         tags: editTagsInput.split(",").map(t => t.trim()).filter(Boolean),
+        links: editLinks,
         archivos: nuevosListos,
       });
       setEditing(null);
@@ -564,9 +637,66 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
         <button className={`sf-tab ${subTab === "imagen" ? "active" : ""}`} onClick={() => setSubTab("imagen")}>
           <i className="fas fa-image" /> Imágenes <span className="sf-tab-badge">{totalImagenes}</span>
         </button>
+        <button className={`sf-tab ${subTab === "link" ? "active" : ""}`} onClick={() => setSubTab("link")}>
+          <i className="fas fa-link" /> Links <span className="sf-tab-badge">{totalLinks}</span>
+        </button>
       </div>
 
-      {grupos.length === 0 ? (
+      {subTab === "link" ? (
+        itemsConLinks.length === 0 ? (
+          <div className="sf-empty">
+            <i className="fas fa-link sf-empty-icon" />
+            <p style={{ fontWeight: 600, color: "var(--text-color)" }}>Sin links de referencia todavía.</p>
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.9rem" }}>
+            {itemsConLinks.map(item => (
+              <div key={item.id} style={{
+                border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+                padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem",
+                background: "rgba(15,23,42,0.4)",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.3rem" }}>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>{item.titulo}</span>
+                  <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
+                    <button
+                      onClick={() => abrirEditar(item)}
+                      title="Editar"
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                    >
+                      <i className="fas fa-pen" style={{ fontSize: "0.7rem" }} />
+                    </button>
+                    <button
+                      onClick={() => onBorrar(item.id)}
+                      title="Borrar"
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                    >
+                      <i className="fas fa-trash" style={{ fontSize: "0.7rem" }} />
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                  {item.links.map((l, idx) => (
+                    <a
+                      key={idx} href={l} target="_blank" rel="noopener noreferrer"
+                      style={{
+                        display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem",
+                        color: "var(--primary-color)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                    >
+                      <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: "0.7rem", flexShrink: 0 }} />
+                      {l}
+                    </a>
+                  ))}
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                  {item.created_by && <>{item.created_by} · </>}{fmtDateReferencia(item.created_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )
+      ) : grupos.length === 0 ? (
         <div className="sf-empty">
           <i className={`fas ${subTab === "video" ? "fa-video" : "fa-image"} sf-empty-icon`} />
           <p style={{ fontWeight: 600, color: "var(--text-color)" }}>
@@ -769,6 +899,36 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                         {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
                         <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
                         <button onClick={() => quitarArchivoEdit(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Links (por si no tenés el material descargado)
+                </label>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <input
+                    type="text" className="sf-input" value={editLinkInput}
+                    onChange={e => setEditLinkInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); agregarLinkEdit(); } }}
+                    placeholder="https://..." style={{ width: "100%" }}
+                  />
+                  <button type="button" className="sf-btn sf-btn-secondary" onClick={agregarLinkEdit} disabled={!editLinkInput.trim()}>
+                    <i className="fas fa-plus" />
+                  </button>
+                </div>
+                {editLinks.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                    {editLinks.map((l, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                        <i className="fas fa-link" style={{ color: "var(--text-muted)" }} />
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l}</span>
+                        <button onClick={() => quitarLinkEdit(idx)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
                           <i className="fas fa-times" />
                         </button>
                       </div>

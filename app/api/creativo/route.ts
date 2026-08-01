@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { tipo, titulo, contenido, tags, archivos } = await req.json() as {
-    tipo?: string; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[];
+  const { tipo, titulo, contenido, tags, archivos, links } = await req.json() as {
+    tipo?: string; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[]; links?: string[];
   };
 
   if (!tipo || !TIPOS_VALIDOS.includes(tipo as TipoCreativo) || !titulo?.trim()) {
@@ -57,12 +57,14 @@ export async function POST(req: NextRequest) {
     tags: (tags ?? []).map(t => t.trim()).filter(Boolean),
     createdBy: guard.user.name,
     archivos: archivos ?? [],
+    links: (links ?? []).map(l => l.trim()).filter(Boolean),
   });
   return NextResponse.json({ creativo });
 }
 
-// Body: { id, titulo, contenido, tags } edita el contenido de una entrada
-// (ej. corregir la nota de un ejemplo de referencia);
+// Body: { id, titulo, contenido, tags, links?, archivos? } edita el
+// contenido de una entrada (ej. corregir la nota de un ejemplo de
+// referencia, agregar links o sumar más archivos);
 // { id, metaAdId, winnerOverride } vincula/desvincula un anuncio de Meta
 // y/o fija el override manual de winner/regular/malo (metaAdId/
 // winnerOverride pueden venir en null para desvincular/volver a auto).
@@ -74,7 +76,7 @@ export async function PATCH(req: NextRequest) {
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const body = await req.json() as {
-    id?: number; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[];
+    id?: number; titulo?: string; contenido?: string; tags?: string[]; links?: string[]; archivos?: NuevoArchivo[];
     metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
   };
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
@@ -87,6 +89,7 @@ export async function PATCH(req: NextRequest) {
       titulo: body.titulo.trim(),
       contenido: (body.contenido ?? "").trim(),
       tags: (body.tags ?? []).map(t => t.trim()).filter(Boolean),
+      links: (body.links ?? []).map(l => l.trim()).filter(Boolean),
       archivosNuevos: body.archivos ?? [],
     });
     if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
