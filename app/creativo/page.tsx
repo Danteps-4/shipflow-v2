@@ -543,7 +543,7 @@ interface ReferenciasSectionProps {
 }
 
 function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionProps) {
-  const [subTab, setSubTab]     = useState<"video" | "imagen" | "link">("video");
+  const [subTab, setSubTab]     = useState<"video" | "imagen">("video");
   const [preview, setPreview]   = useState<ReferenciaCard | null>(null);
   const [editing, setEditing]   = useState<Creativo | null>(null);
   const [editTitulo, setEditTitulo]       = useState("");
@@ -555,20 +555,20 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
   const [savingEdit, setSavingEdit]       = useState(false);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Los links quedan agrupados junto con los videos (misma ventana), no en
+  // una pestaña aparte: un item con solo links (sin archivo todavía) también
+  // aparece acá, y un item con video Y links muestra ambos en la misma tarjeta.
   const gruposVideo: ReferenciaGrupo[] = [];
   const gruposImagen: ReferenciaGrupo[] = [];
-  const itemsConLinks: Creativo[] = [];
   for (const item of items) {
     const videos = item.archivos.filter(a => a.tipo_archivo === "video");
     const imagenes = item.archivos.filter(a => a.tipo_archivo === "image");
-    if (videos.length > 0) gruposVideo.push({ item, archivos: videos });
+    if (videos.length > 0 || item.links.length > 0) gruposVideo.push({ item, archivos: videos });
     if (imagenes.length > 0) gruposImagen.push({ item, archivos: imagenes });
-    if (item.links.length > 0) itemsConLinks.push(item);
   }
   const totalVideos = gruposVideo.reduce((n, g) => n + g.archivos.length, 0);
   const totalImagenes = gruposImagen.reduce((n, g) => n + g.archivos.length, 0);
-  const totalLinks = itemsConLinks.reduce((n, it) => n + it.links.length, 0);
-  const grupos = subTab === "video" ? gruposVideo : subTab === "imagen" ? gruposImagen : [];
+  const grupos = subTab === "video" ? gruposVideo : gruposImagen;
 
   function abrirEditar(item: Creativo) {
     setEditing(item);
@@ -637,66 +637,9 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
         <button className={`sf-tab ${subTab === "imagen" ? "active" : ""}`} onClick={() => setSubTab("imagen")}>
           <i className="fas fa-image" /> Imágenes <span className="sf-tab-badge">{totalImagenes}</span>
         </button>
-        <button className={`sf-tab ${subTab === "link" ? "active" : ""}`} onClick={() => setSubTab("link")}>
-          <i className="fas fa-link" /> Links <span className="sf-tab-badge">{totalLinks}</span>
-        </button>
       </div>
 
-      {subTab === "link" ? (
-        itemsConLinks.length === 0 ? (
-          <div className="sf-empty">
-            <i className="fas fa-link sf-empty-icon" />
-            <p style={{ fontWeight: 600, color: "var(--text-color)" }}>Sin links de referencia todavía.</p>
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: "0.9rem" }}>
-            {itemsConLinks.map(item => (
-              <div key={item.id} style={{
-                border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
-                padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem",
-                background: "rgba(15,23,42,0.4)",
-              }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.3rem" }}>
-                  <span style={{ fontSize: "0.85rem", fontWeight: 700 }}>{item.titulo}</span>
-                  <div style={{ display: "flex", gap: "0.25rem", flexShrink: 0 }}>
-                    <button
-                      onClick={() => abrirEditar(item)}
-                      title="Editar"
-                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                    >
-                      <i className="fas fa-pen" style={{ fontSize: "0.7rem" }} />
-                    </button>
-                    <button
-                      onClick={() => onBorrar(item.id)}
-                      title="Borrar"
-                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                    >
-                      <i className="fas fa-trash" style={{ fontSize: "0.7rem" }} />
-                    </button>
-                  </div>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
-                  {item.links.map((l, idx) => (
-                    <a
-                      key={idx} href={l} target="_blank" rel="noopener noreferrer"
-                      style={{
-                        display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.8rem",
-                        color: "var(--primary-color)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}
-                    >
-                      <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: "0.7rem", flexShrink: 0 }} />
-                      {l}
-                    </a>
-                  ))}
-                </div>
-                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
-                  {item.created_by && <>{item.created_by} · </>}{fmtDateReferencia(item.created_at)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )
-      ) : grupos.length === 0 ? (
+      {grupos.length === 0 ? (
         <div className="sf-empty">
           <i className={`fas ${subTab === "video" ? "fa-video" : "fa-image"} sf-empty-icon`} />
           <p style={{ fontWeight: 600, color: "var(--text-color)" }}>
@@ -710,39 +653,41 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
               border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
               overflow: "hidden", display: "flex", flexDirection: "column", background: "rgba(15,23,42,0.4)",
             }}>
-              <div style={{
-                display: "grid",
-                gridTemplateColumns: grupo.archivos.length > 1 ? "repeat(2, 1fr)" : "1fr",
-                gap: 2,
-              }}>
-                {grupo.archivos.map(archivo => (
-                  <div
-                    key={archivo.id}
-                    onClick={() => setPreview({ item: grupo.item, archivo })}
-                    role="button"
-                    tabIndex={0}
-                    style={{
-                      position: "relative", width: "100%",
-                      height: grupo.archivos.length > 1 ? 70 : 110,
-                      cursor: "pointer", background: "#000",
-                    }}
-                  >
-                    {archivo.tipo_archivo === "image" ? (
-                      <img src={archivo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    ) : (
-                      <>
-                        <video src={archivo.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        <div style={{
-                          position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
-                          background: "rgba(0,0,0,0.25)",
-                        }}>
-                          <i className="fas fa-circle-play" style={{ fontSize: grupo.archivos.length > 1 ? "1.1rem" : "1.6rem", color: "#fff" }} />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
+              {grupo.archivos.length > 0 && (
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: grupo.archivos.length > 1 ? "repeat(2, 1fr)" : "1fr",
+                  gap: 2,
+                }}>
+                  {grupo.archivos.map(archivo => (
+                    <div
+                      key={archivo.id}
+                      onClick={() => setPreview({ item: grupo.item, archivo })}
+                      role="button"
+                      tabIndex={0}
+                      style={{
+                        position: "relative", width: "100%",
+                        height: grupo.archivos.length > 1 ? 70 : 110,
+                        cursor: "pointer", background: "#000",
+                      }}
+                    >
+                      {archivo.tipo_archivo === "image" ? (
+                        <img src={archivo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <>
+                          <video src={archivo.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <div style={{
+                            position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center",
+                            background: "rgba(0,0,0,0.25)",
+                          }}>
+                            <i className="fas fa-circle-play" style={{ fontSize: grupo.archivos.length > 1 ? "1.1rem" : "1.6rem", color: "#fff" }} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               <div style={{ padding: "0.5rem 0.6rem", display: "flex", flexDirection: "column", gap: "0.3rem" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.3rem" }}>
                   <span style={{
@@ -771,6 +716,25 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                     </button>
                   </div>
                 </div>
+
+                {subTab === "video" && grupo.item.links.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                    {grupo.item.links.map((l, idx) => (
+                      <a
+                        key={idx} href={l} target="_blank" rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.72rem",
+                          color: "var(--primary-color)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        }}
+                      >
+                        <i className="fas fa-link" style={{ fontSize: "0.65rem", flexShrink: 0 }} />
+                        {l}
+                      </a>
+                    ))}
+                  </div>
+                )}
+
                 <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
                   {grupo.item.created_by && <>{grupo.item.created_by} · </>}{fmtDateReferencia(grupo.item.created_at)}
                 </span>
