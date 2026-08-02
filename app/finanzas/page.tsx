@@ -70,10 +70,31 @@ function fmtDate(iso: string) {
   return `${d}/${m}/${y}`;
 }
 
-function mesActual(iso: string) {
-  const now = new Date();
-  const [y, m] = iso.slice(0, 10).split("-").map(Number);
-  return y === now.getFullYear() && m === now.getMonth() + 1;
+function mesActualStr(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+// mes = "" significa "todos los meses" (sin filtrar)
+function enMes(iso: string, mes: string): boolean {
+  if (!mes) return true;
+  return iso.slice(0, 7) === mes;
+}
+
+const NOMBRES_MES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+function fmtMes(mes: string): string {
+  if (!mes) return "Todos los meses";
+  const [y, m] = mes.split("-").map(Number);
+  return `${NOMBRES_MES[m - 1]} ${y}`;
+}
+
+function sumarMeses(mes: string, delta: number): string {
+  const [y, m] = mes.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -89,8 +110,11 @@ export default function FinanzasPage() {
   const [gastoNegocioForm, setGastoNegocioForm]   = useState(EMPTY_GASTO_NEGOCIO);
   const [savingGN, setSavingGN]             = useState(false);
   const [filterCatNegocio, setFilterCatNegocio] = useState<CategoriaNegocio | "">("");
-  const [filterMesNegocio, setFilterMesNegocio] = useState(false);
   const [togglingPagadoId, setTogglingPagadoId] = useState<number | null>(null);
+
+  // Mes que se está viendo/completando, compartido por ambas pestañas de
+  // gastos y por las cards de resumen. "" = todos los meses.
+  const [mesSeleccionado, setMesSeleccionado] = useState<string>(mesActualStr());
 
   // Gastos personales
   const [gastosPersonales, setGastosPersonales] = useState<GastoPersonal[]>([]);
@@ -98,7 +122,6 @@ export default function FinanzasPage() {
   const [gastoPersonalModal, setGastoPersonalModal] = useState<Partial<GastoPersonal> | null>(null);
   const [gastoPersonalForm, setGastoPersonalForm]   = useState(EMPTY_GASTO_PERSONAL);
   const [savingGP, setSavingGP]             = useState(false);
-  const [filterMesPersonal, setFilterMesPersonal] = useState(false);
 
   // Suscripciones state
   const [subs, setSubs]               = useState<Suscripcion[]>([]);
@@ -139,11 +162,18 @@ export default function FinanzasPage() {
     } finally { setLoadingS(false); }
   }
 
+  // Si estás viendo un mes distinto al actual, sugiere el día 1 de ese mes
+  // (en vez de la fecha de hoy) para no tener que corregirla a mano cada vez.
+  function fechaSugerida(): string {
+    if (!mesSeleccionado || mesSeleccionado === mesActualStr()) return today();
+    return `${mesSeleccionado}-01`;
+  }
+
   // ── Gastos del negocio CRUD ──────────────────────────────────────────────────
 
   function openNewGastoNegocio() {
     setGastoNegocioModal({});
-    setGastoNegocioForm(EMPTY_GASTO_NEGOCIO);
+    setGastoNegocioForm({ ...EMPTY_GASTO_NEGOCIO, fecha: fechaSugerida() });
   }
 
   function openEditGastoNegocio(g: GastoNegocio) {
@@ -212,7 +242,7 @@ export default function FinanzasPage() {
 
   function openNewGastoPersonal() {
     setGastoPersonalModal({});
-    setGastoPersonalForm(EMPTY_GASTO_PERSONAL);
+    setGastoPersonalForm({ ...EMPTY_GASTO_PERSONAL, fecha: fechaSugerida() });
   }
 
   function openEditGastoPersonal(g: GastoPersonal) {
@@ -309,10 +339,10 @@ export default function FinanzasPage() {
 
   // ── Métricas ─────────────────────────────────────────────────────────────────
 
-  const gastosNegocioMes      = gastosNegocio.filter((g) => mesActual(g.fecha));
+  const gastosNegocioMes      = gastosNegocio.filter((g) => enMes(g.fecha, mesSeleccionado));
   const totalGastosNegocioMes = gastosNegocioMes.reduce((s, g) => s + Number(g.monto), 0);
 
-  const gastosPersonalesMes      = gastosPersonales.filter((g) => mesActual(g.fecha));
+  const gastosPersonalesMes      = gastosPersonales.filter((g) => enMes(g.fecha, mesSeleccionado));
   const totalGastosPersonalesMes = gastosPersonalesMes.reduce((s, g) => s + Number(g.monto), 0);
 
   const subsActivas    = subs.filter((s) => s.activa);
@@ -322,14 +352,11 @@ export default function FinanzasPage() {
 
   const gastosNegocioFiltered = gastosNegocio.filter((g) => {
     if (filterCatNegocio && g.categoria !== filterCatNegocio) return false;
-    if (filterMesNegocio && !mesActual(g.fecha)) return false;
+    if (!enMes(g.fecha, mesSeleccionado)) return false;
     return true;
   });
 
-  const gastosPersonalesFiltered = gastosPersonales.filter((g) => {
-    if (filterMesPersonal && !mesActual(g.fecha)) return false;
-    return true;
-  });
+  const gastosPersonalesFiltered = gastosPersonales.filter((g) => enMes(g.fecha, mesSeleccionado));
 
   // ── Render ───────────────────────────────────────────────────────────────────
 
@@ -352,25 +379,59 @@ export default function FinanzasPage() {
         <div className="sf-container">
 
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Finanzas</h1>
-          <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "1.25rem", fontSize: "0.9rem" }}>
             Registrá los gastos del negocio, tus gastos personales y las suscripciones para tener un panorama claro de tus costos. Son de la cuenta en general, sin importar qué tienda esté activa.
           </p>
+
+          {/* ── Selector de mes: para completar meses anteriores ──────────── */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
+            <button
+              className="sf-icon-btn"
+              title="Mes anterior"
+              onClick={() => setMesSeleccionado((m) => sumarMeses(m || mesActualStr(), -1))}
+            >
+              <i className="fas fa-chevron-left" />
+            </button>
+            <span style={{ fontWeight: 700, minWidth: 160, textAlign: "center" }}>
+              {fmtMes(mesSeleccionado)}
+            </span>
+            <button
+              className="sf-icon-btn"
+              title="Mes siguiente"
+              onClick={() => setMesSeleccionado((m) => sumarMeses(m || mesActualStr(), 1))}
+            >
+              <i className="fas fa-chevron-right" />
+            </button>
+            {mesSeleccionado !== mesActualStr() && (
+              <button className="sf-btn sf-btn-secondary" onClick={() => setMesSeleccionado(mesActualStr())}>
+                Volver a este mes
+              </button>
+            )}
+            {mesSeleccionado && (
+              <button
+                onClick={() => setMesSeleccionado("")}
+                style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.8rem", textDecoration: "underline" }}
+              >
+                Ver todos los meses
+              </button>
+            )}
+          </div>
 
           {/* ── Cards resumen ─────────────────────────────────────────────── */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
             <StatCard
               icon="fas fa-briefcase"
               color="#3b82f6"
-              label="Gastos negocio / mes"
+              label="Gastos negocio"
               value={fmtMoney(totalGastosNegocioMes)}
-              sub={`${gastosNegocioMes.length} registro${gastosNegocioMes.length !== 1 ? "s" : ""}`}
+              sub={`${fmtMes(mesSeleccionado)} · ${gastosNegocioMes.length} registro${gastosNegocioMes.length !== 1 ? "s" : ""}`}
             />
             <StatCard
               icon="fas fa-user"
               color="#ec4899"
-              label="Gastos personales / mes"
+              label="Gastos personales"
               value={fmtMoney(totalGastosPersonalesMes)}
-              sub={`${gastosPersonalesMes.length} registro${gastosPersonalesMes.length !== 1 ? "s" : ""}`}
+              sub={`${fmtMes(mesSeleccionado)} · ${gastosPersonalesMes.length} registro${gastosPersonalesMes.length !== 1 ? "s" : ""}`}
             />
             <StatCard
               icon="fas fa-rotate"
@@ -382,7 +443,7 @@ export default function FinanzasPage() {
             <StatCard
               icon="fas fa-chart-pie"
               color="#f59e0b"
-              label="Costo total / mes"
+              label="Costo total"
               value={fmtMoney(totalGastosNegocioMes + totalGastosPersonalesMes + totalSubsMes)}
               sub="Negocio + personal + suscripciones"
             />
@@ -420,10 +481,6 @@ export default function FinanzasPage() {
                   <option value="">Todas las categorías</option>
                   {CATEGORIAS_NEGOCIO.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.875rem", color: "var(--text-muted)", cursor: "pointer" }}>
-                  <input type="checkbox" checked={filterMesNegocio} onChange={(e) => setFilterMesNegocio(e.target.checked)} />
-                  Solo este mes
-                </label>
               </div>
 
               {loadingGN ? (
@@ -505,10 +562,6 @@ export default function FinanzasPage() {
                 <button className="sf-btn" onClick={openNewGastoPersonal}>
                   <i className="fas fa-plus" /> Agregar gasto
                 </button>
-                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.875rem", color: "var(--text-muted)", cursor: "pointer" }}>
-                  <input type="checkbox" checked={filterMesPersonal} onChange={(e) => setFilterMesPersonal(e.target.checked)} />
-                  Solo este mes
-                </label>
               </div>
 
               {loadingGP ? (
