@@ -23,6 +23,7 @@ export interface Creativo {
   created_at: string;
   archivos: CreativoArchivo[];
   links: string[];
+  funnel: string[];
   meta_ad_id: string | null;
   winner_override: WinnerOverride | null;
 }
@@ -64,6 +65,9 @@ export async function initCreativoTables(): Promise<void> {
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS winner_override TEXT`;
   // Links externos (ej. material de referencia que todavía no se descargó).
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS links TEXT[] NOT NULL DEFAULT '{}'`;
+  // Clasificación de funnel (TOF/MOF/BOF) para las referencias de imagen;
+  // una misma referencia puede tener más de una a la vez.
+  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS funnel_tags TEXT[] NOT NULL DEFAULT '{}'`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS creativo_archivos (
@@ -90,7 +94,7 @@ export async function getCreativos(
 
   const rows = await sql`
     SELECT c.id, c.tipo, c.titulo, c.contenido, c.tags, c.created_by, c.created_at,
-           c.meta_ad_id, c.winner_override, c.links,
+           c.meta_ad_id, c.winner_override, c.links, c.funnel_tags,
            a.id AS archivo_id, a.url AS archivo_url, a.public_id AS archivo_public_id,
            a.tipo_archivo AS archivo_tipo
     FROM creativos c
@@ -102,7 +106,7 @@ export async function getCreativos(
   ` as {
     id: number; tipo: TipoCreativo; titulo: string; contenido: string; tags: string[];
     created_by: string; created_at: string; meta_ad_id: string | null; winner_override: WinnerOverride | null;
-    links: string[];
+    links: string[]; funnel_tags: string[];
     archivo_id: number | null; archivo_url: string | null; archivo_public_id: string | null;
     archivo_tipo: TipoArchivo | null;
   }[];
@@ -113,7 +117,7 @@ export async function getCreativos(
       porId.set(r.id, {
         id: r.id, tipo: r.tipo, titulo: r.titulo, contenido: r.contenido,
         tags: r.tags, created_by: r.created_by, created_at: r.created_at, archivos: [],
-        links: r.links, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
+        links: r.links, funnel: r.funnel_tags, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
       });
     }
     if (r.archivo_id !== null) {
@@ -132,15 +136,15 @@ export async function createCreativo(
   storeId: string,
   data: {
     tipo: TipoCreativo; titulo: string; contenido: string; tags: string[]; createdBy: string;
-    archivos: NuevoArchivo[]; links?: string[];
+    archivos: NuevoArchivo[]; links?: string[]; funnel?: string[];
   },
 ): Promise<Creativo> {
   const sql = getDb();
 
   const rows = await sql`
-    INSERT INTO creativos (store_id, tipo, titulo, contenido, tags, created_by, created_at, links)
-    VALUES (${storeId}, ${data.tipo}, ${data.titulo}, ${data.contenido}, ${data.tags}, ${data.createdBy}, NOW(), ${data.links ?? []})
-    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links
+    INSERT INTO creativos (store_id, tipo, titulo, contenido, tags, created_by, created_at, links, funnel_tags)
+    VALUES (${storeId}, ${data.tipo}, ${data.titulo}, ${data.contenido}, ${data.tags}, ${data.createdBy}, NOW(), ${data.links ?? []}, ${data.funnel ?? []})
+    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel
   ` as Omit<Creativo, "archivos">[];
   const creativo = rows[0];
 
@@ -174,22 +178,26 @@ export async function deleteCreativo(storeId: string, id: number): Promise<Creat
   return archivos;
 }
 
-// Edita título/contenido/tags/links de una entrada existente (ej. el editor
-// corrigiendo la nota de un ejemplo de referencia) y opcionalmente suma
-// nuevos archivos (ej. agregar más videos a un mismo formato ya creado).
-// Los links se reemplazan completos (igual que tags); los archivos solo se
-// suman a los que ya había.
+// Edita título/contenido/tags/links/funnel de una entrada existente (ej. el
+// editor corrigiendo la nota de un ejemplo de referencia) y opcionalmente
+// suma nuevos archivos (ej. agregar más videos a un mismo formato ya creado).
+// Los links/funnel se reemplazan completos (igual que tags); los archivos
+// solo se suman a los que ya había.
 export async function updateCreativoContenido(
   storeId: string, id: number,
-  data: { titulo: string; contenido: string; tags: string[]; links?: string[]; archivosNuevos?: NuevoArchivo[] },
+  data: {
+    titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
+    archivosNuevos?: NuevoArchivo[];
+  },
 ): Promise<Creativo | null> {
   const sql = getDb();
 
   const rows = await sql`
     UPDATE creativos
-    SET titulo = ${data.titulo}, contenido = ${data.contenido}, tags = ${data.tags}, links = ${data.links ?? []}
+    SET titulo = ${data.titulo}, contenido = ${data.contenido}, tags = ${data.tags},
+        links = ${data.links ?? []}, funnel_tags = ${data.funnel ?? []}
     WHERE store_id = ${storeId} AND id = ${id}
-    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links
+    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 
@@ -219,7 +227,7 @@ export async function updateCreativoMeta(
     UPDATE creativos
     SET meta_ad_id = ${metaAdId}, winner_override = ${winnerOverride}
     WHERE store_id = ${storeId} AND id = ${id}
-    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links
+    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 

@@ -17,6 +17,11 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 
 const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion"];
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
+const FUNNEL_VALIDOS = ["TOF", "MOF", "BOF"];
+
+function sanitizeFunnel(funnel?: string[]): string[] {
+  return Array.from(new Set((funnel ?? []).map(f => f.trim().toUpperCase()).filter(f => FUNNEL_VALIDOS.includes(f))));
+}
 
 export async function GET(req: NextRequest) {
   const guard = await requireModule(req, "creativo", "/creativo");
@@ -41,8 +46,9 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { tipo, titulo, contenido, tags, archivos, links } = await req.json() as {
-    tipo?: string; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[]; links?: string[];
+  const { tipo, titulo, contenido, tags, archivos, links, funnel } = await req.json() as {
+    tipo?: string; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[];
+    links?: string[]; funnel?: string[];
   };
 
   if (!tipo || !TIPOS_VALIDOS.includes(tipo as TipoCreativo) || !titulo?.trim()) {
@@ -58,6 +64,7 @@ export async function POST(req: NextRequest) {
     createdBy: guard.user.name,
     archivos: archivos ?? [],
     links: (links ?? []).map(l => l.trim()).filter(Boolean),
+    funnel: sanitizeFunnel(funnel),
   });
   return NextResponse.json({ creativo });
 }
@@ -76,8 +83,8 @@ export async function PATCH(req: NextRequest) {
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const body = await req.json() as {
-    id?: number; titulo?: string; contenido?: string; tags?: string[]; links?: string[]; archivos?: NuevoArchivo[];
-    metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
+    id?: number; titulo?: string; contenido?: string; tags?: string[]; links?: string[]; funnel?: string[];
+    archivos?: NuevoArchivo[]; metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
   };
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
@@ -90,6 +97,7 @@ export async function PATCH(req: NextRequest) {
       contenido: (body.contenido ?? "").trim(),
       tags: (body.tags ?? []).map(t => t.trim()).filter(Boolean),
       links: (body.links ?? []).map(l => l.trim()).filter(Boolean),
+      funnel: sanitizeFunnel(body.funnel),
       archivosNuevos: body.archivos ?? [],
     });
     if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });

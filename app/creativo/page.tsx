@@ -35,9 +35,15 @@ interface Creativo {
   created_at: string;
   archivos: CreativoArchivo[];
   links: string[];
+  funnel: string[];
   meta_ad_id: string | null;
   winner_override: WinnerOverrideFE | null;
 }
+
+// Clasificación de funnel para las referencias de imagen (una imagen puede
+// ser, por ejemplo, MOF y BOF al mismo tiempo).
+const FUNNEL_VALUES = ["TOF", "MOF", "BOF"] as const;
+const FUNNEL_COLORS: Record<string, string> = { TOF: "#3b82f6", MOF: "#f59e0b", BOF: "#10b981" };
 
 interface ArchivoEnCarga {
   nombre: string;
@@ -101,6 +107,7 @@ export default function CreativoPage() {
   const [archivos, setArchivos]   = useState<ArchivoEnCarga[]>([]);
   const [links, setLinks]         = useState<string[]>([]);
   const [linkInput, setLinkInput] = useState("");
+  const [funnelForm, setFunnelForm] = useState<string[]>([]);
   const [saving, setSaving]       = useState(false);
   const fileInputRef              = useRef<HTMLInputElement>(null);
 
@@ -108,7 +115,6 @@ export default function CreativoPage() {
     if (!tipo) return;
     setLoading(true);
     setError(null);
-    setItems([]);
     try {
       const params = new URLSearchParams({ tipo });
       if (tagFiltro) params.set("tag", tagFiltro);
@@ -135,6 +141,7 @@ export default function CreativoPage() {
     setArchivos([]);
     setLinks([]);
     setLinkInput("");
+    setFunnelForm([]);
     setModalOpen(true);
   }
 
@@ -147,6 +154,10 @@ export default function CreativoPage() {
 
   function quitarLink(idx: number) {
     setLinks(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  function toggleFunnelForm(valor: string) {
+    setFunnelForm(prev => prev.includes(valor) ? prev.filter(v => v !== valor) : [...prev, valor]);
   }
 
   async function subirArchivos(files: FileList) {
@@ -179,7 +190,7 @@ export default function CreativoPage() {
       const res = await fetch("/api/creativo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo, titulo, contenido, tags, archivos: archivosListos, links }),
+        body: JSON.stringify({ tipo, titulo, contenido, tags, archivos: archivosListos, links, funnel: funnelForm }),
       });
       if (res.ok) {
         setModalOpen(false);
@@ -203,7 +214,7 @@ export default function CreativoPage() {
   async function handleEditarCreativo(
     id: number,
     data: {
-      titulo: string; contenido: string; tags: string[]; links?: string[];
+      titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) {
@@ -295,7 +306,7 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && (
+              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && (
                 <div className="sf-empty">
                   <i className={`${TIPO_LABEL[tipo].icon} sf-empty-icon`} />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
@@ -311,7 +322,7 @@ export default function CreativoPage() {
                 <AnunciosGrid items={items} onBorrar={handleBorrar} onRefetch={fetchItems} />
               )}
 
-              {!loading && !error && tipo === "referencia" && items.length > 0 && (
+              {!error && tipo === "referencia" && (
                 <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
               )}
 
@@ -501,6 +512,29 @@ export default function CreativoPage() {
                     )}
                   </div>
                 )}
+
+                {tipo === "referencia" && (
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                      Funnel (solo aplica a imágenes)
+                    </label>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      {FUNNEL_VALUES.map(v => (
+                        <button
+                          key={v} type="button" onClick={() => toggleFunnelForm(v)}
+                          style={{
+                            padding: "0.3rem 0.75rem", borderRadius: 999, cursor: "pointer", fontSize: "0.75rem", fontWeight: 700,
+                            border: `1px solid ${funnelForm.includes(v) ? FUNNEL_COLORS[v] : "var(--border-color)"}`,
+                            background: funnelForm.includes(v) ? FUNNEL_COLORS[v] : "transparent",
+                            color: funnelForm.includes(v) ? "#fff" : "var(--text-muted)",
+                          }}
+                        >
+                          {v}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -548,7 +582,7 @@ interface ReferenciasSectionProps {
   onEditar: (
     id: number,
     data: {
-      titulo: string; contenido: string; tags: string[]; links?: string[];
+      titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
@@ -564,23 +598,39 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
   const [editArchivos, setEditArchivos]   = useState<ArchivoEnCarga[]>([]);
   const [editLinks, setEditLinks]         = useState<string[]>([]);
   const [editLinkInput, setEditLinkInput] = useState("");
+  const [editFunnel, setEditFunnel]       = useState<string[]>([]);
   const [savingEdit, setSavingEdit]       = useState(false);
+  const [filtroFunnel, setFiltroFunnel]   = useState<string[]>([]);
   const editFileInputRef = useRef<HTMLInputElement>(null);
 
   // Los links quedan agrupados junto con los videos (misma ventana), no en
   // una pestaña aparte: un item con solo links (sin archivo todavía) también
   // aparece acá, y un item con video Y links muestra ambos en la misma tarjeta.
   const gruposVideo: ReferenciaGrupo[] = [];
-  const gruposImagen: ReferenciaGrupo[] = [];
+  const gruposImagenTodas: ReferenciaGrupo[] = [];
   for (const item of items) {
     const videos = item.archivos.filter(a => a.tipo_archivo === "video");
     const imagenes = item.archivos.filter(a => a.tipo_archivo === "image");
     if (videos.length > 0 || item.links.length > 0) gruposVideo.push({ item, archivos: videos });
-    if (imagenes.length > 0) gruposImagen.push({ item, archivos: imagenes });
+    if (imagenes.length > 0) gruposImagenTodas.push({ item, archivos: imagenes });
   }
-  const totalVideos = gruposVideo.reduce((n, g) => n + g.archivos.length, 0);
-  const totalImagenes = gruposImagen.reduce((n, g) => n + g.archivos.length, 0);
+  const gruposImagen = filtroFunnel.length === 0
+    ? gruposImagenTodas
+    : gruposImagenTodas.filter(g => g.item.funnel.some(f => filtroFunnel.includes(f)));
+
+  // El total es la cantidad de referencias (no la cantidad de archivos
+  // subidos: un formato con 3 videos cuenta como 1, no como 3).
+  const totalVideos = gruposVideo.length;
+  const totalImagenes = gruposImagenTodas.length;
   const grupos = subTab === "video" ? gruposVideo : gruposImagen;
+
+  function toggleFiltroFunnel(valor: string) {
+    setFiltroFunnel(prev => prev.includes(valor) ? prev.filter(v => v !== valor) : [...prev, valor]);
+  }
+
+  function toggleFunnelEdit(valor: string) {
+    setEditFunnel(prev => prev.includes(valor) ? prev.filter(v => v !== valor) : [...prev, valor]);
+  }
 
   function abrirEditar(item: Creativo) {
     setEditing(item);
@@ -590,6 +640,7 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
     setEditArchivos([]);
     setEditLinks(item.links);
     setEditLinkInput("");
+    setEditFunnel(item.funnel);
   }
 
   function agregarLinkEdit() {
@@ -632,6 +683,7 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
         contenido: editContenido.trim(),
         tags: editTagsInput.split(",").map(t => t.trim()).filter(Boolean),
         links: editLinks,
+        funnel: editFunnel,
         archivos: nuevosListos,
       });
       setEditing(null);
@@ -650,6 +702,33 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
           <i className="fas fa-image" /> Imágenes <span className="sf-tab-badge">{totalImagenes}</span>
         </button>
       </div>
+
+      {subTab === "imagen" && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Filtrar por funnel:</span>
+          {FUNNEL_VALUES.map(v => (
+            <button
+              key={v} onClick={() => toggleFiltroFunnel(v)}
+              style={{
+                padding: "0.25rem 0.7rem", borderRadius: 999, cursor: "pointer", fontSize: "0.72rem", fontWeight: 700,
+                border: `1px solid ${filtroFunnel.includes(v) ? FUNNEL_COLORS[v] : "var(--border-color)"}`,
+                background: filtroFunnel.includes(v) ? FUNNEL_COLORS[v] : "transparent",
+                color: filtroFunnel.includes(v) ? "#fff" : "var(--text-muted)",
+              }}
+            >
+              {v}
+            </button>
+          ))}
+          {filtroFunnel.length > 0 && (
+            <button
+              onClick={() => setFiltroFunnel([])}
+              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", textDecoration: "underline" }}
+            >
+              Limpiar
+            </button>
+          )}
+        </div>
+      )}
 
       {grupos.length === 0 ? (
         <div className="sf-empty">
@@ -718,6 +797,22 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                         <i className="fas fa-link" style={{ fontSize: "0.68rem", flexShrink: 0 }} />
                         {l}
                       </a>
+                    ))}
+                  </div>
+                )}
+
+                {subTab === "imagen" && grupo.item.funnel.length > 0 && (
+                  <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                    {grupo.item.funnel.map(f => (
+                      <span
+                        key={f}
+                        style={{
+                          fontSize: "0.62rem", fontWeight: 700, padding: "0.1rem 0.4rem", borderRadius: 999,
+                          background: `${FUNNEL_COLORS[f]}22`, color: FUNNEL_COLORS[f], border: `1px solid ${FUNNEL_COLORS[f]}44`,
+                        }}
+                      >
+                        {f}
+                      </span>
                     ))}
                   </div>
                 )}
@@ -903,6 +998,27 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Funnel (solo aplica a imágenes)
+                </label>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  {FUNNEL_VALUES.map(v => (
+                    <button
+                      key={v} type="button" onClick={() => toggleFunnelEdit(v)}
+                      style={{
+                        padding: "0.3rem 0.75rem", borderRadius: 999, cursor: "pointer", fontSize: "0.75rem", fontWeight: 700,
+                        border: `1px solid ${editFunnel.includes(v) ? FUNNEL_COLORS[v] : "var(--border-color)"}`,
+                        background: editFunnel.includes(v) ? FUNNEL_COLORS[v] : "transparent",
+                        color: editFunnel.includes(v) ? "#fff" : "var(--text-muted)",
+                      }}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="sf-modal-footer">
