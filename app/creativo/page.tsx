@@ -5,12 +5,13 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
-type Tipo = "angulo" | "guion" | "formato" | "anuncio" | "referencia" | "renovacion";
+type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "anuncio";
 
 const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string; genero?: "f" }> = {
   angulo:      { label: "Ángulos",     singular: "ángulo",              icon: "fas fa-arrows-turn-to-dots" },
   guion:       { label: "Guiones",     singular: "guion",               icon: "fas fa-file-lines" },
   formato:     { label: "Formatos",    singular: "formato",             icon: "fas fa-clapperboard" },
+  marca:       { label: "Marcas",      singular: "marca de inspiración", icon: "fas fa-star", genero: "f" },
   referencia:  { label: "Referencias", singular: "ejemplo de referencia", icon: "fas fa-photo-film" },
   renovacion:  { label: "Renovaciones", singular: "carpeta de renovación", icon: "fas fa-folder", genero: "f" },
   anuncio:     { label: "Anuncios",    singular: "anuncio",             icon: "fas fa-rectangle-ad" },
@@ -306,7 +307,7 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && (
+              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && tipo !== "marca" && (
                 <div className="sf-empty">
                   <i className={`${TIPO_LABEL[tipo].icon} sf-empty-icon`} />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
@@ -326,11 +327,15 @@ export default function CreativoPage() {
                 <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
               )}
 
+              {!error && tipo === "marca" && (
+                <MarcasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+              )}
+
               {!loading && !error && tipo === "renovacion" && (
                 <RenovacionesSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
               )}
 
-              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && (
+              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && tipo !== "marca" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
                   {items.map(item => (
                     <div key={item.id} style={{
@@ -415,6 +420,7 @@ export default function CreativoPage() {
                       tipo === "anuncio" ? "Ej: Video testimonio Marta - hook dolor"
                       : tipo === "referencia" ? "Ej: Formato unboxing con testimonio"
                       : tipo === "renovacion" ? "Ej: Renovación Producto X - Agosto"
+                      : tipo === "marca" ? "Ej: Gymshark"
                       : "Ej: Ángulo dolor -> solución rápida"
                     }
                     style={{ width: "100%" }} />
@@ -431,6 +437,7 @@ export default function CreativoPage() {
                       tipo === "anuncio" ? "Notas: copy usado, hook, variante de texto... (opcional)"
                       : tipo === "referencia" ? "Qué muestra este ejemplo, en qué fijarse... (opcional)"
                       : tipo === "renovacion" ? "Escribí el guion acá (opcional, también podés subirlo como archivo abajo)"
+                      : tipo === "marca" ? "Qué hacen bien, qué formatos usan, por qué inspira... (opcional)"
                       : "El guion, la descripción del ángulo o del formato..."
                     }
                   />
@@ -481,10 +488,10 @@ export default function CreativoPage() {
                   )}
                 </div>
 
-                {tipo === "referencia" && (
+                {(tipo === "referencia" || tipo === "marca") && (
                   <div>
                     <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                      Links (por si no tenés el material descargado)
+                      {tipo === "marca" ? "Links (redes, anuncios, lo que quieras guardar)" : "Links (por si no tenés el material descargado)"}
                     </label>
                     <div style={{ display: "flex", gap: "0.4rem" }}>
                       <input
@@ -1019,6 +1026,363 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
                     </button>
                   ))}
                 </div>
+              </div>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+              <button
+                className="sf-btn" onClick={guardarEdicion}
+                disabled={savingEdit || !editTitulo.trim() || editArchivos.some(a => a.status === "subiendo")}
+              >
+                {savingEdit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Marcas (perfiles de marcas de inspiración: notas + links + archivos) ──
+
+interface MarcasSectionProps {
+  items: Creativo[];
+  onBorrar: (id: number) => void;
+  onEditar: (
+    id: number,
+    data: {
+      titulo: string; contenido: string; tags: string[]; links?: string[];
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
+    },
+  ) => Promise<void>;
+}
+
+function MarcasSection({ items, onBorrar, onEditar }: MarcasSectionProps) {
+  const [preview, setPreview]   = useState<{ item: Creativo; archivo: CreativoArchivo } | null>(null);
+  const [editing, setEditing]   = useState<Creativo | null>(null);
+  const [editTitulo, setEditTitulo]       = useState("");
+  const [editContenido, setEditContenido] = useState("");
+  const [editTagsInput, setEditTagsInput] = useState("");
+  const [editArchivos, setEditArchivos]   = useState<ArchivoEnCarga[]>([]);
+  const [editLinks, setEditLinks]         = useState<string[]>([]);
+  const [editLinkInput, setEditLinkInput] = useState("");
+  const [savingEdit, setSavingEdit]       = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  function abrirEditar(item: Creativo) {
+    setEditing(item);
+    setEditTitulo(item.titulo);
+    setEditContenido(item.contenido);
+    setEditTagsInput(item.tags.join(", "));
+    setEditArchivos([]);
+    setEditLinks(item.links);
+    setEditLinkInput("");
+  }
+
+  function agregarLinkEdit() {
+    const l = editLinkInput.trim();
+    if (!l) return;
+    setEditLinks(prev => [...prev, l]);
+    setEditLinkInput("");
+  }
+
+  function quitarLinkEdit(idx: number) {
+    setEditLinks(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  async function subirArchivosEdit(files: FileList) {
+    const nuevos: ArchivoEnCarga[] = Array.from(files).map(f => ({ nombre: f.name, status: "subiendo" as const }));
+    setEditArchivos(prev => [...prev, ...nuevos]);
+    for (const file of Array.from(files)) {
+      const resultado = await subirUnArchivo(file);
+      setEditArchivos(prev => prev.map(a =>
+        a.nombre === file.name && a.status === "subiendo"
+          ? (resultado ? { ...a, status: "listo", ...resultado } : { ...a, status: "error" })
+          : a
+      ));
+    }
+  }
+
+  function quitarArchivoEdit(nombre: string) {
+    setEditArchivos(prev => prev.filter(a => a.nombre !== nombre));
+  }
+
+  async function guardarEdicion() {
+    if (!editing || !editTitulo.trim()) return;
+    setSavingEdit(true);
+    try {
+      const nuevosListos = editArchivos
+        .filter(a => a.status === "listo")
+        .map(a => ({ url: a.url!, publicId: a.publicId!, tipoArchivo: a.tipoArchivo! }));
+      await onEditar(editing.id, {
+        titulo: editTitulo.trim(),
+        contenido: editContenido.trim(),
+        tags: editTagsInput.split(",").map(t => t.trim()).filter(Boolean),
+        links: editLinks,
+        archivos: nuevosListos,
+      });
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  return (
+    <div>
+      {items.length === 0 ? (
+        <div className="sf-empty">
+          <i className="fas fa-star sf-empty-icon" />
+          <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
+            Todavía no cargaste ninguna marca de inspiración
+          </p>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+            Hacé click en &quot;Nueva&quot; para empezar.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
+          {items.map(item => (
+            <div key={item.id} style={{
+              border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+              padding: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>
+                  <i className="fas fa-star" style={{ color: "#f59e0b", marginRight: "0.4rem", fontSize: "0.85rem" }} />
+                  {item.titulo}
+                </h3>
+                <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
+                  <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                    <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                  </button>
+                  <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                    <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                  </button>
+                </div>
+              </div>
+
+              {item.contenido && (
+                <p style={{ fontSize: "0.83rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item.contenido}</p>
+              )}
+
+              {item.archivos.length > 0 && (
+                <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                  {item.archivos.map(archivo => (
+                    <div
+                      key={archivo.id}
+                      onClick={() => setPreview({ item, archivo })}
+                      role="button"
+                      tabIndex={0}
+                      style={{
+                        position: "relative", width: 70, height: 70, flexShrink: 0,
+                        borderRadius: "var(--radius)", overflow: "hidden", cursor: "pointer", background: "#000",
+                      }}
+                    >
+                      {archivo.tipo_archivo === "image" ? (
+                        <img src={archivo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <>
+                          <video src={archivo.url} muted preload="metadata" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.25)" }}>
+                            <i className="fas fa-circle-play" style={{ fontSize: "1.1rem", color: "#fff" }} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {item.links.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                  {item.links.map((l, idx) => (
+                    <a
+                      key={idx} href={l} target="_blank" rel="noopener noreferrer"
+                      style={{
+                        display: "flex", alignItems: "center", gap: "0.3rem", fontSize: "0.75rem",
+                        color: "var(--primary-color)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                    >
+                      <i className="fas fa-link" style={{ fontSize: "0.68rem", flexShrink: 0 }} />
+                      {l}
+                    </a>
+                  ))}
+                </div>
+              )}
+
+              {item.tags.length > 0 && (
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                  {item.tags.map(tag => (
+                    <span key={tag} className="sf-badge" style={{ fontSize: "0.65rem" }}>{tag}</span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "auto" }}>
+                {item.created_by && <>Cargado por <strong>{item.created_by}</strong> · </>}
+                {fmtDateReferencia(item.created_at)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Lightbox: al apretar un archivo se abre en grande (video reproduce) ── */}
+      {preview && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setPreview(null)} />
+          <div
+            role="dialog"
+            aria-modal="true"
+            style={{
+              position: "fixed", inset: 0, zIndex: 3100, display: "flex", alignItems: "center",
+              justifyContent: "center", padding: "2rem", pointerEvents: "none",
+            }}
+          >
+            <div style={{ position: "relative", maxWidth: "90vw", maxHeight: "90vh", pointerEvents: "auto" }}>
+              <button
+                className="sf-close-btn"
+                onClick={() => setPreview(null)}
+                style={{ position: "absolute", top: "-2.5rem", right: 0, color: "#fff", fontSize: "1.5rem" }}
+              >
+                <i className="fas fa-times" />
+              </button>
+              {preview.archivo.tipo_archivo === "image" ? (
+                <img src={preview.archivo.url} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: "var(--radius)", boxShadow: "var(--shadow)" }} />
+              ) : (
+                <video
+                  src={preview.archivo.url} controls autoPlay
+                  style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: "var(--radius)", boxShadow: "var(--shadow)" }}
+                />
+              )}
+              <p style={{ color: "#fff", textAlign: "center", marginTop: "0.5rem", fontSize: "0.85rem" }}>{preview.item.titulo}</p>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Modal editar marca ─────────────────────────────────────────────── */}
+      {editing && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setEditing(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(480px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-pen" style={{ color: "var(--primary-color)" }} />
+                Editar marca
+              </h3>
+              <button className="sf-close-btn" onClick={() => setEditing(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Título *
+                </label>
+                <input
+                  type="text" className="sf-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)}
+                  style={{ width: "100%" }} autoFocus
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Notas
+                </label>
+                <textarea
+                  className="sf-input" value={editContenido} onChange={e => setEditContenido(e.target.value)}
+                  rows={4} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Tags (separados por coma)
+                </label>
+                <input
+                  type="text" className="sf-input" value={editTagsInput} onChange={e => setEditTagsInput(e.target.value)}
+                  style={{ width: "100%" }}
+                />
+              </div>
+
+              {editing.archivos.length > 0 && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Ya subidos
+                  </label>
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                    {editing.archivos.map(a => (
+                      a.tipo_archivo === "image" ? (
+                        <img key={a.id} src={a.url} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                      ) : (
+                        <video key={a.id} src={a.url} muted style={{ width: 56, height: 56, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                      )
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Agregar más imágenes / videos de ejemplo
+                </label>
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivosEdit(e.dataTransfer.files); }}
+                  onClick={() => editFileInputRef.current?.click()}
+                  className="sf-dropzone"
+                >
+                  <input
+                    ref={editFileInputRef} type="file" accept="image/*,video/*" multiple style={{ display: "none" }}
+                    onChange={e => { if (e.target.files?.length) subirArchivosEdit(e.target.files); e.target.value = ""; }}
+                  />
+                  <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
+                  <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
+                </div>
+
+                {editArchivos.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                    {editArchivos.map(a => (
+                      <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                        {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
+                        {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
+                        {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
+                        <button onClick={() => quitarArchivoEdit(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Links (redes, anuncios, lo que quieras guardar)
+                </label>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <input
+                    type="text" className="sf-input" value={editLinkInput}
+                    onChange={e => setEditLinkInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); agregarLinkEdit(); } }}
+                    placeholder="https://..." style={{ width: "100%" }}
+                  />
+                  <button type="button" className="sf-btn sf-btn-secondary" onClick={agregarLinkEdit} disabled={!editLinkInput.trim()}>
+                    <i className="fas fa-plus" />
+                  </button>
+                </div>
+                {editLinks.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                    {editLinks.map((l, idx) => (
+                      <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                        <i className="fas fa-link" style={{ color: "var(--text-muted)" }} />
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l}</span>
+                        <button onClick={() => quitarLinkEdit(idx)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="sf-modal-footer">
