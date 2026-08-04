@@ -6,7 +6,7 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import { hasLinkAccess } from "@/lib/navGroups";
 
-type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "anuncio";
+type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "analisis" | "anuncio";
 
 const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string; genero?: "f" }> = {
   angulo:      { label: "Ángulos",     singular: "ángulo",              icon: "fas fa-arrows-turn-to-dots" },
@@ -15,6 +15,7 @@ const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string; 
   marca:       { label: "Marcas",      singular: "marca de inspiración", icon: "fas fa-star", genero: "f" },
   referencia:  { label: "Referencias", singular: "ejemplo de referencia", icon: "fas fa-photo-film" },
   renovacion:  { label: "Renovaciones", singular: "carpeta de renovación", icon: "fas fa-folder", genero: "f" },
+  analisis:    { label: "Análisis de Renovaciones", singular: "análisis de renovación", icon: "fas fa-diagram-project" },
   anuncio:     { label: "Anuncios",    singular: "anuncio",             icon: "fas fa-rectangle-ad" },
 };
 
@@ -40,7 +41,27 @@ interface Creativo {
   funnel: string[];
   meta_ad_id: string | null;
   winner_override: WinnerOverrideFE | null;
+  angulo: string | null;
+  formato: string | null;
+  hook: string | null;
+  promesaSolucion: string | null;
+  profundizacionProblema: string | null;
+  presentacionProducto: string | null;
+  beneficiosAlivio: string | null;
+  cta: string | null;
+  hipotesis: string | null;
 }
+
+// Las 6 etapas fijas del desglose de guion de un análisis de renovación,
+// en el orden en que siempre se muestran (coincide con la planilla).
+const ESTRUCTURA_GUION: { key: "hook" | "promesaSolucion" | "profundizacionProblema" | "presentacionProducto" | "beneficiosAlivio" | "cta"; label: string }[] = [
+  { key: "hook", label: "Hook" },
+  { key: "promesaSolucion", label: "Promesa de solución" },
+  { key: "profundizacionProblema", label: "Profundización del problema" },
+  { key: "presentacionProducto", label: "Presentación del producto" },
+  { key: "beneficiosAlivio", label: "Beneficios + alivio emocional" },
+  { key: "cta", label: "CTA" },
+];
 
 // Clasificación de funnel para las referencias de imagen (una imagen puede
 // ser, por ejemplo, MOF y BOF al mismo tiempo).
@@ -136,6 +157,15 @@ export default function CreativoPage() {
   const [links, setLinks]         = useState<string[]>([]);
   const [linkInput, setLinkInput] = useState("");
   const [funnelForm, setFunnelForm] = useState<string[]>([]);
+  const [angulo, setAngulo]           = useState("");
+  const [formato, setFormato]         = useState("");
+  const [hook, setHook]               = useState("");
+  const [promesaSolucion, setPromesaSolucion]                 = useState("");
+  const [profundizacionProblema, setProfundizacionProblema]   = useState("");
+  const [presentacionProducto, setPresentacionProducto]       = useState("");
+  const [beneficiosAlivio, setBeneficiosAlivio]               = useState("");
+  const [cta, setCta]                 = useState("");
+  const [hipotesis, setHipotesis]     = useState("");
   const [saving, setSaving]       = useState(false);
   const fileInputRef              = useRef<HTMLInputElement>(null);
 
@@ -170,6 +200,8 @@ export default function CreativoPage() {
     setLinks([]);
     setLinkInput("");
     setFunnelForm([]);
+    setAngulo(""); setFormato(""); setHook(""); setPromesaSolucion(""); setProfundizacionProblema("");
+    setPresentacionProducto(""); setBeneficiosAlivio(""); setCta(""); setHipotesis("");
     setModalOpen(true);
   }
 
@@ -218,7 +250,10 @@ export default function CreativoPage() {
       const res = await fetch("/api/creativo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo, titulo, contenido, tags, archivos: archivosListos, links, funnel: funnelForm }),
+        body: JSON.stringify({
+          tipo, titulo, contenido, tags, archivos: archivosListos, links, funnel: funnelForm,
+          angulo, formato, hook, promesaSolucion, profundizacionProblema, presentacionProducto, beneficiosAlivio, cta, hipotesis,
+        }),
       });
       if (res.ok) {
         setModalOpen(false);
@@ -243,6 +278,9 @@ export default function CreativoPage() {
     id: number,
     data: {
       titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
+      angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
+      profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
+      cta?: string; hipotesis?: string;
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) {
@@ -340,7 +378,7 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && tipo !== "marca" && (
+              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && tipo !== "marca" && tipo !== "analisis" && (
                 <div className="sf-empty">
                   <i className={`${TIPO_LABEL[tipo].icon} sf-empty-icon`} />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
@@ -368,7 +406,11 @@ export default function CreativoPage() {
                 <RenovacionesSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
               )}
 
-              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && tipo !== "marca" && (
+              {!error && tipo === "analisis" && (
+                <AnalisisRenovacionSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+              )}
+
+              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && tipo !== "marca" && tipo !== "analisis" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
                   {items.map(item => (
                     <div key={item.id} style={{
@@ -454,6 +496,7 @@ export default function CreativoPage() {
                       : tipo === "referencia" ? "Ej: Formato unboxing con testimonio"
                       : tipo === "renovacion" ? "Ej: Renovación Producto X - Agosto"
                       : tipo === "marca" ? "Ej: Gymshark"
+                      : tipo === "analisis" ? "Ej: Reno 54.3"
                       : "Ej: Ángulo dolor -> solución rápida"
                     }
                     style={{ width: "100%" }} />
@@ -461,7 +504,7 @@ export default function CreativoPage() {
 
                 <div>
                   <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                    Contenido
+                    {tipo === "analisis" ? "Anotaciones" : "Contenido"}
                   </label>
                   <textarea
                     className="sf-input" value={contenido} onChange={e => setContenido(e.target.value)}
@@ -471,6 +514,7 @@ export default function CreativoPage() {
                       : tipo === "referencia" ? "Qué muestra este ejemplo, en qué fijarse... (opcional)"
                       : tipo === "renovacion" ? "Escribí el guion acá (opcional, también podés subirlo como archivo abajo)"
                       : tipo === "marca" ? "Qué hacen bien, qué formatos usan, por qué inspira... (opcional)"
+                      : tipo === "analisis" ? "Notas generales sobre la renovación... (opcional)"
                       : "El guion, la descripción del ángulo o del formato..."
                     }
                   />
@@ -486,7 +530,9 @@ export default function CreativoPage() {
 
                 <div>
                   <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                    {tipo === "renovacion" ? "Video editado / archivo de guion (opcional)" : "Imágenes / videos"}
+                    {tipo === "renovacion" ? "Video editado / archivo de guion (opcional)"
+                      : tipo === "analisis" ? "Video de la renovación"
+                      : "Imágenes / videos"}
                   </label>
                   <div
                     onDragOver={e => e.preventDefault()}
@@ -496,7 +542,7 @@ export default function CreativoPage() {
                   >
                     <input
                       ref={fileInputRef} type="file"
-                      accept={tipo === "renovacion" ? "video/*,application/pdf,.doc,.docx,.txt" : "image/*,video/*"}
+                      accept={tipo === "renovacion" ? "video/*,application/pdf,.doc,.docx,.txt" : tipo === "analisis" ? "video/*" : "image/*,video/*"}
                       multiple style={{ display: "none" }}
                       onChange={e => { if (e.target.files?.length) subirArchivos(e.target.files); e.target.value = ""; }}
                     />
@@ -574,6 +620,71 @@ export default function CreativoPage() {
                       ))}
                     </div>
                   </div>
+                )}
+
+                {tipo === "analisis" && (
+                  <>
+                    <div style={{ display: "flex", gap: "0.75rem" }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                          Ángulo
+                        </label>
+                        <input type="text" className="sf-input" value={angulo} onChange={e => setAngulo(e.target.value)}
+                          placeholder="Ej: Instructivo / Curiosidad" style={{ width: "100%" }} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                          Formato
+                        </label>
+                        <input type="text" className="sf-input" value={formato} onChange={e => setFormato(e.target.value)}
+                          placeholder="Ej: Formato Cinemática" style={{ width: "100%" }} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-color)", marginBottom: "0.5rem" }}>
+                        Estructura del guion
+                      </label>
+                      <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+                        Hook → Promesa de solución → Profundización del problema → Presentación del producto → Beneficios + alivio emocional → CTA
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Hook</label>
+                          <textarea className="sf-input" value={hook} onChange={e => setHook(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Promesa de solución</label>
+                          <textarea className="sf-input" value={promesaSolucion} onChange={e => setPromesaSolucion(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Profundización del problema</label>
+                          <textarea className="sf-input" value={profundizacionProblema} onChange={e => setProfundizacionProblema(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Presentación del producto</label>
+                          <textarea className="sf-input" value={presentacionProducto} onChange={e => setPresentacionProducto(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Beneficios + alivio emocional</label>
+                          <textarea className="sf-input" value={beneficiosAlivio} onChange={e => setBeneficiosAlivio(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                        </div>
+                        <div>
+                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>CTA</label>
+                          <textarea className="sf-input" value={cta} onChange={e => setCta(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                        Hipótesis
+                      </label>
+                      <textarea className="sf-input" value={hipotesis} onChange={e => setHipotesis(e.target.value)} rows={3}
+                        placeholder="Qué esperamos que pase con esta renovación y por qué..."
+                        style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -1416,6 +1527,332 @@ function MarcasSection({ items, onBorrar, onEditar }: MarcasSectionProps) {
                     ))}
                   </div>
                 )}
+              </div>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+              <button
+                className="sf-btn" onClick={guardarEdicion}
+                disabled={savingEdit || !editTitulo.trim() || editArchivos.some(a => a.status === "subiendo")}
+              >
+                {savingEdit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Análisis de Renovaciones (video + ángulo/formato + guion desglosado) ──
+
+interface AnalisisRenovacionSectionProps {
+  items: Creativo[];
+  onBorrar: (id: number) => void;
+  onEditar: (
+    id: number,
+    data: {
+      titulo: string; contenido: string; tags: string[];
+      angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
+      profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
+      cta?: string; hipotesis?: string;
+      archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
+    },
+  ) => Promise<void>;
+}
+
+function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenovacionSectionProps) {
+  const [editing, setEditing]     = useState<Creativo | null>(null);
+  const [editTitulo, setEditTitulo]       = useState("");
+  const [editContenido, setEditContenido] = useState("");
+  const [editAngulo, setEditAngulo]       = useState("");
+  const [editFormato, setEditFormato]     = useState("");
+  const [editHook, setEditHook]           = useState("");
+  const [editPromesaSolucion, setEditPromesaSolucion]               = useState("");
+  const [editProfundizacionProblema, setEditProfundizacionProblema] = useState("");
+  const [editPresentacionProducto, setEditPresentacionProducto]     = useState("");
+  const [editBeneficiosAlivio, setEditBeneficiosAlivio]             = useState("");
+  const [editCta, setEditCta]             = useState("");
+  const [editHipotesis, setEditHipotesis] = useState("");
+  const [editArchivos, setEditArchivos]   = useState<ArchivoEnCarga[]>([]);
+  const [savingEdit, setSavingEdit]       = useState(false);
+  const editFileInputRef = useRef<HTMLInputElement>(null);
+
+  function abrirEditar(item: Creativo) {
+    setEditing(item);
+    setEditTitulo(item.titulo);
+    setEditContenido(item.contenido);
+    setEditAngulo(item.angulo ?? "");
+    setEditFormato(item.formato ?? "");
+    setEditHook(item.hook ?? "");
+    setEditPromesaSolucion(item.promesaSolucion ?? "");
+    setEditProfundizacionProblema(item.profundizacionProblema ?? "");
+    setEditPresentacionProducto(item.presentacionProducto ?? "");
+    setEditBeneficiosAlivio(item.beneficiosAlivio ?? "");
+    setEditCta(item.cta ?? "");
+    setEditHipotesis(item.hipotesis ?? "");
+    setEditArchivos([]);
+  }
+
+  async function subirArchivosEdit(files: FileList) {
+    const nuevos: ArchivoEnCarga[] = Array.from(files).map(f => ({ nombre: f.name, status: "subiendo" as const }));
+    setEditArchivos(prev => [...prev, ...nuevos]);
+    for (const file of Array.from(files)) {
+      const resultado = await subirUnArchivo(file);
+      setEditArchivos(prev => prev.map(a =>
+        a.nombre === file.name && a.status === "subiendo"
+          ? (resultado ? { ...a, status: "listo", ...resultado } : { ...a, status: "error" })
+          : a
+      ));
+    }
+  }
+
+  function quitarArchivoEdit(nombre: string) {
+    setEditArchivos(prev => prev.filter(a => a.nombre !== nombre));
+  }
+
+  async function guardarEdicion() {
+    if (!editing || !editTitulo.trim()) return;
+    setSavingEdit(true);
+    try {
+      const nuevosListos = editArchivos
+        .filter(a => a.status === "listo")
+        .map(a => ({ url: a.url!, publicId: a.publicId!, tipoArchivo: a.tipoArchivo! }));
+      await onEditar(editing.id, {
+        titulo: editTitulo.trim(),
+        contenido: editContenido.trim(),
+        tags: editing.tags,
+        angulo: editAngulo.trim(), formato: editFormato.trim(), hook: editHook.trim(),
+        promesaSolucion: editPromesaSolucion.trim(), profundizacionProblema: editProfundizacionProblema.trim(),
+        presentacionProducto: editPresentacionProducto.trim(), beneficiosAlivio: editBeneficiosAlivio.trim(),
+        cta: editCta.trim(), hipotesis: editHipotesis.trim(),
+        archivos: nuevosListos,
+      });
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  return (
+    <div>
+      {items.length === 0 ? (
+        <div className="sf-empty">
+          <i className="fas fa-diagram-project sf-empty-icon" />
+          <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
+            Todavía no cargaste ningún análisis de renovación
+          </p>
+          <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+            Hacé click en &quot;Nuevo&quot; para empezar.
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "1rem" }}>
+          {items.map(item => {
+            const video = item.archivos.find(a => a.tipo_archivo === "video");
+            return (
+              <div key={item.id} style={{
+                border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+                padding: "1rem", display: "flex", flexDirection: "column", gap: "0.6rem",
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                  <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{item.titulo}</h3>
+                  <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
+                    <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                      <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                    </button>
+                    <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                      <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                    </button>
+                  </div>
+                </div>
+
+                {video && (
+                  <video src={video.url} controls style={{ width: "100%", borderRadius: "var(--radius)", background: "#000" }} />
+                )}
+
+                {(item.angulo || item.formato) && (
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                    {item.angulo && <span className="sf-badge" style={{ fontSize: "0.65rem" }}>Ángulo: {item.angulo}</span>}
+                    {item.formato && <span className="sf-badge" style={{ fontSize: "0.65rem" }}>Formato: {item.formato}</span>}
+                  </div>
+                )}
+
+                {ESTRUCTURA_GUION.some(({ key }) => item[key]) && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem" }}>
+                    <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                      Estructura del guion
+                    </span>
+                    {ESTRUCTURA_GUION.map(({ key, label }) => item[key] && (
+                      <div key={key}>
+                        <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>{label}: </span>
+                        <span style={{ fontSize: "0.8rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item[key]}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {item.contenido && (
+                  <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem" }}>
+                    <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.4px" }}>Anotaciones</span>
+                    <p style={{ fontSize: "0.83rem", color: "var(--text-color)", whiteSpace: "pre-wrap", marginTop: "0.2rem" }}>{item.contenido}</p>
+                  </div>
+                )}
+
+                {item.hipotesis && (
+                  <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem" }}>
+                    <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.4px" }}>Hipótesis</span>
+                    <p style={{ fontSize: "0.83rem", color: "var(--text-color)", whiteSpace: "pre-wrap", marginTop: "0.2rem" }}>{item.hipotesis}</p>
+                  </div>
+                )}
+
+                <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", marginTop: "auto" }}>
+                  {item.created_by && <>Cargado por <strong>{item.created_by}</strong> · </>}
+                  {fmtDateReferencia(item.created_at)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Modal editar análisis de renovación ─────────────────────────────── */}
+      {editing && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setEditing(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(560px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-pen" style={{ color: "var(--primary-color)" }} />
+                Editar análisis de renovación
+              </h3>
+              <button className="sf-close-btn" onClick={() => setEditing(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.875rem" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Título *
+                </label>
+                <input
+                  type="text" className="sf-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)}
+                  style={{ width: "100%" }} autoFocus
+                />
+              </div>
+
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Ángulo
+                  </label>
+                  <input type="text" className="sf-input" value={editAngulo} onChange={e => setEditAngulo(e.target.value)} style={{ width: "100%" }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Formato
+                  </label>
+                  <input type="text" className="sf-input" value={editFormato} onChange={e => setEditFormato(e.target.value)} style={{ width: "100%" }} />
+                </div>
+              </div>
+
+              {editing.archivos.length > 0 && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Video ya subido
+                  </label>
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                    {editing.archivos.map(a => (
+                      <video key={a.id} src={a.url} muted style={{ width: 140, height: 90, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Agregar / reemplazar video
+                </label>
+                <div
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivosEdit(e.dataTransfer.files); }}
+                  onClick={() => editFileInputRef.current?.click()}
+                  className="sf-dropzone"
+                >
+                  <input
+                    ref={editFileInputRef} type="file" accept="video/*" multiple style={{ display: "none" }}
+                    onChange={e => { if (e.target.files?.length) subirArchivosEdit(e.target.files); e.target.value = ""; }}
+                  />
+                  <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
+                  <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
+                </div>
+
+                {editArchivos.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                    {editArchivos.map(a => (
+                      <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                        {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
+                        {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
+                        {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
+                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
+                        <button onClick={() => quitarArchivoEdit(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-color)", marginBottom: "0.5rem" }}>
+                  Estructura del guion
+                </label>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Hook</label>
+                    <textarea className="sf-input" value={editHook} onChange={e => setEditHook(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Promesa de solución</label>
+                    <textarea className="sf-input" value={editPromesaSolucion} onChange={e => setEditPromesaSolucion(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Profundización del problema</label>
+                    <textarea className="sf-input" value={editProfundizacionProblema} onChange={e => setEditProfundizacionProblema(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Presentación del producto</label>
+                    <textarea className="sf-input" value={editPresentacionProducto} onChange={e => setEditPresentacionProducto(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Beneficios + alivio emocional</label>
+                    <textarea className="sf-input" value={editBeneficiosAlivio} onChange={e => setEditBeneficiosAlivio(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>CTA</label>
+                    <textarea className="sf-input" value={editCta} onChange={e => setEditCta(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Anotaciones
+                </label>
+                <textarea
+                  className="sf-input" value={editContenido} onChange={e => setEditContenido(e.target.value)}
+                  rows={3} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Hipótesis
+                </label>
+                <textarea
+                  className="sf-input" value={editHipotesis} onChange={e => setEditHipotesis(e.target.value)}
+                  rows={3} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                />
               </div>
             </div>
             <div className="sf-modal-footer">

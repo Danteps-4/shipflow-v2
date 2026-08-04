@@ -59,6 +59,7 @@ export const NAV_GROUPS: Apartado[] = [
       { href: "/creativo?tab=marca", icon: "fas fa-star", label: "Marcas" },
       { href: "/creativo?tab=referencia", icon: "fas fa-photo-film", label: "Referencias" },
       { href: "/creativo?tab=renovacion", icon: "fas fa-folder", label: "Renovaciones" },
+      { href: "/creativo?tab=analisis", icon: "fas fa-diagram-project", label: "Análisis de Renovaciones" },
       { href: "/creativo?tab=anuncio", icon: "fas fa-rectangle-ad", label: "Anuncios" },
       { href: "/creativo?tab=publicidad", icon: "fas fa-bullhorn", label: "Publicidad" },
     ],

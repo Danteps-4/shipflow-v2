@@ -28,7 +28,24 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
-const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion", "marca"];
+const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion", "marca", "analisis"];
+
+// Campos propios del análisis de renovación (tipo "analisis"); en el resto
+// de los tipos vienen undefined y quedan null en la base.
+interface CamposAnalisis {
+  angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
+  profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
+  cta?: string; hipotesis?: string;
+}
+
+function sanitizeAnalisis(body: CamposAnalisis): CamposAnalisis {
+  return {
+    angulo: body.angulo?.trim(), formato: body.formato?.trim(), hook: body.hook?.trim(),
+    promesaSolucion: body.promesaSolucion?.trim(), profundizacionProblema: body.profundizacionProblema?.trim(),
+    presentacionProducto: body.presentacionProducto?.trim(), beneficiosAlivio: body.beneficiosAlivio?.trim(),
+    cta: body.cta?.trim(), hipotesis: body.hipotesis?.trim(),
+  };
+}
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
 const FUNNEL_VALIDOS = ["TOF", "MOF", "BOF"];
 
@@ -65,10 +82,10 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { tipo, titulo, contenido, tags, archivos, links, funnel } = await req.json() as {
+  const { tipo, titulo, contenido, tags, archivos, links, funnel, ...camposAnalisis } = await req.json() as {
     tipo?: string; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[];
     links?: string[]; funnel?: string[];
-  };
+  } & CamposAnalisis;
 
   if (!tipo || !TIPOS_VALIDOS.includes(tipo as TipoCreativo) || !titulo?.trim()) {
     return NextResponse.json({ error: "Faltan campos: tipo, titulo" }, { status: 400 });
@@ -87,6 +104,7 @@ export async function POST(req: NextRequest) {
     archivos: archivos ?? [],
     links: (links ?? []).map(l => l.trim()).filter(Boolean),
     funnel: sanitizeFunnel(funnel),
+    ...sanitizeAnalisis(camposAnalisis),
   });
   return NextResponse.json({ creativo });
 }
@@ -107,7 +125,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json() as {
     id?: number; titulo?: string; contenido?: string; tags?: string[]; links?: string[]; funnel?: string[];
     archivos?: NuevoArchivo[]; metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
-  };
+  } & CamposAnalisis;
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initCreativoTables();
@@ -128,6 +146,7 @@ export async function PATCH(req: NextRequest) {
       links: (body.links ?? []).map(l => l.trim()).filter(Boolean),
       funnel: sanitizeFunnel(body.funnel),
       archivosNuevos: body.archivos ?? [],
+      ...sanitizeAnalisis(body),
     });
     if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ creativo });
