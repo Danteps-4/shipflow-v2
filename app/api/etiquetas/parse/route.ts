@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "pedidos", "/etiquetas");
   if (!guard.ok) return guard.response;
 
-  const tokens = readTokens();
+  const tokens = readTokens(guard.user.id);
   if (!tokens) return NextResponse.json({ error: "No hay tienda conectada" }, { status: 401 });
 
   let formData: FormData;

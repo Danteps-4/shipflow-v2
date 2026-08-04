@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { readTokens } from "@/lib/tnTokens";
-import { getActiveStore } from "@/lib/tnStores";
+import { getActiveStoreForUser } from "@/lib/tnStores";
 import { initMlTables, upsertTnConexion } from "@/lib/mlDb";
 import { registerTnWebhook } from "@/lib/tnWebhooks";
 
@@ -15,8 +15,8 @@ export async function GET(req: NextRequest) {
   const sfUserId = await getSessionUserId(req);
   if (!sfUserId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const tokens = readTokens();
-  const store  = getActiveStore();
+  const tokens = readTokens(sfUserId);
+  const store  = getActiveStoreForUser(sfUserId);
   if (!tokens || !store) {
     return NextResponse.json({ error: "No hay ninguna tienda de Tienda Nube conectada" }, { status: 400 });
   }

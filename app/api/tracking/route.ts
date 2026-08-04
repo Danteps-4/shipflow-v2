@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
 
   const guard = await requireModule(req, "pedidos", "/tracking");
   if (!guard.ok) return guard.response;
-  const tokens = readTokens();
+  const tokens = readTokens(guard.user.id);
   if (!tokens) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }

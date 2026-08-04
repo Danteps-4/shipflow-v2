@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
-import { getActiveStore } from "@/lib/tnStores";
+import { getActiveStoreForUser } from "@/lib/tnStores";
 import { getMlConexionByStoreId } from "@/lib/mlDb";
 import { getValidMlAccessToken } from "@/lib/mlTokens";
 import { extractDeducirItems, type MlOrder } from "@/lib/mlClient";
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "mercadolibre", "/mercadolibre");
   if (!guard.ok) return guard.response;
 
-  const store = getActiveStore();
+  const store = getActiveStoreForUser(guard.user.id);
   if (!store) return NextResponse.json({ error: "Sin tienda activa" }, { status: 400 });
   const storeId = String(store.user_id);
 

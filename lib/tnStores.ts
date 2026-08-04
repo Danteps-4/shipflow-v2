@@ -1,7 +1,10 @@
 /**
- * Multi-store token management, compartido por todo el equipo.
- * Un solo archivo stores.json para todo el negocio (no por login),
- * para que cualquier persona del equipo vea las mismas tiendas conectadas.
+ * Multi-store token management, compartido por todo el equipo: un solo
+ * archivo stores.json con todas las tiendas conectadas (para no tener que
+ * reautorizar por cada persona), pero cada usuario logueado tiene su
+ * propio puntero de "tienda activa" (activeByUser), para que cambiar de
+ * tienda o recargar la página no le pise la sesión a otra persona que esté
+ * trabajando con otra tienda al mismo tiempo.
  */
 import fs from "fs";
 import path from "path";
@@ -20,19 +23,21 @@ export interface StoreInfo {
 }
 
 export interface StoresFile {
-  active: number | null;
+  active: number | null;              // default para sesiones que todavía no eligieron tienda propia
+  activeByUser: Record<string, number>; // sfUserId -> tienda activa de ESE usuario
   stores: Record<string, StoreInfo>;
 }
 
 // ── Internal helpers ──────────────────────────────────────────────
 
 function readRaw(): StoresFile {
-  if (!fs.existsSync(STORES_FILE)) return { active: null, stores: {} };
+  if (!fs.existsSync(STORES_FILE)) return { active: null, activeByUser: {}, stores: {} };
   try {
-    return JSON.parse(fs.readFileSync(STORES_FILE, "utf-8")) as StoresFile;
+    const parsed = JSON.parse(fs.readFileSync(STORES_FILE, "utf-8")) as Partial<StoresFile>;
+    return { active: parsed.active ?? null, activeByUser: parsed.activeByUser ?? {}, stores: parsed.stores ?? {} };
   } catch (e) {
     console.log("[tnStores] readRaw error:", e);
-    return { active: null, stores: {} };
+    return { active: null, activeByUser: {}, stores: {} };
   }
 }
 
@@ -46,28 +51,35 @@ export function listStores(): StoreInfo[] {
   return Object.values(readRaw().stores);
 }
 
-export function getActiveStore(): StoreInfo | null {
-  const { active, stores } = readRaw();
-  if (!active) return null;
-  return stores[String(active)] ?? null;
+// sfUserId null (ej. contexto sin sesión) cae directo al default global.
+export function getActiveStoreForUser(sfUserId: string | null): StoreInfo | null {
+  const { active, activeByUser, stores } = readRaw();
+  const storeId = (sfUserId && activeByUser[sfUserId]) || active;
+  if (!storeId) return null;
+  return stores[String(storeId)] ?? null;
 }
 
-export function getStoresState(): { active: number | null; stores: StoreInfo[] } {
-  const data = readRaw();
-  return { active: data.active, stores: Object.values(data.stores) };
+export function getStoresStateForUser(sfUserId: string | null): { active: number | null; stores: StoreInfo[] } {
+  const { active, activeByUser, stores } = readRaw();
+  const effectiveActive = (sfUserId && activeByUser[sfUserId]) || active;
+  return { active: effectiveActive, stores: Object.values(stores) };
 }
 
-export function addStore(info: StoreInfo): void {
+// sfUserId opcional: al conectar una tienda nueva sin sesión (no debería
+// pasar en la práctica, todas las rutas que llaman a esto ya están
+// autenticadas) sólo se actualiza el default global.
+export function addStore(info: StoreInfo, sfUserId?: string | null): void {
   const data = readRaw();
   data.stores[String(info.user_id)] = info;
   data.active = info.user_id;
+  if (sfUserId) data.activeByUser[sfUserId] = info.user_id;
   writeRaw(data);
 }
 
-export function switchStore(storeId: number): boolean {
+export function switchStoreForUser(sfUserId: string, storeId: number): boolean {
   const data = readRaw();
   if (!data.stores[String(storeId)]) return false;
-  data.active = storeId;
+  data.activeByUser[sfUserId] = storeId;
   writeRaw(data);
   return true;
 }
@@ -78,6 +90,11 @@ export function disconnectStore(storeId: number): void {
   if (data.active === storeId) {
     const remaining = Object.keys(data.stores);
     data.active = remaining.length ? parseInt(remaining[0]) : null;
+  }
+  // Cualquier usuario que tuviera esta tienda como su activa personal
+  // vuelve a caer en el default global (arriba).
+  for (const uid of Object.keys(data.activeByUser)) {
+    if (data.activeByUser[uid] === storeId) delete data.activeByUser[uid];
   }
   writeRaw(data);
 }

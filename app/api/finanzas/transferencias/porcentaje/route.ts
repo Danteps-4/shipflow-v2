@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 async function getStoreId(req: NextRequest): Promise<string | null> {
   const sfUserId = await getSessionUserId(req);
   if (!sfUserId) return null;
-  const tokens = readTokens();
+  const tokens = readTokens(sfUserId);
   if (!tokens) return null;
   return String(tokens.user_id);
 }

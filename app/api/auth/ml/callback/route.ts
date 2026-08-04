@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
-import { getActiveStore } from "@/lib/tnStores";
+import { getActiveStoreForUser } from "@/lib/tnStores";
 import { initMlTables, upsertMlConexion } from "@/lib/mlDb";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL(dest, req.url));
   }
 
-  const store = getActiveStore();
+  const store = getActiveStoreForUser(guard.user.id);
   if (!store) return NextResponse.redirect(new URL("/?error=no_tn_store", req.url));
   const storeId = String(store.user_id);
 
