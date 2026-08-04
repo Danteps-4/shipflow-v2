@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL("/creativo?error=invalid_state", req.url));
   }
 
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo", "/creativo?tab=publicidad");
   if (!guard.ok) {
     const dest = guard.response.status === 401 ? "/login?error=session_expired" : "/?error=no_access";
     return NextResponse.redirect(new URL(dest, req.url));

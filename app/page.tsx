@@ -5,7 +5,7 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import { ModuleKey } from "@/lib/modules";
-import { hasLinkAccess } from "@/lib/navGroups";
+import { hasLinkAccess, hasAnyAccessToModule } from "@/lib/navGroups";
 
 const TOOL_GROUPS = [
   {
@@ -162,7 +162,14 @@ export default function HomePage() {
   const isAdmin = role === "admin";
   const visibleGroups = TOOL_GROUPS
     .filter((g) => isAdmin || modules.includes(g.module))
-    .map((g) => ({ ...g, tools: g.tools.filter((t) => isAdmin || hasLinkAccess(linkAccess, t.href)) }))
+    .map((g) => ({
+      ...g,
+      // La card de Creativo representa varios tabs a la vez (no un sub
+      // apartado puntual), así que se muestra si tiene acceso a alguno.
+      tools: g.tools.filter((t) =>
+        isAdmin || (g.module === "creativo" ? hasAnyAccessToModule(linkAccess, "creativo") : hasLinkAccess(linkAccess, t.href))
+      ),
+    }))
     .filter((g) => g.tools.length > 0);
 
   return (

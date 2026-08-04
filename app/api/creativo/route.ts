@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
+import { hasLinkAccess } from "@/lib/navGroups";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, TipoCreativo, NuevoArchivo, WinnerOverride } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, TipoCreativo, NuevoArchivo, WinnerOverride } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
+import { User } from "@/lib/userStore";
+
+// El módulo "creativo" alcanza con estar habilitado, pero cada tab (ángulos,
+// referencias, marcas, publicidad, etc.) es su propio sub apartado — ver
+// lib/navGroups.ts. Devuelve la respuesta de error si no tiene acceso a ese tab.
+function checkTabAccess(user: User, tipo: TipoCreativo) {
+  if (user.role === "admin") return null;
+  if (!hasLinkAccess(user.linkAccess, `/creativo?tab=${tipo}`)) {
+    return NextResponse.json({ error: "No tenés acceso a esta sección" }, { status: 403 });
+  }
+  return null;
+}
 
 export const runtime = "nodejs";
 
@@ -24,7 +37,7 @@ function sanitizeFunnel(funnel?: string[]): string[] {
 }
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -34,13 +47,19 @@ export async function GET(req: NextRequest) {
   const tipo = tipoParam && TIPOS_VALIDOS.includes(tipoParam as TipoCreativo) ? (tipoParam as TipoCreativo) : undefined;
   const tag = req.nextUrl.searchParams.get("tag") ?? undefined;
 
+  if (guard.user.role !== "admin") {
+    if (!tipo) return NextResponse.json({ error: "Falta tipo" }, { status: 400 });
+    const denied = checkTabAccess(guard.user, tipo);
+    if (denied) return denied;
+  }
+
   await initCreativoTables();
   const creativos = await getCreativos(storeId, { tipo, tag });
   return NextResponse.json({ creativos });
 }
 
 export async function POST(req: NextRequest) {
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -54,6 +73,9 @@ export async function POST(req: NextRequest) {
   if (!tipo || !TIPOS_VALIDOS.includes(tipo as TipoCreativo) || !titulo?.trim()) {
     return NextResponse.json({ error: "Faltan campos: tipo, titulo" }, { status: 400 });
   }
+
+  const denied = checkTabAccess(guard.user, tipo as TipoCreativo);
+  if (denied) return denied;
 
   await initCreativoTables();
   const creativo = await createCreativo(storeId, {
@@ -76,7 +98,7 @@ export async function POST(req: NextRequest) {
 // y/o fija el override manual de winner/regular/malo (metaAdId/
 // winnerOverride pueden venir en null para desvincular/volver a auto).
 export async function PATCH(req: NextRequest) {
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -89,6 +111,13 @@ export async function PATCH(req: NextRequest) {
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initCreativoTables();
+
+  if (guard.user.role !== "admin") {
+    const itemTipo = await getCreativoTipo(storeId, Number(body.id));
+    if (!itemTipo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    const denied = checkTabAccess(guard.user, itemTipo);
+    if (denied) return denied;
+  }
 
   if (typeof body.titulo === "string") {
     if (!body.titulo.trim()) return NextResponse.json({ error: "Falta título" }, { status: 400 });
@@ -114,7 +143,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo");
   if (!guard.ok) return guard.response;
 
   const storeId = await getStoreId(req);
@@ -124,6 +153,14 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initCreativoTables();
+
+  if (guard.user.role !== "admin") {
+    const itemTipo = await getCreativoTipo(storeId, Number(id));
+    if (!itemTipo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    const denied = checkTabAccess(guard.user, itemTipo);
+    if (denied) return denied;
+  }
+
   const archivosBorrados = await deleteCreativo(storeId, Number(id));
 
   await Promise.all(

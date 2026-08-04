@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo", "/creativo?tab=publicidad");
   if (!guard.ok) return guard.response;
 
   await initMetaTables();

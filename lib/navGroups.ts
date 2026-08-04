@@ -53,7 +53,14 @@ export const NAV_GROUPS: Apartado[] = [
     label: "Creativo",
     module: "creativo",
     subApartados: [
-      { href: "/creativo", icon: "fas fa-clapperboard", label: "Ángulos, guiones y formatos" },
+      { href: "/creativo?tab=angulo", icon: "fas fa-arrows-turn-to-dots", label: "Ángulos" },
+      { href: "/creativo?tab=guion", icon: "fas fa-file-lines", label: "Guiones" },
+      { href: "/creativo?tab=formato", icon: "fas fa-clapperboard", label: "Formatos" },
+      { href: "/creativo?tab=marca", icon: "fas fa-star", label: "Marcas" },
+      { href: "/creativo?tab=referencia", icon: "fas fa-photo-film", label: "Referencias" },
+      { href: "/creativo?tab=renovacion", icon: "fas fa-folder", label: "Renovaciones" },
+      { href: "/creativo?tab=anuncio", icon: "fas fa-rectangle-ad", label: "Anuncios" },
+      { href: "/creativo?tab=publicidad", icon: "fas fa-bullhorn", label: "Publicidad" },
     ],
   },
   {
@@ -81,4 +88,13 @@ export function isValidHref(href: string): boolean {
 export function hasLinkAccess(linkAccess: string[] | undefined, href: string): boolean {
   if (!linkAccess) return true;
   return linkAccess.includes(href);
+}
+
+// Para tarjetas/links que representan un módulo entero (ej. la card de
+// "Creativo" en el home, que no apunta a un sub apartado puntual): visible
+// si el usuario tiene acceso a al menos uno de los tabs del módulo.
+export function hasAnyAccessToModule(linkAccess: string[] | undefined, moduleKey: ModuleKey): boolean {
+  const subs = subApartadosForModule(moduleKey);
+  if (subs.length === 0) return true;
+  return subs.some((s) => hasLinkAccess(linkAccess, s.href));
 }

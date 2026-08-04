@@ -162,6 +162,17 @@ export async function createCreativo(
   return { ...creativo, archivos };
 }
 
+// Para chequear permisos por sub apartado (ver lib/navGroups.ts) antes de
+// editar/borrar: hace falta saber el tipo de una entrada existente sin
+// traer el resto de sus datos.
+export async function getCreativoTipo(storeId: string, id: number): Promise<TipoCreativo | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT tipo FROM creativos WHERE store_id = ${storeId} AND id = ${id}
+  ` as { tipo: TipoCreativo }[];
+  return rows[0]?.tipo ?? null;
+}
+
 // Borra la entrada (los archivos se borran solos por ON DELETE CASCADE) y
 // devuelve los archivos borrados para que quien llame limpie Cloudinary.
 export async function deleteCreativo(storeId: string, id: number): Promise<CreativoArchivo[]> {

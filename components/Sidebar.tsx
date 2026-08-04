@@ -11,7 +11,20 @@ const TOP_LINK: NavLink = { href: "/", icon: "fas fa-house", label: "Inicio" };
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const isActive = (href: string) => pathname === href;
+  // Los links son <a> normales (recarga completa), así que leer
+  // window.location.search una vez al montar alcanza para saber el tab activo.
+  const [currentSearch, setCurrentSearch] = useState("");
+  useEffect(() => setCurrentSearch(window.location.search), []);
+
+  // Los sub apartados de Creativo comparten ruta y se distinguen por
+  // ?tab=, así que la comparación no puede ser un simple pathname === href.
+  const isActive = (href: string) => {
+    const [base, query] = href.split("?");
+    if (pathname !== base) return false;
+    if (!query) return true;
+    const tab = new URLSearchParams(query).get("tab");
+    return tab ? new URLSearchParams(currentSearch).get("tab") === tab : true;
+  };
   const groupHasActiveLink = (group: Apartado) => group.subApartados.some((l) => isActive(l.href));
 
   const [role, setRole]       = useState<"admin" | "member" | null>(null);

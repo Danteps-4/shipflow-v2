@@ -6,7 +6,7 @@ import { getCampaignTree } from "@/lib/metaAdsClient";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const guard = await requireModule(req, "creativo", "/creativo");
+  const guard = await requireModule(req, "creativo", "/creativo?tab=publicidad");
   if (!guard.ok) return guard.response;
 
   const token = await getValidMetaAccessToken();

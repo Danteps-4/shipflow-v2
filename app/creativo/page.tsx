@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
+import { hasLinkAccess } from "@/lib/navGroups";
 
 type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "anuncio";
 
@@ -55,6 +56,7 @@ interface ArchivoEnCarga {
 }
 
 type MainTab = Tipo | "publicidad";
+const ALL_MAIN_TABS: MainTab[] = [...(Object.keys(TIPO_LABEL) as Tipo[]), "publicidad"];
 
 // Sube un archivo a Cloudinary (firmado por el server) y devuelve su url/tipo.
 // Extraído como función standalone (sin estado de React) para poder subir
@@ -89,11 +91,36 @@ export default function CreativoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mainTab, setMainTab]         = useState<MainTab>("angulo");
   const [tagFiltro, setTagFiltro]     = useState<string | null>(null);
+  const [access, setAccess] = useState<{ isAdmin: boolean; linkAccess?: string[] } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("tab") === "publicidad") setMainTab("publicidad");
+    const tabParam = params.get("tab");
+    if (tabParam && (tabParam === "publicidad" || tabParam in TIPO_LABEL)) {
+      setMainTab(tabParam as MainTab);
+    }
   }, []);
+
+  useEffect(() => {
+    fetch("/api/user/me")
+      .then((r) => r.json())
+      .then((d) => setAccess({ isAdmin: d.user?.role === "admin", linkAccess: d.user?.linkAccess }))
+      .catch(() => setAccess({ isAdmin: false, linkAccess: [] }));
+  }, []);
+
+  const canSeeTab = useCallback(
+    (tab: MainTab) => !access || access.isAdmin || hasLinkAccess(access.linkAccess, `/creativo?tab=${tab}`),
+    [access],
+  );
+
+  // Si el tab actual (por default o por ?tab= en la URL) no está permitido
+  // para este usuario, lo movemos al primer tab al que sí tenga acceso.
+  useEffect(() => {
+    if (!access || canSeeTab(mainTab)) return;
+    const firstAllowed = ALL_MAIN_TABS.find(canSeeTab);
+    if (firstAllowed) setMainTab(firstAllowed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access]);
 
   const tipo = mainTab === "publicidad" ? null : mainTab;
 
@@ -231,6 +258,8 @@ export default function CreativoPage() {
     return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
 
+  if (!access) return null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -253,21 +282,25 @@ export default function CreativoPage() {
           </p>
 
           <div className="sf-tabs" style={{ marginBottom: "1rem" }}>
-            {(Object.entries(TIPO_LABEL) as [Tipo, { label: string; singular: string; icon: string }][]).map(([key, cfg]) => (
+            {(Object.entries(TIPO_LABEL) as [Tipo, { label: string; singular: string; icon: string }][])
+              .filter(([key]) => canSeeTab(key))
+              .map(([key, cfg]) => (
+                <button
+                  key={key}
+                  className={`sf-tab ${mainTab === key ? "active" : ""}`}
+                  onClick={() => { setMainTab(key); setTagFiltro(null); }}
+                >
+                  <i className={cfg.icon} /> {cfg.label}
+                </button>
+              ))}
+            {canSeeTab("publicidad") && (
               <button
-                key={key}
-                className={`sf-tab ${mainTab === key ? "active" : ""}`}
-                onClick={() => { setMainTab(key); setTagFiltro(null); }}
+                className={`sf-tab ${mainTab === "publicidad" ? "active" : ""}`}
+                onClick={() => setMainTab("publicidad")}
               >
-                <i className={cfg.icon} /> {cfg.label}
+                <i className="fas fa-bullhorn" /> Publicidad
               </button>
-            ))}
-            <button
-              className={`sf-tab ${mainTab === "publicidad" ? "active" : ""}`}
-              onClick={() => setMainTab("publicidad")}
-            >
-              <i className="fas fa-bullhorn" /> Publicidad
-            </button>
+            )}
           </div>
 
           {tipo && (
