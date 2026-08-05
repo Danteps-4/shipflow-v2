@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/permissions";
 import { hasLinkAccess } from "@/lib/navGroups";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion, EstadoAngulo } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
 import { User } from "@/lib/userStore";
 
@@ -46,6 +46,22 @@ function sanitizeAnalisis(body: CamposAnalisis): CamposAnalisis {
       .filter(e => e.titulo || e.texto),
   };
 }
+// Campos propios del ángulo (tipo "angulo"): si ya se probó y funcionó o
+// no, y si (más allá de ese estado) necesita una landing page propia.
+interface CamposAngulo {
+  estadoAngulo?: string | null; necesitaLanding?: boolean;
+}
+
+const ESTADOS_ANGULO_VALIDOS: EstadoAngulo[] = ["sin_probar", "validado", "no_funciono"];
+
+function sanitizeAngulo(body: CamposAngulo): { estadoAngulo: EstadoAngulo | null; necesitaLanding: boolean } {
+  const estado = body.estadoAngulo;
+  return {
+    estadoAngulo: estado && ESTADOS_ANGULO_VALIDOS.includes(estado as EstadoAngulo) ? (estado as EstadoAngulo) : null,
+    necesitaLanding: !!body.necesitaLanding,
+  };
+}
+
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];
 const FUNNEL_VALIDOS = ["TOF", "MOF", "BOF"];
 
@@ -82,10 +98,10 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { tipo, titulo, contenido, tags, archivos, links, funnel, ...camposAnalisis } = await req.json() as {
+  const { tipo, titulo, contenido, tags, archivos, links, funnel, ...camposExtra } = await req.json() as {
     tipo?: string; titulo?: string; contenido?: string; tags?: string[]; archivos?: NuevoArchivo[];
     links?: string[]; funnel?: string[];
-  } & CamposAnalisis;
+  } & CamposAnalisis & CamposAngulo;
 
   if (!tipo || !TIPOS_VALIDOS.includes(tipo as TipoCreativo) || !titulo?.trim()) {
     return NextResponse.json({ error: "Faltan campos: tipo, titulo" }, { status: 400 });
@@ -104,7 +120,8 @@ export async function POST(req: NextRequest) {
     archivos: archivos ?? [],
     links: (links ?? []).map(l => l.trim()).filter(Boolean),
     funnel: sanitizeFunnel(funnel),
-    ...sanitizeAnalisis(camposAnalisis),
+    ...sanitizeAnalisis(camposExtra),
+    ...sanitizeAngulo(camposExtra),
   });
   return NextResponse.json({ creativo });
 }
@@ -125,7 +142,7 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json() as {
     id?: number; titulo?: string; contenido?: string; tags?: string[]; links?: string[]; funnel?: string[];
     archivos?: NuevoArchivo[]; metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
-  } & CamposAnalisis;
+  } & CamposAnalisis & CamposAngulo;
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initCreativoTables();
@@ -147,6 +164,7 @@ export async function PATCH(req: NextRequest) {
       funnel: sanitizeFunnel(body.funnel),
       archivosNuevos: body.archivos ?? [],
       ...sanitizeAnalisis(body),
+      ...sanitizeAngulo(body),
     });
     if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ creativo });

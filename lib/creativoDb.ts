@@ -5,6 +5,7 @@ import { getDb } from "./db";
 export type TipoCreativo = "angulo" | "guion" | "formato" | "anuncio" | "referencia" | "renovacion" | "marca" | "analisis";
 export type TipoArchivo = "image" | "video" | "documento";
 export type WinnerOverride = "winner" | "regular" | "malo";
+export type EstadoAngulo = "sin_probar" | "validado" | "no_funciono";
 
 export interface CreativoArchivo {
   id: number;
@@ -42,6 +43,11 @@ export interface Creativo {
   formato: string | null;
   estructura: EtapaGuion[];
   hipotesis: string | null;
+  // Sólo para tipo === "angulo": si ya se probó y funcionó/no funcionó, y
+  // si (independientemente del estado) hace falta armarle una landing page
+  // propia para que rinda mejor.
+  estadoAngulo: EstadoAngulo | null;
+  necesitaLanding: boolean;
 }
 
 export interface NuevoArchivo {
@@ -102,6 +108,11 @@ export async function initCreativoTables(): Promise<void> {
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS formato TEXT`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS estructura_guion JSONB NOT NULL DEFAULT '[]'`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS hipotesis TEXT`;
+  // Estado de validación de un ángulo (tipo 'angulo'): si ya se probó y
+  // funcionó o no, y si necesita una landing page propia (independiente
+  // del estado: puede estar validado y aun así necesitar su landing).
+  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS estado_angulo TEXT`;
+  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS necesita_landing BOOLEAN NOT NULL DEFAULT false`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS creativo_archivos (
@@ -130,6 +141,7 @@ export async function getCreativos(
     SELECT c.id, c.tipo, c.titulo, c.contenido, c.tags, c.created_by, c.created_at,
            c.meta_ad_id, c.winner_override, c.links, c.funnel_tags,
            c.angulo, c.formato, c.estructura_guion, c.hipotesis,
+           c.estado_angulo, c.necesita_landing,
            a.id AS archivo_id, a.url AS archivo_url, a.public_id AS archivo_public_id,
            a.tipo_archivo AS archivo_tipo
     FROM creativos c
@@ -143,6 +155,7 @@ export async function getCreativos(
     created_by: string; created_at: string; meta_ad_id: string | null; winner_override: WinnerOverride | null;
     links: string[]; funnel_tags: string[];
     angulo: string | null; formato: string | null; estructura_guion: EtapaGuion[]; hipotesis: string | null;
+    estado_angulo: EstadoAngulo | null; necesita_landing: boolean;
     archivo_id: number | null; archivo_url: string | null; archivo_public_id: string | null;
     archivo_tipo: TipoArchivo | null;
   }[];
@@ -155,6 +168,7 @@ export async function getCreativos(
         tags: r.tags, created_by: r.created_by, created_at: r.created_at, archivos: [],
         links: r.links, funnel: r.funnel_tags, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
         angulo: r.angulo, formato: r.formato, estructura: r.estructura_guion ?? [], hipotesis: r.hipotesis,
+        estadoAngulo: r.estado_angulo, necesitaLanding: r.necesita_landing,
       });
     }
     if (r.archivo_id !== null) {
@@ -175,6 +189,7 @@ export async function createCreativo(
     tipo: TipoCreativo; titulo: string; contenido: string; tags: string[]; createdBy: string;
     archivos: NuevoArchivo[]; links?: string[]; funnel?: string[];
     angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
+    estadoAngulo?: EstadoAngulo | null; necesitaLanding?: boolean;
   },
 ): Promise<Creativo> {
   const sql = getDb();
@@ -182,14 +197,16 @@ export async function createCreativo(
   const rows = await sql`
     INSERT INTO creativos (
       store_id, tipo, titulo, contenido, tags, created_by, created_at, links, funnel_tags,
-      angulo, formato, estructura_guion, hipotesis
+      angulo, formato, estructura_guion, hipotesis, estado_angulo, necesita_landing
     )
     VALUES (
       ${storeId}, ${data.tipo}, ${data.titulo}, ${data.contenido}, ${data.tags}, ${data.createdBy}, NOW(), ${data.links ?? []}, ${data.funnel ?? []},
-      ${data.angulo ?? null}, ${data.formato ?? null}, ${JSON.stringify(data.estructura ?? [])}::jsonb, ${data.hipotesis ?? null}
+      ${data.angulo ?? null}, ${data.formato ?? null}, ${JSON.stringify(data.estructura ?? [])}::jsonb, ${data.hipotesis ?? null},
+      ${data.estadoAngulo ?? null}, ${data.necesitaLanding ?? false}
     )
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
-      angulo, formato, estructura_guion AS estructura, hipotesis
+      angulo, formato, estructura_guion AS estructura, hipotesis,
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding"
   ` as Omit<Creativo, "archivos">[];
   const creativo = rows[0];
 
@@ -244,6 +261,7 @@ export async function updateCreativoContenido(
   data: {
     titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
     angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
+    estadoAngulo?: EstadoAngulo | null; necesitaLanding?: boolean;
     archivosNuevos?: NuevoArchivo[];
   },
 ): Promise<Creativo | null> {
@@ -254,10 +272,12 @@ export async function updateCreativoContenido(
     SET titulo = ${data.titulo}, contenido = ${data.contenido}, tags = ${data.tags},
         links = ${data.links ?? []}, funnel_tags = ${data.funnel ?? []},
         angulo = ${data.angulo ?? null}, formato = ${data.formato ?? null},
-        estructura_guion = ${JSON.stringify(data.estructura ?? [])}::jsonb, hipotesis = ${data.hipotesis ?? null}
+        estructura_guion = ${JSON.stringify(data.estructura ?? [])}::jsonb, hipotesis = ${data.hipotesis ?? null},
+        estado_angulo = ${data.estadoAngulo ?? null}, necesita_landing = ${data.necesitaLanding ?? false}
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
-      angulo, formato, estructura_guion AS estructura, hipotesis
+      angulo, formato, estructura_guion AS estructura, hipotesis,
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding"
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 
@@ -288,7 +308,8 @@ export async function updateCreativoMeta(
     SET meta_ad_id = ${metaAdId}, winner_override = ${winnerOverride}
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
-      angulo, formato, estructura_guion AS estructura, hipotesis
+      angulo, formato, estructura_guion AS estructura, hipotesis,
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding"
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 
