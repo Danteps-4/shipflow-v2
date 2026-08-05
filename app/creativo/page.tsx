@@ -28,6 +28,15 @@ interface CreativoArchivo {
 
 type WinnerOverrideFE = "winner" | "regular" | "malo";
 
+// Una etapa del guion armada a mano por el usuario (ej. "Hook", "CTA", o
+// cualquier otro nombre) — no hay una estructura fija, cada renovación
+// puede tener las etapas que su guion realmente tenga, en el orden que
+// se van cargando.
+interface EtapaGuion {
+  titulo: string;
+  texto: string;
+}
+
 interface Creativo {
   id: number;
   tipo: Tipo;
@@ -43,25 +52,9 @@ interface Creativo {
   winner_override: WinnerOverrideFE | null;
   angulo: string | null;
   formato: string | null;
-  hook: string | null;
-  promesaSolucion: string | null;
-  profundizacionProblema: string | null;
-  presentacionProducto: string | null;
-  beneficiosAlivio: string | null;
-  cta: string | null;
+  estructura: EtapaGuion[];
   hipotesis: string | null;
 }
-
-// Las 6 etapas fijas del desglose de guion de un análisis de renovación,
-// en el orden en que siempre se muestran (coincide con la planilla).
-const ESTRUCTURA_GUION: { key: "hook" | "promesaSolucion" | "profundizacionProblema" | "presentacionProducto" | "beneficiosAlivio" | "cta"; label: string }[] = [
-  { key: "hook", label: "Hook" },
-  { key: "promesaSolucion", label: "Promesa de solución" },
-  { key: "profundizacionProblema", label: "Profundización del problema" },
-  { key: "presentacionProducto", label: "Presentación del producto" },
-  { key: "beneficiosAlivio", label: "Beneficios + alivio emocional" },
-  { key: "cta", label: "CTA" },
-];
 
 // Clasificación de funnel para las referencias de imagen (una imagen puede
 // ser, por ejemplo, MOF y BOF al mismo tiempo).
@@ -159,12 +152,7 @@ export default function CreativoPage() {
   const [funnelForm, setFunnelForm] = useState<string[]>([]);
   const [angulo, setAngulo]           = useState("");
   const [formato, setFormato]         = useState("");
-  const [hook, setHook]               = useState("");
-  const [promesaSolucion, setPromesaSolucion]                 = useState("");
-  const [profundizacionProblema, setProfundizacionProblema]   = useState("");
-  const [presentacionProducto, setPresentacionProducto]       = useState("");
-  const [beneficiosAlivio, setBeneficiosAlivio]               = useState("");
-  const [cta, setCta]                 = useState("");
+  const [estructura, setEstructura]   = useState<EtapaGuion[]>([]);
   const [hipotesis, setHipotesis]     = useState("");
   const [saving, setSaving]       = useState(false);
   const fileInputRef              = useRef<HTMLInputElement>(null);
@@ -200,9 +188,20 @@ export default function CreativoPage() {
     setLinks([]);
     setLinkInput("");
     setFunnelForm([]);
-    setAngulo(""); setFormato(""); setHook(""); setPromesaSolucion(""); setProfundizacionProblema("");
-    setPresentacionProducto(""); setBeneficiosAlivio(""); setCta(""); setHipotesis("");
+    setAngulo(""); setFormato(""); setEstructura([]); setHipotesis("");
     setModalOpen(true);
+  }
+
+  function agregarEtapa() {
+    setEstructura(prev => [...prev, { titulo: "", texto: "" }]);
+  }
+
+  function actualizarEtapa(idx: number, campo: "titulo" | "texto", valor: string) {
+    setEstructura(prev => prev.map((e, i) => i === idx ? { ...e, [campo]: valor } : e));
+  }
+
+  function quitarEtapa(idx: number) {
+    setEstructura(prev => prev.filter((_, i) => i !== idx));
   }
 
   function agregarLink() {
@@ -252,7 +251,7 @@ export default function CreativoPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           tipo, titulo, contenido, tags, archivos: archivosListos, links, funnel: funnelForm,
-          angulo, formato, hook, promesaSolucion, profundizacionProblema, presentacionProducto, beneficiosAlivio, cta, hipotesis,
+          angulo, formato, estructura, hipotesis,
         }),
       });
       if (res.ok) {
@@ -278,9 +277,7 @@ export default function CreativoPage() {
     id: number,
     data: {
       titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
-      angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
-      profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
-      cta?: string; hipotesis?: string;
+      angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) {
@@ -642,38 +639,37 @@ export default function CreativoPage() {
                     </div>
 
                     <div>
-                      <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-color)", marginBottom: "0.5rem" }}>
+                      <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-color)", marginBottom: "0.3rem" }}>
                         Estructura del guion
                       </label>
                       <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
-                        Hook → Promesa de solución → Profundización del problema → Presentación del producto → Beneficios + alivio emocional → CTA
+                        Armá las etapas en el orden que tiene el guion (ej: Hook, Promesa de solución, CTA...), las que necesites para este video.
                       </p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Hook</label>
-                          <textarea className="sf-input" value={hook} onChange={e => setHook(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                        </div>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Promesa de solución</label>
-                          <textarea className="sf-input" value={promesaSolucion} onChange={e => setPromesaSolucion(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                        </div>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Profundización del problema</label>
-                          <textarea className="sf-input" value={profundizacionProblema} onChange={e => setProfundizacionProblema(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                        </div>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Presentación del producto</label>
-                          <textarea className="sf-input" value={presentacionProducto} onChange={e => setPresentacionProducto(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                        </div>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Beneficios + alivio emocional</label>
-                          <textarea className="sf-input" value={beneficiosAlivio} onChange={e => setBeneficiosAlivio(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                        </div>
-                        <div>
-                          <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>CTA</label>
-                          <textarea className="sf-input" value={cta} onChange={e => setCta(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                        </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                        {estructura.map((etapa, idx) => (
+                          <div key={idx} style={{ border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "0.6rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                              <input
+                                type="text" className="sf-input" value={etapa.titulo}
+                                onChange={e => actualizarEtapa(idx, "titulo", e.target.value)}
+                                placeholder="Ej: Hook" style={{ flex: 1, fontWeight: 600 }}
+                              />
+                              <button type="button" onClick={() => quitarEtapa(idx)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                                <i className="fas fa-times" />
+                              </button>
+                            </div>
+                            <textarea
+                              className="sf-input" value={etapa.texto}
+                              onChange={e => actualizarEtapa(idx, "texto", e.target.value)}
+                              rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                              placeholder="Qué dice o hace el guion en esta etapa..."
+                            />
+                          </div>
+                        ))}
                       </div>
+                      <button type="button" className="sf-btn sf-btn-secondary" onClick={agregarEtapa} style={{ marginTop: "0.6rem" }}>
+                        <i className="fas fa-plus" /> Agregar etapa
+                      </button>
                     </div>
 
                     <div>
@@ -1554,9 +1550,7 @@ interface AnalisisRenovacionSectionProps {
     id: number,
     data: {
       titulo: string; contenido: string; tags: string[];
-      angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
-      profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
-      cta?: string; hipotesis?: string;
+      angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
@@ -1568,12 +1562,7 @@ function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenova
   const [editContenido, setEditContenido] = useState("");
   const [editAngulo, setEditAngulo]       = useState("");
   const [editFormato, setEditFormato]     = useState("");
-  const [editHook, setEditHook]           = useState("");
-  const [editPromesaSolucion, setEditPromesaSolucion]               = useState("");
-  const [editProfundizacionProblema, setEditProfundizacionProblema] = useState("");
-  const [editPresentacionProducto, setEditPresentacionProducto]     = useState("");
-  const [editBeneficiosAlivio, setEditBeneficiosAlivio]             = useState("");
-  const [editCta, setEditCta]             = useState("");
+  const [editEstructura, setEditEstructura] = useState<EtapaGuion[]>([]);
   const [editHipotesis, setEditHipotesis] = useState("");
   const [editArchivos, setEditArchivos]   = useState<ArchivoEnCarga[]>([]);
   const [savingEdit, setSavingEdit]       = useState(false);
@@ -1585,14 +1574,21 @@ function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenova
     setEditContenido(item.contenido);
     setEditAngulo(item.angulo ?? "");
     setEditFormato(item.formato ?? "");
-    setEditHook(item.hook ?? "");
-    setEditPromesaSolucion(item.promesaSolucion ?? "");
-    setEditProfundizacionProblema(item.profundizacionProblema ?? "");
-    setEditPresentacionProducto(item.presentacionProducto ?? "");
-    setEditBeneficiosAlivio(item.beneficiosAlivio ?? "");
-    setEditCta(item.cta ?? "");
+    setEditEstructura(item.estructura);
     setEditHipotesis(item.hipotesis ?? "");
     setEditArchivos([]);
+  }
+
+  function agregarEtapaEdit() {
+    setEditEstructura(prev => [...prev, { titulo: "", texto: "" }]);
+  }
+
+  function actualizarEtapaEdit(idx: number, campo: "titulo" | "texto", valor: string) {
+    setEditEstructura(prev => prev.map((e, i) => i === idx ? { ...e, [campo]: valor } : e));
+  }
+
+  function quitarEtapaEdit(idx: number) {
+    setEditEstructura(prev => prev.filter((_, i) => i !== idx));
   }
 
   async function subirArchivosEdit(files: FileList) {
@@ -1623,10 +1619,8 @@ function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenova
         titulo: editTitulo.trim(),
         contenido: editContenido.trim(),
         tags: editing.tags,
-        angulo: editAngulo.trim(), formato: editFormato.trim(), hook: editHook.trim(),
-        promesaSolucion: editPromesaSolucion.trim(), profundizacionProblema: editProfundizacionProblema.trim(),
-        presentacionProducto: editPresentacionProducto.trim(), beneficiosAlivio: editBeneficiosAlivio.trim(),
-        cta: editCta.trim(), hipotesis: editHipotesis.trim(),
+        angulo: editAngulo.trim(), formato: editFormato.trim(),
+        estructura: editEstructura, hipotesis: editHipotesis.trim(),
         archivos: nuevosListos,
       });
       setEditing(null);
@@ -1679,15 +1673,15 @@ function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenova
                   </div>
                 )}
 
-                {ESTRUCTURA_GUION.some(({ key }) => item[key]) && (
+                {item.estructura.length > 0 && (
                   <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem" }}>
                     <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.4px" }}>
                       Estructura del guion
                     </span>
-                    {ESTRUCTURA_GUION.map(({ key, label }) => item[key] && (
-                      <div key={key}>
-                        <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>{label}: </span>
-                        <span style={{ fontSize: "0.8rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item[key]}</span>
+                    {item.estructura.map((etapa, idx) => (
+                      <div key={idx}>
+                        {etapa.titulo && <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>{etapa.titulo}: </span>}
+                        <span style={{ fontSize: "0.8rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{etapa.texto}</span>
                       </div>
                     ))}
                   </div>
@@ -1804,35 +1798,37 @@ function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenova
               </div>
 
               <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-color)", marginBottom: "0.5rem" }}>
+                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 700, color: "var(--text-color)", marginBottom: "0.3rem" }}>
                   Estructura del guion
                 </label>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Hook</label>
-                    <textarea className="sf-input" value={editHook} onChange={e => setEditHook(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Promesa de solución</label>
-                    <textarea className="sf-input" value={editPromesaSolucion} onChange={e => setEditPromesaSolucion(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Profundización del problema</label>
-                    <textarea className="sf-input" value={editProfundizacionProblema} onChange={e => setEditProfundizacionProblema(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Presentación del producto</label>
-                    <textarea className="sf-input" value={editPresentacionProducto} onChange={e => setEditPresentacionProducto(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>Beneficios + alivio emocional</label>
-                    <textarea className="sf-input" value={editBeneficiosAlivio} onChange={e => setEditBeneficiosAlivio(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                  </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem" }}>CTA</label>
-                    <textarea className="sf-input" value={editCta} onChange={e => setEditCta(e.target.value)} rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }} />
-                  </div>
+                <p style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.6rem" }}>
+                  Armá las etapas en el orden que tiene el guion, las que necesites para este video.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                  {editEstructura.map((etapa, idx) => (
+                    <div key={idx} style={{ border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "0.6rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                      <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                        <input
+                          type="text" className="sf-input" value={etapa.titulo}
+                          onChange={e => actualizarEtapaEdit(idx, "titulo", e.target.value)}
+                          placeholder="Ej: Hook" style={{ flex: 1, fontWeight: 600 }}
+                        />
+                        <button type="button" onClick={() => quitarEtapaEdit(idx)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                          <i className="fas fa-times" />
+                        </button>
+                      </div>
+                      <textarea
+                        className="sf-input" value={etapa.texto}
+                        onChange={e => actualizarEtapaEdit(idx, "texto", e.target.value)}
+                        rows={2} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
+                        placeholder="Qué dice o hace el guion en esta etapa..."
+                      />
+                    </div>
+                  ))}
                 </div>
+                <button type="button" className="sf-btn sf-btn-secondary" onClick={agregarEtapaEdit} style={{ marginTop: "0.6rem" }}>
+                  <i className="fas fa-plus" /> Agregar etapa
+                </button>
               </div>
 
               <div>

@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/permissions";
 import { hasLinkAccess } from "@/lib/navGroups";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, TipoCreativo, NuevoArchivo, WinnerOverride } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
 import { User } from "@/lib/userStore";
 
@@ -31,19 +31,19 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion", "marca", "analisis"];
 
 // Campos propios del análisis de renovación (tipo "analisis"); en el resto
-// de los tipos vienen undefined y quedan null en la base.
+// de los tipos vienen undefined y quedan null/vacío en la base. La
+// estructura del guion es una lista libre de etapas (sin fijas): el
+// usuario la arma a medida que desglosa el guion real de la renovación.
 interface CamposAnalisis {
-  angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
-  profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
-  cta?: string; hipotesis?: string;
+  angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
 }
 
 function sanitizeAnalisis(body: CamposAnalisis): CamposAnalisis {
   return {
-    angulo: body.angulo?.trim(), formato: body.formato?.trim(), hook: body.hook?.trim(),
-    promesaSolucion: body.promesaSolucion?.trim(), profundizacionProblema: body.profundizacionProblema?.trim(),
-    presentacionProducto: body.presentacionProducto?.trim(), beneficiosAlivio: body.beneficiosAlivio?.trim(),
-    cta: body.cta?.trim(), hipotesis: body.hipotesis?.trim(),
+    angulo: body.angulo?.trim(), formato: body.formato?.trim(), hipotesis: body.hipotesis?.trim(),
+    estructura: (body.estructura ?? [])
+      .map(e => ({ titulo: (e.titulo ?? "").trim(), texto: (e.texto ?? "").trim() }))
+      .filter(e => e.titulo || e.texto),
   };
 }
 const OVERRIDES_VALIDOS: WinnerOverride[] = ["winner", "regular", "malo"];

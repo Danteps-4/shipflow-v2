@@ -13,11 +13,18 @@ export interface CreativoArchivo {
   tipo_archivo: TipoArchivo;
 }
 
-// Campos propios del análisis de renovación: desglose fijo del guion en
-// las 6 etapas de la estructura (hook -> promesa de solución ->
-// profundización del problema -> presentación del producto -> beneficios
-// + alivio emocional -> CTA), más ángulo, formato e hipótesis. Sólo se
-// usan cuando tipo === "analisis"; en el resto de los tipos quedan null.
+// Una etapa del guion armada a mano (ej. "Hook", "CTA", o cualquier otro
+// nombre que el usuario elija) — no hay una estructura fija, cada
+// renovación puede tener las etapas que su guion realmente tenga.
+export interface EtapaGuion {
+  titulo: string;
+  texto: string;
+}
+
+// Campos propios del análisis de renovación: ángulo, formato, el guion
+// desglosado en etapas libres (definidas por el usuario, no fijas) e
+// hipótesis. Sólo se usan cuando tipo === "analisis"; en el resto de los
+// tipos quedan null/vacío.
 export interface Creativo {
   id: number;
   tipo: TipoCreativo;
@@ -33,12 +40,7 @@ export interface Creativo {
   winner_override: WinnerOverride | null;
   angulo: string | null;
   formato: string | null;
-  hook: string | null;
-  promesaSolucion: string | null;
-  profundizacionProblema: string | null;
-  presentacionProducto: string | null;
-  beneficiosAlivio: string | null;
-  cta: string | null;
+  estructura: EtapaGuion[];
   hipotesis: string | null;
 }
 
@@ -84,16 +86,21 @@ export async function initCreativoTables(): Promise<void> {
   // Clasificación de funnel (TOF/MOF/BOF) para las referencias de imagen;
   // una misma referencia puede tener más de una a la vez.
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS funnel_tags TEXT[] NOT NULL DEFAULT '{}'`;
-  // Campos del análisis de renovación (tipo 'analisis'): ángulo, formato y
-  // el guion desglosado en las 6 etapas fijas de la estructura.
+  // Campos del análisis de renovación (tipo 'analisis'): ángulo, formato e
+  // hipótesis. El guion se desglosa en etapas libres (título + texto que
+  // el usuario define a medida que arma el guion, no una estructura fija)
+  // guardadas como JSONB; reemplaza las columnas fijas hook/promesa_solucion/
+  // profundizacion_problema/presentacion_producto/beneficios_alivio/cta de
+  // la primera versión de este tipo, que nunca llegó a tener datos reales.
+  await sql`ALTER TABLE creativos DROP COLUMN IF EXISTS hook`;
+  await sql`ALTER TABLE creativos DROP COLUMN IF EXISTS promesa_solucion`;
+  await sql`ALTER TABLE creativos DROP COLUMN IF EXISTS profundizacion_problema`;
+  await sql`ALTER TABLE creativos DROP COLUMN IF EXISTS presentacion_producto`;
+  await sql`ALTER TABLE creativos DROP COLUMN IF EXISTS beneficios_alivio`;
+  await sql`ALTER TABLE creativos DROP COLUMN IF EXISTS cta`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS angulo TEXT`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS formato TEXT`;
-  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS hook TEXT`;
-  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS promesa_solucion TEXT`;
-  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS profundizacion_problema TEXT`;
-  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS presentacion_producto TEXT`;
-  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS beneficios_alivio TEXT`;
-  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS cta TEXT`;
+  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS estructura_guion JSONB NOT NULL DEFAULT '[]'`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS hipotesis TEXT`;
 
   await sql`
@@ -122,8 +129,7 @@ export async function getCreativos(
   const rows = await sql`
     SELECT c.id, c.tipo, c.titulo, c.contenido, c.tags, c.created_by, c.created_at,
            c.meta_ad_id, c.winner_override, c.links, c.funnel_tags,
-           c.angulo, c.formato, c.hook, c.promesa_solucion, c.profundizacion_problema,
-           c.presentacion_producto, c.beneficios_alivio, c.cta, c.hipotesis,
+           c.angulo, c.formato, c.estructura_guion, c.hipotesis,
            a.id AS archivo_id, a.url AS archivo_url, a.public_id AS archivo_public_id,
            a.tipo_archivo AS archivo_tipo
     FROM creativos c
@@ -136,10 +142,7 @@ export async function getCreativos(
     id: number; tipo: TipoCreativo; titulo: string; contenido: string; tags: string[];
     created_by: string; created_at: string; meta_ad_id: string | null; winner_override: WinnerOverride | null;
     links: string[]; funnel_tags: string[];
-    angulo: string | null; formato: string | null; hook: string | null;
-    promesa_solucion: string | null; profundizacion_problema: string | null;
-    presentacion_producto: string | null; beneficios_alivio: string | null;
-    cta: string | null; hipotesis: string | null;
+    angulo: string | null; formato: string | null; estructura_guion: EtapaGuion[]; hipotesis: string | null;
     archivo_id: number | null; archivo_url: string | null; archivo_public_id: string | null;
     archivo_tipo: TipoArchivo | null;
   }[];
@@ -151,10 +154,7 @@ export async function getCreativos(
         id: r.id, tipo: r.tipo, titulo: r.titulo, contenido: r.contenido,
         tags: r.tags, created_by: r.created_by, created_at: r.created_at, archivos: [],
         links: r.links, funnel: r.funnel_tags, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
-        angulo: r.angulo, formato: r.formato, hook: r.hook,
-        promesaSolucion: r.promesa_solucion, profundizacionProblema: r.profundizacion_problema,
-        presentacionProducto: r.presentacion_producto, beneficiosAlivio: r.beneficios_alivio,
-        cta: r.cta, hipotesis: r.hipotesis,
+        angulo: r.angulo, formato: r.formato, estructura: r.estructura_guion ?? [], hipotesis: r.hipotesis,
       });
     }
     if (r.archivo_id !== null) {
@@ -174,9 +174,7 @@ export async function createCreativo(
   data: {
     tipo: TipoCreativo; titulo: string; contenido: string; tags: string[]; createdBy: string;
     archivos: NuevoArchivo[]; links?: string[]; funnel?: string[];
-    angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
-    profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
-    cta?: string; hipotesis?: string;
+    angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
   },
 ): Promise<Creativo> {
   const sql = getDb();
@@ -184,17 +182,14 @@ export async function createCreativo(
   const rows = await sql`
     INSERT INTO creativos (
       store_id, tipo, titulo, contenido, tags, created_by, created_at, links, funnel_tags,
-      angulo, formato, hook, promesa_solucion, profundizacion_problema,
-      presentacion_producto, beneficios_alivio, cta, hipotesis
+      angulo, formato, estructura_guion, hipotesis
     )
     VALUES (
       ${storeId}, ${data.tipo}, ${data.titulo}, ${data.contenido}, ${data.tags}, ${data.createdBy}, NOW(), ${data.links ?? []}, ${data.funnel ?? []},
-      ${data.angulo ?? null}, ${data.formato ?? null}, ${data.hook ?? null}, ${data.promesaSolucion ?? null}, ${data.profundizacionProblema ?? null},
-      ${data.presentacionProducto ?? null}, ${data.beneficiosAlivio ?? null}, ${data.cta ?? null}, ${data.hipotesis ?? null}
+      ${data.angulo ?? null}, ${data.formato ?? null}, ${JSON.stringify(data.estructura ?? [])}::jsonb, ${data.hipotesis ?? null}
     )
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
-      angulo, formato, hook, promesa_solucion AS "promesaSolucion", profundizacion_problema AS "profundizacionProblema",
-      presentacion_producto AS "presentacionProducto", beneficios_alivio AS "beneficiosAlivio", cta, hipotesis
+      angulo, formato, estructura_guion AS estructura, hipotesis
   ` as Omit<Creativo, "archivos">[];
   const creativo = rows[0];
 
@@ -248,9 +243,7 @@ export async function updateCreativoContenido(
   storeId: string, id: number,
   data: {
     titulo: string; contenido: string; tags: string[]; links?: string[]; funnel?: string[];
-    angulo?: string; formato?: string; hook?: string; promesaSolucion?: string;
-    profundizacionProblema?: string; presentacionProducto?: string; beneficiosAlivio?: string;
-    cta?: string; hipotesis?: string;
+    angulo?: string; formato?: string; estructura?: EtapaGuion[]; hipotesis?: string;
     archivosNuevos?: NuevoArchivo[];
   },
 ): Promise<Creativo | null> {
@@ -260,14 +253,11 @@ export async function updateCreativoContenido(
     UPDATE creativos
     SET titulo = ${data.titulo}, contenido = ${data.contenido}, tags = ${data.tags},
         links = ${data.links ?? []}, funnel_tags = ${data.funnel ?? []},
-        angulo = ${data.angulo ?? null}, formato = ${data.formato ?? null}, hook = ${data.hook ?? null},
-        promesa_solucion = ${data.promesaSolucion ?? null}, profundizacion_problema = ${data.profundizacionProblema ?? null},
-        presentacion_producto = ${data.presentacionProducto ?? null}, beneficios_alivio = ${data.beneficiosAlivio ?? null},
-        cta = ${data.cta ?? null}, hipotesis = ${data.hipotesis ?? null}
+        angulo = ${data.angulo ?? null}, formato = ${data.formato ?? null},
+        estructura_guion = ${JSON.stringify(data.estructura ?? [])}::jsonb, hipotesis = ${data.hipotesis ?? null}
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
-      angulo, formato, hook, promesa_solucion AS "promesaSolucion", profundizacion_problema AS "profundizacionProblema",
-      presentacion_producto AS "presentacionProducto", beneficios_alivio AS "beneficiosAlivio", cta, hipotesis
+      angulo, formato, estructura_guion AS estructura, hipotesis
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 
@@ -298,8 +288,7 @@ export async function updateCreativoMeta(
     SET meta_ad_id = ${metaAdId}, winner_override = ${winnerOverride}
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
-      angulo, formato, hook, promesa_solucion AS "promesaSolucion", profundizacion_problema AS "profundizacionProblema",
-      presentacion_producto AS "presentacionProducto", beneficios_alivio AS "beneficiosAlivio", cta, hipotesis
+      angulo, formato, estructura_guion AS estructura, hipotesis
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 
