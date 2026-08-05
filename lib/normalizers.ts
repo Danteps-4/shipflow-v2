@@ -61,14 +61,24 @@ export function normalizeTelefono(value: string): string {
 }
 
 // -------------------------------------------------------------------
+// Quita acentos/diacríticos conservando mayúsculas/minúsculas (a
+// diferencia de slugify, que además pasa todo a minúsculas). Andreani
+// rechaza vocales acentuadas y la ñ en los campos del Excel (ej. "í" en
+// "Calle"), así que hay que dejar todo en ASCII plano.
+// -------------------------------------------------------------------
+export function quitarAcentos(value: string): string {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+// -------------------------------------------------------------------
 // Variante liviana de sanitizeAndreani para campos donde "/" o "-" son
 // parte de la estructura del dato (ej. "Provincia / Localidad / CP") y
-// no se pueden reemplazar por un espacio. Solo elimina comillas, tildes
-// invertidas y demás caracteres decorativos que Andreani rechaza.
+// no se pueden reemplazar por un espacio. Elimina comillas, tildes
+// invertidas, acentos y demás caracteres decorativos que Andreani rechaza.
 // -------------------------------------------------------------------
 export function quitarCaracteresInvalidos(value: string): string {
   if (!value) return value;
-  return value
+  return quitarAcentos(value)
     .replace(/[°'""`´«»#]/g, "")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -153,11 +163,12 @@ export function normalizeLocalidad(value: string): string {
 //   - Punto y coma (;)     → se reemplaza por espacio
 //   - Barra invertida (\)  → se reemplaza por espacio
 //   - Pipe (|)             → se reemplaza por espacio
-// Letras, números, espacios, puntos y acentos/ñ se conservan.
+//   - Vocales acentuadas y ñ → se pasan a su forma sin acento (í → i, ñ → n)
+// Letras, números, espacios y puntos se conservan.
 // -------------------------------------------------------------------
 export function sanitizeAndreani(value: string): string {
   if (!value) return value;
-  return value
+  return quitarAcentos(value)
     .replace(/[-/\\|;()\[\]{}]/g, " ")  // reemplaza separadores por espacio
     .replace(/[°'""`«»#]/g, "")          // elimina caracteres decorativos/inválidos
     .replace(/\s{2,}/g, " ")             // colapsa espacios dobles
