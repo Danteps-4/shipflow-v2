@@ -15,6 +15,9 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ user: null });
 
   return NextResponse.json({
-    user: { name: user.name, email: user.email, role: user.role, modules: user.modules, linkAccess: user.linkAccess },
+    user: {
+      name: user.name, email: user.email, role: user.role, modules: user.modules,
+      linkAccess: user.linkAccess, linkActions: user.linkActions,
+    },
   });
 }

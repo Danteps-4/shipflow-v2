@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { DATA_DIR } from "./dataDir";
 import { ALL_MODULES, ModuleKey } from "./modules";
+import { LinkAction } from "./navGroups";
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -21,6 +22,10 @@ export interface User {
   // undefined = sin restricciones puntuales (todo lo del módulo permitido).
   // Definido = lista exacta de sub apartados (hrefs) permitidos.
   linkAccess?: string[];
+  // Acciones de escritura (agregar/editar/eliminar) permitidas por sub
+  // apartado, hoy solo aplicable a los tabs de Creativo que son biblioteca
+  // de entradas. Sin entrada para un href = sin restricción (puede las 3).
+  linkActions?: Record<string, LinkAction[]>;
 }
 
 // Usuarios creados antes de que existiera role/modules no tienen esos campos
@@ -82,7 +87,7 @@ export function createUser(data: { name: string; email: string; passwordHash: st
 
 export function updateUserAccess(
   id: string,
-  access: { role: UserRole; modules: ModuleKey[]; linkAccess?: string[] }
+  access: { role: UserRole; modules: ModuleKey[]; linkAccess?: string[]; linkActions?: Record<string, LinkAction[]> }
 ): User | null {
   const users = readUsers();
   const user = users.find((u) => u.id === id);
@@ -90,6 +95,7 @@ export function updateUserAccess(
   user.role = access.role;
   user.modules = access.modules;
   user.linkAccess = access.linkAccess;
+  user.linkActions = access.linkActions;
   writeUsers(users);
   return user;
 }

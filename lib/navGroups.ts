@@ -1,11 +1,24 @@
 import { ModuleKey } from "./modules";
 
+// Acciones de escritura granulares dentro de un sub apartado (además de
+// "verlo o no", que ya cubre linkAccess). Hoy solo se usan en los tabs de
+// Creativo que representan una biblioteca de entradas (no en Publicidad,
+// que no tiene un esquema crear/editar/borrar sino pausar/reactivar).
+export type LinkAction = "agregar" | "editar" | "eliminar";
+export const LINK_ACTIONS: LinkAction[] = ["agregar", "editar", "eliminar"];
+export const LINK_ACTION_LABELS: Record<LinkAction, string> = {
+  agregar: "Agregar", editar: "Editar", eliminar: "Eliminar",
+};
+
 // Única fuente de verdad de los "sub apartados" (links) de cada módulo,
 // usada por el Sidebar, la home y el sistema de permisos de /equipo.
 export interface SubApartado {
   href: string;
   icon: string;
   label: string;
+  // true = además de poder verse, este sub apartado admite restringir
+  // Agregar/Editar/Eliminar por separado (ver /equipo).
+  acciones?: boolean;
 }
 
 export interface Apartado {
@@ -53,14 +66,14 @@ export const NAV_GROUPS: Apartado[] = [
     label: "Creativo",
     module: "creativo",
     subApartados: [
-      { href: "/creativo?tab=angulo", icon: "fas fa-arrows-turn-to-dots", label: "Ángulos" },
-      { href: "/creativo?tab=guion", icon: "fas fa-file-lines", label: "Guiones" },
-      { href: "/creativo?tab=formato", icon: "fas fa-clapperboard", label: "Formatos" },
-      { href: "/creativo?tab=marca", icon: "fas fa-star", label: "Marcas" },
-      { href: "/creativo?tab=referencia", icon: "fas fa-photo-film", label: "Referencias" },
-      { href: "/creativo?tab=renovacion", icon: "fas fa-folder", label: "Renovaciones" },
-      { href: "/creativo?tab=analisis", icon: "fas fa-diagram-project", label: "Análisis de Renovaciones" },
-      { href: "/creativo?tab=anuncio", icon: "fas fa-rectangle-ad", label: "Anuncios" },
+      { href: "/creativo?tab=angulo", icon: "fas fa-arrows-turn-to-dots", label: "Ángulos", acciones: true },
+      { href: "/creativo?tab=guion", icon: "fas fa-file-lines", label: "Guiones", acciones: true },
+      { href: "/creativo?tab=formato", icon: "fas fa-clapperboard", label: "Formatos", acciones: true },
+      { href: "/creativo?tab=marca", icon: "fas fa-star", label: "Marcas", acciones: true },
+      { href: "/creativo?tab=referencia", icon: "fas fa-photo-film", label: "Referencias", acciones: true },
+      { href: "/creativo?tab=renovacion", icon: "fas fa-folder", label: "Renovaciones", acciones: true },
+      { href: "/creativo?tab=analisis", icon: "fas fa-diagram-project", label: "Análisis de Renovaciones", acciones: true },
+      { href: "/creativo?tab=anuncio", icon: "fas fa-rectangle-ad", label: "Anuncios", acciones: true },
       { href: "/creativo?tab=publicidad", icon: "fas fa-bullhorn", label: "Publicidad" },
     ],
   },
@@ -89,6 +102,21 @@ export function isValidHref(href: string): boolean {
 export function hasLinkAccess(linkAccess: string[] | undefined, href: string): boolean {
   if (!linkAccess) return true;
   return linkAccess.includes(href);
+}
+
+// linkActions[href] === undefined significa "sin restricción explícita para
+// ese sub apartado": puede agregar/editar/eliminar libremente (igual que
+// linkAccess, el admin tiene que sacar la tilde a propósito para restringir
+// una acción puntual). Solo cuando está definido para ese href se compara
+// contra la lista exacta de acciones permitidas.
+export function hasLinkAction(
+  linkActions: Record<string, LinkAction[]> | undefined,
+  href: string,
+  accion: LinkAction,
+): boolean {
+  const acciones = linkActions?.[href];
+  if (!acciones) return true;
+  return acciones.includes(accion);
 }
 
 // Para tarjetas/links que representan un módulo entero (ej. la card de

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback, Fragment } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
-import { hasLinkAccess } from "@/lib/navGroups";
+import { hasLinkAccess, hasLinkAction, LinkAction } from "@/lib/navGroups";
 
 type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "analisis" | "anuncio";
 
@@ -115,7 +115,7 @@ export default function CreativoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mainTab, setMainTab]         = useState<MainTab>("angulo");
   const [tagFiltro, setTagFiltro]     = useState<string | null>(null);
-  const [access, setAccess] = useState<{ isAdmin: boolean; linkAccess?: string[] } | null>(null);
+  const [access, setAccess] = useState<{ isAdmin: boolean; linkAccess?: string[]; linkActions?: Record<string, LinkAction[]> } | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -128,12 +128,21 @@ export default function CreativoPage() {
   useEffect(() => {
     fetch("/api/user/me")
       .then((r) => r.json())
-      .then((d) => setAccess({ isAdmin: d.user?.role === "admin", linkAccess: d.user?.linkAccess }))
+      .then((d) => setAccess({ isAdmin: d.user?.role === "admin", linkAccess: d.user?.linkAccess, linkActions: d.user?.linkActions }))
       .catch(() => setAccess({ isAdmin: false, linkAccess: [] }));
   }, []);
 
   const canSeeTab = useCallback(
     (tab: MainTab) => !access || access.isAdmin || hasLinkAccess(access.linkAccess, `/creativo?tab=${tab}`),
+    [access],
+  );
+
+  // Agregar/editar/eliminar son permisos aparte de "poder ver el tab" (ej.
+  // el editor de video puede ver y subir en Referencias pero no editar ni
+  // borrar lo que subió el guionista).
+  const canDo = useCallback(
+    (tab: Tipo | null, accion: LinkAction) =>
+      !tab || !access || access.isAdmin || hasLinkAction(access.linkActions, `/creativo?tab=${tab}`, accion),
     [access],
   );
 
@@ -371,9 +380,11 @@ export default function CreativoPage() {
                     </button>
                   ))}
                 </div>
-                <button className="sf-btn" onClick={abrirModal}>
-                  <i className="fas fa-plus" /> {TIPO_LABEL[tipo].genero === "f" ? "Nueva" : "Nuevo"} {TIPO_LABEL[tipo].singular}
-                </button>
+                {canDo(tipo, "agregar") && (
+                  <button className="sf-btn" onClick={abrirModal}>
+                    <i className="fas fa-plus" /> {TIPO_LABEL[tipo].genero === "f" ? "Nueva" : "Nuevo"} {TIPO_LABEL[tipo].singular}
+                  </button>
+                )}
               </div>
 
               {error && (
@@ -402,27 +413,27 @@ export default function CreativoPage() {
               )}
 
               {!error && tipo === "anuncio" && (
-                <AnunciosGrid items={items} onBorrar={handleBorrar} onRefetch={fetchItems} />
+                <AnunciosGrid items={items} onBorrar={handleBorrar} onRefetch={fetchItems} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
               {!error && tipo === "referencia" && (
-                <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+                <ReferenciasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
               {!error && tipo === "marca" && (
-                <MarcasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+                <MarcasSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
               {!loading && !error && tipo === "renovacion" && (
-                <RenovacionesSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+                <RenovacionesSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} canAgregar={canDo(tipo, "agregar")} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
               {!error && tipo === "analisis" && (
-                <AnalisisRenovacionSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+                <AnalisisRenovacionSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
               {!error && tipo === "angulo" && (
-                <AngulosSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} />
+                <AngulosSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
               {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && tipo !== "marca" && tipo !== "analisis" && tipo !== "angulo" && (
@@ -434,13 +445,15 @@ export default function CreativoPage() {
                     }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
                         <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{item.titulo}</h3>
-                        <button
-                          onClick={() => handleBorrar(item.id)}
-                          style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
-                          title="Borrar"
-                        >
-                          <i className="fas fa-trash" />
-                        </button>
+                        {canDo(tipo, "eliminar") && (
+                          <button
+                            onClick={() => handleBorrar(item.id)}
+                            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
+                            title="Borrar"
+                          >
+                            <i className="fas fa-trash" />
+                          </button>
+                        )}
                       </div>
 
                       {item.contenido && (
@@ -781,9 +794,11 @@ interface ReferenciasSectionProps {
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
+  canEditar: boolean;
+  canEliminar: boolean;
 }
 
-function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionProps) {
+function ReferenciasSection({ items, onBorrar, onEditar, canEditar, canEliminar }: ReferenciasSectionProps) {
   const [subTab, setSubTab]     = useState<"video" | "imagen">("video");
   const [preview, setPreview]   = useState<ReferenciaCard | null>(null);
   const [editing, setEditing]   = useState<Creativo | null>(null);
@@ -1018,20 +1033,24 @@ function ReferenciasSection({ items, onBorrar, onEditar }: ReferenciasSectionPro
               </div>
 
               <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
-                <button
-                  onClick={() => abrirEditar(grupo.item)}
-                  title="Editar"
-                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                >
-                  <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
-                </button>
-                <button
-                  onClick={() => onBorrar(grupo.item.id)}
-                  title="Borrar"
-                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
-                >
-                  <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
-                </button>
+                {canEditar && (
+                  <button
+                    onClick={() => abrirEditar(grupo.item)}
+                    title="Editar"
+                    style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                  >
+                    <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                  </button>
+                )}
+                {canEliminar && (
+                  <button
+                    onClick={() => onBorrar(grupo.item.id)}
+                    title="Borrar"
+                    style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}
+                  >
+                    <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -1244,9 +1263,11 @@ interface MarcasSectionProps {
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
+  canEditar: boolean;
+  canEliminar: boolean;
 }
 
-function MarcasSection({ items, onBorrar, onEditar }: MarcasSectionProps) {
+function MarcasSection({ items, onBorrar, onEditar, canEditar, canEliminar }: MarcasSectionProps) {
   const [preview, setPreview]   = useState<{ item: Creativo; archivo: CreativoArchivo } | null>(null);
   const [editing, setEditing]   = useState<Creativo | null>(null);
   const [editTitulo, setEditTitulo]       = useState("");
@@ -1341,12 +1362,16 @@ function MarcasSection({ items, onBorrar, onEditar }: MarcasSectionProps) {
                   {item.titulo}
                 </h3>
                 <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
-                  <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
-                    <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                  {canEditar && (
+                    <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                      <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
                   </button>
-                  <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
-                    <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                  )}
+                  {canEliminar && (
+                    <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                      <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
                   </button>
+                  )}
                 </div>
               </div>
 
@@ -1602,9 +1627,11 @@ interface AngulosSectionProps {
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
+  canEditar: boolean;
+  canEliminar: boolean;
 }
 
-function AngulosSection({ items, onBorrar, onEditar }: AngulosSectionProps) {
+function AngulosSection({ items, onBorrar, onEditar, canEditar, canEliminar }: AngulosSectionProps) {
   const [preview, setPreview]   = useState<{ item: Creativo; archivo: CreativoArchivo } | null>(null);
   const [editing, setEditing]   = useState<Creativo | null>(null);
   const [editTitulo, setEditTitulo]       = useState("");
@@ -1689,12 +1716,16 @@ function AngulosSection({ items, onBorrar, onEditar }: AngulosSectionProps) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
                   <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{item.titulo}</h3>
                   <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
-                    <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
-                      <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                    {canEditar && (
+                      <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                        <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
                     </button>
-                    <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
-                      <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                    )}
+                    {canEliminar && (
+                      <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                        <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -1949,9 +1980,11 @@ interface AnalisisRenovacionSectionProps {
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
+  canEditar: boolean;
+  canEliminar: boolean;
 }
 
-function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenovacionSectionProps) {
+function AnalisisRenovacionSection({ items, onBorrar, onEditar, canEditar, canEliminar }: AnalisisRenovacionSectionProps) {
   const [editing, setEditing]     = useState<Creativo | null>(null);
   const [editTitulo, setEditTitulo]       = useState("");
   const [editContenido, setEditContenido] = useState("");
@@ -2048,12 +2081,16 @@ function AnalisisRenovacionSection({ items, onBorrar, onEditar }: AnalisisRenova
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
                   <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{item.titulo}</h3>
                   <div style={{ display: "flex", gap: "0.4rem", flexShrink: 0 }}>
-                    <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
-                      <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                    {canEditar && (
+                      <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                        <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
                     </button>
-                    <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
-                      <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                    )}
+                    {canEliminar && (
+                      <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                        <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
                     </button>
+                    )}
                   </div>
                 </div>
 
@@ -2274,6 +2311,12 @@ interface RenovacionesSectionProps {
       archivos?: { url: string; publicId: string; tipoArchivo: "image" | "video" | "documento" }[];
     },
   ) => Promise<void>;
+  // Subir un video/archivo nuevo a una carpeta ya existente cuenta como
+  // "agregar" (no hace falta canEditar para eso); cambiar el título o el
+  // guion de una carpeta ya creada sí requiere canEditar.
+  canAgregar: boolean;
+  canEditar: boolean;
+  canEliminar: boolean;
 }
 
 function nombreArchivo(url: string): string {
@@ -2284,7 +2327,7 @@ function nombreArchivo(url: string): string {
   }
 }
 
-function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionProps) {
+function RenovacionesSection({ items, onBorrar, onEditar, canAgregar, canEditar, canEliminar }: RenovacionesSectionProps) {
   const [detalle, setDetalle] = useState<Creativo | null>(null);
   const [detalleTitulo, setDetalleTitulo] = useState("");
   const [guionText, setGuionText] = useState("");
@@ -2379,16 +2422,18 @@ function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionP
                 padding: "1rem 0.5rem", cursor: "pointer", borderRadius: "var(--radius)", position: "relative",
               }}
             >
-              <button
-                onClick={e => { e.stopPropagation(); onBorrar(item.id); }}
-                title="Borrar"
-                style={{
-                  position: "absolute", top: 4, right: 4, background: "none", border: "none",
-                  color: "var(--text-muted)", cursor: "pointer", fontSize: "0.75rem",
-                }}
-              >
-                <i className="fas fa-trash" />
-              </button>
+              {canEliminar && (
+                <button
+                  onClick={e => { e.stopPropagation(); onBorrar(item.id); }}
+                  title="Borrar"
+                  style={{
+                    position: "absolute", top: 4, right: 4, background: "none", border: "none",
+                    color: "var(--text-muted)", cursor: "pointer", fontSize: "0.75rem",
+                  }}
+                >
+                  <i className="fas fa-trash" />
+                </button>
+              )}
               <i className="fas fa-folder" style={{ fontSize: "2.75rem", color: "#f0b429" }} />
               <span style={{
                 fontSize: "0.82rem", fontWeight: 600, textAlign: "center", overflow: "hidden",
@@ -2413,6 +2458,7 @@ function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionP
                 <i className="fas fa-folder" style={{ color: "#f0b429" }} />
                 <input
                   type="text" value={detalleTitulo} onChange={e => setDetalleTitulo(e.target.value)}
+                  disabled={!canEditar}
                   style={{
                     background: "none", border: "none", color: "inherit", fontSize: "1rem", fontWeight: 700,
                     flex: 1, minWidth: 0, outline: "none",
@@ -2429,6 +2475,7 @@ function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionP
                 </label>
                 <textarea
                   className="sf-input" value={guionText} onChange={e => setGuionText(e.target.value)}
+                  disabled={!canEditar}
                   rows={6} style={{ width: "100%", resize: "vertical", fontFamily: "inherit" }}
                   placeholder="Escribí el guion acá..."
                 />
@@ -2465,40 +2512,42 @@ function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionP
                 </div>
               )}
 
-              <div>
-                <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                  Subir video editado o archivo de guion
-                </label>
-                <div
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivosDetalle(e.dataTransfer.files); }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="sf-dropzone"
-                >
-                  <input
-                    ref={fileInputRef} type="file" accept="video/*,application/pdf,.doc,.docx,.txt" multiple style={{ display: "none" }}
-                    onChange={e => { if (e.target.files?.length) subirArchivosDetalle(e.target.files); e.target.value = ""; }}
-                  />
-                  <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
-                  <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
-                </div>
-
-                {archivosNuevos.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
-                    {archivosNuevos.map(a => (
-                      <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
-                        {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
-                        {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
-                        {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
-                        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
-                        <button onClick={() => quitarArchivoNuevo(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-                          <i className="fas fa-times" />
-                        </button>
-                      </div>
-                    ))}
+              {canAgregar && (
+                <div>
+                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                    Subir video editado o archivo de guion
+                  </label>
+                  <div
+                    onDragOver={e => e.preventDefault()}
+                    onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivosDetalle(e.dataTransfer.files); }}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="sf-dropzone"
+                  >
+                    <input
+                      ref={fileInputRef} type="file" accept="video/*,application/pdf,.doc,.docx,.txt" multiple style={{ display: "none" }}
+                      onChange={e => { if (e.target.files?.length) subirArchivosDetalle(e.target.files); e.target.value = ""; }}
+                    />
+                    <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
+                    <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
                   </div>
-                )}
-              </div>
+
+                  {archivosNuevos.length > 0 && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                      {archivosNuevos.map(a => (
+                        <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                          {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
+                          {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
+                          {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
+                          <button onClick={() => quitarArchivoNuevo(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                            <i className="fas fa-times" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
                 {detalle.created_by && <>Creada por <strong>{detalle.created_by}</strong> · </>}
@@ -2507,18 +2556,22 @@ function RenovacionesSection({ items, onBorrar, onEditar }: RenovacionesSectionP
             </div>
 
             <div className="sf-modal-footer" style={{ justifyContent: "space-between" }}>
-              <button
-                className="sf-icon-btn danger" title="Borrar carpeta"
-                onClick={() => { onBorrar(detalle.id); setDetalle(null); }}
-              >
-                <i className="fas fa-trash" />
-              </button>
-              <button
-                className="sf-btn" onClick={guardarDetalle}
-                disabled={saving || !detalleTitulo.trim() || archivosNuevos.some(a => a.status === "subiendo")}
-              >
-                {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
-              </button>
+              {canEliminar ? (
+                <button
+                  className="sf-icon-btn danger" title="Borrar carpeta"
+                  onClick={() => { onBorrar(detalle.id); setDetalle(null); }}
+                >
+                  <i className="fas fa-trash" />
+                </button>
+              ) : <span />}
+              {(canAgregar || canEditar) && (
+                <button
+                  className="sf-btn" onClick={guardarDetalle}
+                  disabled={saving || !detalleTitulo.trim() || archivosNuevos.some(a => a.status === "subiendo")}
+                >
+                  {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
+                </button>
+              )}
             </div>
           </div>
         </>
@@ -3144,9 +3197,11 @@ interface AnunciosGridProps {
   items: Creativo[];
   onBorrar: (id: number) => void;
   onRefetch: () => Promise<void> | void;
+  canEditar: boolean;
+  canEliminar: boolean;
 }
 
-function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
+function AnunciosGrid({ items, onBorrar, onRefetch, canEditar, canEliminar }: AnunciosGridProps) {
   const [desde, setDesde]             = useState(() => fechaHaceDias(30));
   const [hasta, setHasta]             = useState(() => fechaHoyMeta());
   const [campaigns, setCampaigns]     = useState<CampaignNode[]>([]);
@@ -3326,13 +3381,15 @@ function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
                 <h3 style={{ fontSize: "0.95rem", fontWeight: 700 }}>{item.titulo}</h3>
-                <button
-                  onClick={() => onBorrar(item.id)}
-                  style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
-                  title="Borrar"
-                >
-                  <i className="fas fa-trash" />
-                </button>
+                {canEliminar && (
+                  <button
+                    onClick={() => onBorrar(item.id)}
+                    style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", flexShrink: 0 }}
+                    title="Borrar"
+                  >
+                    <i className="fas fa-trash" />
+                  </button>
+                )}
               </div>
 
               {item.archivos.length > 0 && (
@@ -3361,6 +3418,7 @@ function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
 
               <div style={{ borderTop: "1px solid var(--border-color)", paddingTop: "0.6rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                 {!item.meta_ad_id ? (
+                  canEditar && (
                   <div style={{ position: "relative" }}>
                     <button
                       className="sf-btn sf-btn-secondary" style={{ width: "100%", fontSize: "0.8rem" }}
@@ -3406,6 +3464,7 @@ function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
                       </>
                     )}
                   </div>
+                  )
                 ) : (
                   <>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
@@ -3413,12 +3472,14 @@ function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
                         <i className="fab fa-facebook" style={{ marginRight: "0.3rem" }} />
                         {ad?.name ?? "Anuncio vinculado"}
                       </div>
-                      <button
-                        onClick={() => desvincular(item)} disabled={guardandoId === item.id}
-                        style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", whiteSpace: "nowrap" }}
-                      >
-                        Quitar vínculo
-                      </button>
+                      {canEditar && (
+                        <button
+                          onClick={() => desvincular(item)} disabled={guardandoId === item.id}
+                          style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", whiteSpace: "nowrap" }}
+                        >
+                          Quitar vínculo
+                        </button>
+                      )}
                     </div>
 
                     {ad ? (
@@ -3445,6 +3506,7 @@ function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
                       </span>
                     )}
 
+                    {canEditar && (
                     <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
                       {OPCIONES_OVERRIDE.map(opt => {
                         const activo = item.winner_override === opt.key;
@@ -3467,6 +3529,7 @@ function AnunciosGrid({ items, onBorrar, onRefetch }: AnunciosGridProps) {
                         );
                       })}
                     </div>
+                    )}
                   </>
                 )}
               </div>

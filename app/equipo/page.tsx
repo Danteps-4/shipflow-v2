@@ -6,7 +6,7 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import { MODULE_KEYS, MODULE_LABELS, ModuleKey } from "@/lib/modules";
-import { ALL_HREFS, subApartadosForModule, hasLinkAccess } from "@/lib/navGroups";
+import { ALL_HREFS, subApartadosForModule, hasLinkAccess, hasLinkAction, LinkAction, LINK_ACTIONS, LINK_ACTION_LABELS } from "@/lib/navGroups";
 
 interface TeamUser {
   id: string;
@@ -15,6 +15,7 @@ interface TeamUser {
   role: "admin" | "member";
   modules: ModuleKey[];
   linkAccess?: string[];
+  linkActions?: Record<string, LinkAction[]>;
   createdAt: string;
 }
 
@@ -56,13 +57,16 @@ export default function EquipoPage() {
     }
   }
 
-  async function saveAccess(id: string, role: "admin" | "member", modules: ModuleKey[], linkAccess?: string[]) {
+  async function saveAccess(
+    id: string, role: "admin" | "member", modules: ModuleKey[],
+    linkAccess?: string[], linkActions?: Record<string, LinkAction[]>,
+  ) {
     setSavingId(id);
     try {
       await fetch(`/api/team/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, modules, linkAccess }),
+        body: JSON.stringify({ role, modules, linkAccess, linkActions }),
       });
       await fetchUsers();
     } finally {
@@ -73,7 +77,7 @@ export default function EquipoPage() {
   function toggleModule(u: TeamUser, mod: ModuleKey) {
     const has = u.modules.includes(mod);
     const next = has ? u.modules.filter((m) => m !== mod) : [...u.modules, mod];
-    saveAccess(u.id, u.role, next, u.linkAccess);
+    saveAccess(u.id, u.role, next, u.linkAccess, u.linkActions);
   }
 
   // linkAccess undefined = "todo permitido"; al tocar un sub apartado por
@@ -82,11 +86,21 @@ export default function EquipoPage() {
     const current = u.linkAccess ?? ALL_HREFS;
     const has = current.includes(href);
     const next = has ? current.filter((h) => h !== href) : [...current, href];
-    saveAccess(u.id, u.role, u.modules, next);
+    saveAccess(u.id, u.role, u.modules, next, u.linkActions);
+  }
+
+  // linkActions[href] undefined = "sin restricción, puede las 3"; al tocar
+  // una acción por primera vez se materializan las 3 para poder sacar solo esa.
+  function toggleAccion(u: TeamUser, href: string, accion: LinkAction) {
+    const current = u.linkActions?.[href] ?? LINK_ACTIONS;
+    const has = current.includes(accion);
+    const nextForHref = has ? current.filter((a) => a !== accion) : [...current, accion];
+    const nextLinkActions = { ...(u.linkActions ?? {}), [href]: nextForHref };
+    saveAccess(u.id, u.role, u.modules, u.linkAccess, nextLinkActions);
   }
 
   function changeRole(u: TeamUser, role: "admin" | "member") {
-    saveAccess(u.id, role, u.modules, u.linkAccess);
+    saveAccess(u.id, role, u.modules, u.linkAccess, u.linkActions);
   }
 
   function toggleExpand(userId: string, mod: ModuleKey) {
@@ -185,26 +199,52 @@ export default function EquipoPage() {
                             </div>
                             {subApartados.length > 0 && (
                               <SubApartadosPanel isOpen={isOpen}>
-                                {subApartados.map((sub) => (
-                                  <label
-                                    key={sub.href}
-                                    style={{
-                                      display: "flex", alignItems: "center", gap: "0.5rem",
-                                      padding: "0.4rem 0.75rem 0.4rem 2rem", fontSize: "0.85rem",
-                                      cursor: moduleChecked ? "pointer" : "default",
-                                      color: moduleChecked ? "var(--text-color)" : "var(--text-muted)",
-                                    }}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={moduleChecked && hasLinkAccess(u.linkAccess, sub.href)}
-                                      disabled={!moduleChecked || savingId === u.id}
-                                      onChange={() => toggleSubApartado(u, sub.href)}
-                                    />
-                                    <i className={sub.icon} style={{ fontSize: "0.8rem", width: 14 }} />
-                                    {sub.label}
-                                  </label>
-                                ))}
+                                {subApartados.map((sub) => {
+                                  const subChecked = moduleChecked && hasLinkAccess(u.linkAccess, sub.href);
+                                  return (
+                                    <div key={sub.href}>
+                                      <label
+                                        style={{
+                                          display: "flex", alignItems: "center", gap: "0.5rem",
+                                          padding: "0.4rem 0.75rem 0.4rem 2rem", fontSize: "0.85rem",
+                                          cursor: moduleChecked ? "pointer" : "default",
+                                          color: moduleChecked ? "var(--text-color)" : "var(--text-muted)",
+                                        }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={subChecked}
+                                          disabled={!moduleChecked || savingId === u.id}
+                                          onChange={() => toggleSubApartado(u, sub.href)}
+                                        />
+                                        <i className={sub.icon} style={{ fontSize: "0.8rem", width: 14 }} />
+                                        {sub.label}
+                                      </label>
+                                      {sub.acciones && (
+                                        <div style={{ display: "flex", gap: "0.9rem", padding: "0.1rem 0.75rem 0.5rem 3.7rem" }}>
+                                          {LINK_ACTIONS.map((accion) => (
+                                            <label
+                                              key={accion}
+                                              style={{
+                                                display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem",
+                                                cursor: subChecked ? "pointer" : "default",
+                                                color: subChecked ? "var(--text-muted)" : "var(--border-color)",
+                                              }}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={subChecked && hasLinkAction(u.linkActions, sub.href, accion)}
+                                                disabled={!subChecked || savingId === u.id}
+                                                onChange={() => toggleAccion(u, sub.href, accion)}
+                                              />
+                                              {LINK_ACTION_LABELS[accion]}
+                                            </label>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
                               </SubApartadosPanel>
                             )}
                           </div>

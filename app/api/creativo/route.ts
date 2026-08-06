@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireModule } from "@/lib/permissions";
-import { hasLinkAccess } from "@/lib/navGroups";
+import { hasLinkAccess, hasLinkAction, LinkAction } from "@/lib/navGroups";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion, EstadoAngulo } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, getCreativoById, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion, EstadoAngulo } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
 import { User } from "@/lib/userStore";
 
@@ -14,6 +14,18 @@ function checkTabAccess(user: User, tipo: TipoCreativo) {
   if (user.role === "admin") return null;
   if (!hasLinkAccess(user.linkAccess, `/creativo?tab=${tipo}`)) {
     return NextResponse.json({ error: "No tenés acceso a esta sección" }, { status: 403 });
+  }
+  return null;
+}
+
+// Además de poder ver el tab, cada sub apartado admite restringir
+// agregar/editar/eliminar por separado (ej. el editor de video puede subir
+// pero no borrar ni editar lo que subió el guionista). Sin restricción
+// explícita para ese tab, la acción está permitida.
+function checkAccionAccess(user: User, tipo: TipoCreativo, accion: LinkAction) {
+  if (user.role === "admin") return null;
+  if (!hasLinkAction(user.linkActions, `/creativo?tab=${tipo}`, accion)) {
+    return NextResponse.json({ error: "No tenés permiso para esta acción" }, { status: 403 });
   }
   return null;
 }
@@ -109,6 +121,8 @@ export async function POST(req: NextRequest) {
 
   const denied = checkTabAccess(guard.user, tipo as TipoCreativo);
   if (denied) return denied;
+  const deniedAccion = checkAccionAccess(guard.user, tipo as TipoCreativo, "agregar");
+  if (deniedAccion) return deniedAccion;
 
   await initCreativoTables();
   const creativo = await createCreativo(storeId, {
@@ -147,24 +161,63 @@ export async function PATCH(req: NextRequest) {
 
   await initCreativoTables();
 
-  if (guard.user.role !== "admin") {
-    const itemTipo = await getCreativoTipo(storeId, Number(body.id));
-    if (!itemTipo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-    const denied = checkTabAccess(guard.user, itemTipo);
-    if (denied) return denied;
-  }
-
   if (typeof body.titulo === "string") {
     if (!body.titulo.trim()) return NextResponse.json({ error: "Falta título" }, { status: 400 });
+
+    const tituloClean = body.titulo.trim();
+    const contenidoClean = (body.contenido ?? "").trim();
+    const tagsClean = (body.tags ?? []).map(t => t.trim()).filter(Boolean);
+    const linksClean = (body.links ?? []).map(l => l.trim()).filter(Boolean);
+    const funnelClean = sanitizeFunnel(body.funnel);
+    const analisisClean = sanitizeAnalisis(body);
+    const anguloClean = sanitizeAngulo(body);
+
+    if (guard.user.role !== "admin") {
+      const existing = await getCreativoById(storeId, Number(body.id));
+      if (!existing) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+      const denied = checkTabAccess(guard.user, existing.tipo);
+      if (denied) return denied;
+
+      // Sumar un archivo nuevo a una entrada que ya existe (ej. el editor
+      // subiendo su video a la carpeta que ya armó el guionista) alcanza
+      // con el permiso de "agregar"; tocar título/notas/tags/etc. de una
+      // entrada ya creada requiere "editar". Los campos de análisis/ángulo
+      // sólo se comparan cuando son relevantes para el tipo: en el resto de
+      // los tipos el modal de creación los manda con su valor default
+      // (ej. estadoAngulo="sin_probar") aunque no apliquen, así que
+      // compararlos siempre haría que cualquier PATCH sin esos campos
+      // (como el de Renovaciones, que sólo suma archivos) se marque como
+      // "editar" por error.
+      const soloSumaArchivo =
+        existing.titulo === tituloClean &&
+        existing.contenido === contenidoClean &&
+        JSON.stringify(existing.tags) === JSON.stringify(tagsClean) &&
+        JSON.stringify(existing.links) === JSON.stringify(linksClean) &&
+        JSON.stringify(existing.funnel) === JSON.stringify(funnelClean) &&
+        (existing.tipo !== "analisis" || (
+          (existing.angulo ?? "") === (analisisClean.angulo ?? "") &&
+          (existing.formato ?? "") === (analisisClean.formato ?? "") &&
+          JSON.stringify(existing.estructura) === JSON.stringify(analisisClean.estructura) &&
+          (existing.hipotesis ?? "") === (analisisClean.hipotesis ?? "")
+        )) &&
+        (existing.tipo !== "angulo" || (
+          existing.estadoAngulo === anguloClean.estadoAngulo &&
+          existing.necesitaLanding === anguloClean.necesitaLanding
+        ));
+
+      const deniedAccion = checkAccionAccess(guard.user, existing.tipo, soloSumaArchivo ? "agregar" : "editar");
+      if (deniedAccion) return deniedAccion;
+    }
+
     const creativo = await updateCreativoContenido(storeId, Number(body.id), {
-      titulo: body.titulo.trim(),
-      contenido: (body.contenido ?? "").trim(),
-      tags: (body.tags ?? []).map(t => t.trim()).filter(Boolean),
-      links: (body.links ?? []).map(l => l.trim()).filter(Boolean),
-      funnel: sanitizeFunnel(body.funnel),
+      titulo: tituloClean,
+      contenido: contenidoClean,
+      tags: tagsClean,
+      links: linksClean,
+      funnel: funnelClean,
       archivosNuevos: body.archivos ?? [],
-      ...sanitizeAnalisis(body),
-      ...sanitizeAngulo(body),
+      ...analisisClean,
+      ...anguloClean,
     });
     if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ creativo });
@@ -172,6 +225,15 @@ export async function PATCH(req: NextRequest) {
 
   if (body.winnerOverride != null && !OVERRIDES_VALIDOS.includes(body.winnerOverride)) {
     return NextResponse.json({ error: "winnerOverride inválido" }, { status: 400 });
+  }
+
+  if (guard.user.role !== "admin") {
+    const itemTipo = await getCreativoTipo(storeId, Number(body.id));
+    if (!itemTipo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    const denied = checkTabAccess(guard.user, itemTipo);
+    if (denied) return denied;
+    const deniedAccion = checkAccionAccess(guard.user, itemTipo, "editar");
+    if (deniedAccion) return deniedAccion;
   }
 
   const creativo = await updateCreativoMeta(storeId, Number(body.id), body.metaAdId ?? null, body.winnerOverride ?? null);
@@ -196,6 +258,8 @@ export async function DELETE(req: NextRequest) {
     if (!itemTipo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     const denied = checkTabAccess(guard.user, itemTipo);
     if (denied) return denied;
+    const deniedAccion = checkAccionAccess(guard.user, itemTipo, "eliminar");
+    if (deniedAccion) return deniedAccion;
   }
 
   const archivosBorrados = await deleteCreativo(storeId, Number(id));

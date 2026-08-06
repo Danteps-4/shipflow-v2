@@ -234,6 +234,45 @@ export async function getCreativoTipo(storeId: string, id: number): Promise<Tipo
   return rows[0]?.tipo ?? null;
 }
 
+// Registro completo de una entrada existente — se usa para distinguir, al
+// editar, si el cambio es "solo sumar un archivo nuevo" (permiso agregar)
+// de un cambio real de título/contenido/etc. (permiso editar).
+export async function getCreativoById(storeId: string, id: number): Promise<Creativo | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT c.id, c.tipo, c.titulo, c.contenido, c.tags, c.created_by, c.created_at,
+           c.meta_ad_id, c.winner_override, c.links, c.funnel_tags,
+           c.angulo, c.formato, c.estructura_guion, c.hipotesis, c.estado_angulo, c.necesita_landing,
+           a.id AS archivo_id, a.url AS archivo_url, a.public_id AS archivo_public_id,
+           a.tipo_archivo AS archivo_tipo
+    FROM creativos c
+    LEFT JOIN creativo_archivos a ON a.creativo_id = c.id
+    WHERE c.store_id = ${storeId} AND c.id = ${id}
+  ` as {
+    id: number; tipo: TipoCreativo; titulo: string; contenido: string; tags: string[];
+    created_by: string; created_at: string; meta_ad_id: string | null; winner_override: WinnerOverride | null;
+    links: string[]; funnel_tags: string[];
+    angulo: string | null; formato: string | null; estructura_guion: EtapaGuion[]; hipotesis: string | null;
+    estado_angulo: EstadoAngulo | null; necesita_landing: boolean;
+    archivo_id: number | null; archivo_url: string | null; archivo_public_id: string | null;
+    archivo_tipo: TipoArchivo | null;
+  }[];
+  if (!rows[0]) return null;
+
+  const r = rows[0];
+  const archivos: CreativoArchivo[] = rows
+    .filter(row => row.archivo_id !== null)
+    .map(row => ({ id: row.archivo_id!, url: row.archivo_url!, public_id: row.archivo_public_id!, tipo_archivo: row.archivo_tipo! }));
+
+  return {
+    id: r.id, tipo: r.tipo, titulo: r.titulo, contenido: r.contenido, tags: r.tags,
+    created_by: r.created_by, created_at: r.created_at, archivos,
+    links: r.links, funnel: r.funnel_tags, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
+    angulo: r.angulo, formato: r.formato, estructura: r.estructura_guion ?? [], hipotesis: r.hipotesis,
+    estadoAngulo: r.estado_angulo, necesitaLanding: r.necesita_landing,
+  };
+}
+
 // Borra la entrada (los archivos se borran solos por ON DELETE CASCADE) y
 // devuelve los archivos borrados para que quien llame limpie Cloudinary.
 export async function deleteCreativo(storeId: string, id: number): Promise<CreativoArchivo[]> {

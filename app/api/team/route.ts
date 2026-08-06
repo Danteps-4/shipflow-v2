@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     role: u.role,
     modules: u.modules,
     linkAccess: u.linkAccess,
+    linkActions: u.linkActions,
     createdAt: u.createdAt,
   }));
   return NextResponse.json({ users });
