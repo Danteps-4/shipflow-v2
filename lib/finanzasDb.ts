@@ -43,6 +43,16 @@ export interface GastoPersonal {
 export const FRECUENCIAS = ["mensual", "anual"] as const;
 export type Frecuencia = (typeof FRECUENCIAS)[number];
 
+// Un cambio de precio/frecuencia vigente a partir de una fecha. Se guarda un
+// registro por cada valor que tuvo la suscripción a lo largo del tiempo, para
+// poder saber cuánto costaba en un mes pasado en vez de aplicar el monto
+// actual retroactivamente.
+export interface SuscripcionMonto {
+  monto: number;
+  frecuencia: Frecuencia;
+  desde: string; // ISO date
+}
+
 export interface Suscripcion {
   id: number;
   store_id: string;
@@ -52,6 +62,9 @@ export interface Suscripcion {
   fecha_prox_pago: string; // ISO date
   activa: boolean;
   created_at: string;
+  // Historial de montos, ordenado ascendente por `desde`. Siempre tiene al
+  // menos un elemento (el que se cargó al crear la suscripción).
+  historial: SuscripcionMonto[];
 }
 
 export interface Transferencia {
@@ -135,6 +148,30 @@ export async function initFinanzasTables(): Promise<void> {
   await sql`
     CREATE INDEX IF NOT EXISTS suscripciones_store
     ON suscripciones (store_id, activa)
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS suscripcion_montos (
+      id              SERIAL PRIMARY KEY,
+      suscripcion_id  INTEGER NOT NULL REFERENCES suscripciones(id) ON DELETE CASCADE,
+      monto           NUMERIC(12,2) NOT NULL,
+      frecuencia      TEXT NOT NULL,
+      desde           DATE NOT NULL,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS suscripcion_montos_sub
+    ON suscripcion_montos (suscripcion_id, desde)
+  `;
+  // Suscripciones creadas antes de que existiera el historial: les cargamos
+  // un primer registro con su monto/frecuencia actual, vigente desde que se
+  // crearon (es lo más parecido a la realidad que podemos reconstruir).
+  await sql`
+    INSERT INTO suscripcion_montos (suscripcion_id, monto, frecuencia, desde)
+    SELECT s.id, s.monto, s.frecuencia, s.created_at::date
+    FROM suscripciones s
+    WHERE NOT EXISTS (SELECT 1 FROM suscripcion_montos m WHERE m.suscripcion_id = s.id)
   `;
 
   // Cada "cierre" es el momento en que se cierra el día y se suman todas las
@@ -330,6 +367,17 @@ export async function deleteGastoPersonal(id: number): Promise<boolean> {
 
 // ─── Suscripciones ───────────────────────────────────────────────────────────
 
+async function getHistorial(suscripcionId: number): Promise<SuscripcionMonto[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT monto, frecuencia, desde
+    FROM suscripcion_montos
+    WHERE suscripcion_id = ${suscripcionId}
+    ORDER BY desde ASC, id ASC
+  `;
+  return rows as SuscripcionMonto[];
+}
+
 export async function getSuscripciones(storeId: string): Promise<Suscripcion[]> {
   const sql = getDb();
   const rows = await sql`
@@ -337,8 +385,24 @@ export async function getSuscripciones(storeId: string): Promise<Suscripcion[]> 
     FROM suscripciones
     WHERE store_id = ${storeId}
     ORDER BY activa DESC, fecha_prox_pago ASC
-  `;
-  return rows as Suscripcion[];
+  ` as Omit<Suscripcion, "historial">[];
+
+  const historialRows = await sql`
+    SELECT sm.suscripcion_id, sm.monto, sm.frecuencia, sm.desde
+    FROM suscripcion_montos sm
+    JOIN suscripciones s ON s.id = sm.suscripcion_id
+    WHERE s.store_id = ${storeId}
+    ORDER BY sm.desde ASC, sm.id ASC
+  ` as (SuscripcionMonto & { suscripcion_id: number })[];
+
+  const historialPorSub = new Map<number, SuscripcionMonto[]>();
+  for (const h of historialRows) {
+    const lista = historialPorSub.get(h.suscripcion_id) ?? [];
+    lista.push({ monto: h.monto, frecuencia: h.frecuencia, desde: h.desde });
+    historialPorSub.set(h.suscripcion_id, lista);
+  }
+
+  return rows.map(s => ({ ...s, historial: historialPorSub.get(s.id) ?? [] }));
 }
 
 export async function createSuscripcion(
@@ -347,14 +411,22 @@ export async function createSuscripcion(
   monto: number,
   frecuencia: string,
   fecha_prox_pago: string,
+  vigenteDesde: string,
 ): Promise<Suscripcion> {
   const sql = getDb();
   const rows = await sql`
     INSERT INTO suscripciones (store_id, nombre, monto, frecuencia, fecha_prox_pago)
     VALUES (${storeId}, ${nombre}, ${monto}, ${frecuencia}, ${fecha_prox_pago})
     RETURNING *
-  ` as Suscripcion[];
-  return rows[0];
+  ` as Omit<Suscripcion, "historial">[];
+  const suscripcion = rows[0];
+
+  await sql`
+    INSERT INTO suscripcion_montos (suscripcion_id, monto, frecuencia, desde)
+    VALUES (${suscripcion.id}, ${monto}, ${frecuencia}, ${vigenteDesde})
+  `;
+
+  return { ...suscripcion, historial: await getHistorial(suscripcion.id) };
 }
 
 export async function updateSuscripcion(
@@ -365,8 +437,17 @@ export async function updateSuscripcion(
   frecuencia: string,
   fecha_prox_pago: string,
   activa: boolean,
+  vigenteDesde: string,
 ): Promise<Suscripcion | null> {
   const sql = getDb();
+
+  const existingRows = await sql`
+    SELECT monto, frecuencia FROM suscripciones WHERE id = ${id} AND store_id = ${storeId}
+  ` as { monto: string; frecuencia: string }[];
+  if (existingRows.length === 0) return null;
+  const cambioMontoOFrecuencia =
+    Number(existingRows[0].monto) !== monto || existingRows[0].frecuencia !== frecuencia;
+
   const rows = await sql`
     UPDATE suscripciones
     SET nombre          = ${nombre},
@@ -376,8 +457,19 @@ export async function updateSuscripcion(
         activa          = ${activa}
     WHERE id = ${id} AND store_id = ${storeId}
     RETURNING *
-  ` as Suscripcion[];
-  return rows[0] ?? null;
+  ` as Omit<Suscripcion, "historial">[];
+  if (rows.length === 0) return null;
+
+  // El nuevo monto/frecuencia sólo rige desde `vigenteDesde` en adelante; los
+  // meses anteriores siguen usando el registro de historial que tenían.
+  if (cambioMontoOFrecuencia) {
+    await sql`
+      INSERT INTO suscripcion_montos (suscripcion_id, monto, frecuencia, desde)
+      VALUES (${id}, ${monto}, ${frecuencia}, ${vigenteDesde})
+    `;
+  }
+
+  return { ...rows[0], historial: await getHistorial(id) };
 }
 
 export async function deleteSuscripcion(

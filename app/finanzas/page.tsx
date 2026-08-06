@@ -39,6 +39,12 @@ interface GastoPersonal {
   monto: number;
 }
 
+interface SuscripcionMonto {
+  monto: number;
+  frecuencia: "mensual" | "anual";
+  desde: string;
+}
+
 interface Suscripcion {
   id: number;
   nombre: string;
@@ -46,6 +52,7 @@ interface Suscripcion {
   frecuencia: "mensual" | "anual";
   fecha_prox_pago: string;
   activa: boolean;
+  historial: SuscripcionMonto[];
 }
 
 type Tab = "negocio" | "personal" | "suscripciones";
@@ -54,7 +61,22 @@ const EMPTY_GASTO_NEGOCIO = {
   fecha: today(), persona: "", categoria: "Otros" as CategoriaNegocio, detalle: "", cantidad: "", monto: "", pagado: false,
 };
 const EMPTY_GASTO_PERSONAL = { fecha: today(), descripcion: "", monto: "" };
-const EMPTY_SUB = { nombre: "", monto: "", frecuencia: "mensual" as "mensual" | "anual", fecha_prox_pago: today() };
+const EMPTY_SUB = { nombre: "", monto: "", frecuencia: "mensual" as "mensual" | "anual", fecha_prox_pago: today(), vigenteDesde: today() };
+
+// Busca el monto/frecuencia que estaba vigente en un mes dado, según el
+// historial de la suscripción (ordenado ascendente por `desde`). "" (todos
+// los meses) devuelve el vigente actual. Si la suscripción todavía no
+// existía en ese mes, devuelve null (no suma nada a ese mes).
+function vigenteEnMes(historial: SuscripcionMonto[], mes: string): SuscripcionMonto | null {
+  if (historial.length === 0) return null;
+  if (!mes) return historial[historial.length - 1];
+  let vigente: SuscripcionMonto | null = null;
+  for (const h of historial) {
+    if (h.desde.slice(0, 7) <= mes) vigente = h;
+    else break;
+  }
+  return vigente;
+}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -294,6 +316,7 @@ export default function FinanzasPage() {
       monto: String(s.monto),
       frecuencia: s.frecuencia,
       fecha_prox_pago: s.fecha_prox_pago.slice(0, 10),
+      vigenteDesde: today(),
     });
   }
 
@@ -308,6 +331,7 @@ export default function FinanzasPage() {
         monto: parseFloat(subForm.monto as string),
         frecuencia: subForm.frecuencia,
         fecha_prox_pago: subForm.fecha_prox_pago,
+        vigenteDesde: subForm.vigenteDesde,
       };
       const r = await fetch("/api/finanzas/suscripciones", {
         method: isEdit ? "PUT" : "POST",
@@ -347,7 +371,9 @@ export default function FinanzasPage() {
 
   const subsActivas    = subs.filter((s) => s.activa);
   const totalSubsMes   = subsActivas.reduce((s, sub) => {
-    return s + (sub.frecuencia === "anual" ? Number(sub.monto) / 12 : Number(sub.monto));
+    const vigente = vigenteEnMes(sub.historial, mesSeleccionado);
+    if (!vigente) return s; // todavía no existía en el mes seleccionado
+    return s + (vigente.frecuencia === "anual" ? Number(vigente.monto) / 12 : Number(vigente.monto));
   }, 0);
 
   const gastosNegocioFiltered = gastosNegocio.filter((g) => {
@@ -949,6 +975,20 @@ export default function FinanzasPage() {
                   value={subForm.fecha_prox_pago}
                   onChange={(e) => setSubForm(f => ({ ...f, fecha_prox_pago: e.target.value }))}
                 />
+              </label>
+              <label className="sf-label">
+                {subModal?.id ? "Este monto rige desde" : "Se empieza a cobrar desde"}
+                <input
+                  className="sf-input"
+                  type="date"
+                  value={subForm.vigenteDesde}
+                  onChange={(e) => setSubForm(f => ({ ...f, vigenteDesde: e.target.value }))}
+                />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                  {subModal?.id
+                    ? "Los meses anteriores a esta fecha van a seguir mostrando el monto que tenían antes."
+                    : "No se va a contar como gasto en los meses anteriores a esta fecha."}
+                </span>
               </label>
             </div>
             <div className="sf-modal-footer">

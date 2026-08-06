@@ -40,8 +40,8 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { nombre, monto, frecuencia, fecha_prox_pago } = await req.json();
-  if (!nombre || !monto || !fecha_prox_pago)
+  const { nombre, monto, frecuencia, fecha_prox_pago, vigenteDesde } = await req.json();
+  if (!nombre || !monto || !fecha_prox_pago || !vigenteDesde)
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
 
   await initFinanzasTables();
@@ -51,6 +51,7 @@ export async function POST(req: NextRequest) {
     Number(monto),
     frecuencia ?? "mensual",
     fecha_prox_pago,
+    vigenteDesde,
   );
   return NextResponse.json({ suscripcion });
 }
@@ -62,7 +63,7 @@ export async function PUT(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { id, nombre, monto, frecuencia, fecha_prox_pago, activa } = await req.json();
+  const { id, nombre, monto, frecuencia, fecha_prox_pago, activa, vigenteDesde } = await req.json();
   if (!id || !nombre || !monto || !fecha_prox_pago)
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
 
@@ -75,6 +76,7 @@ export async function PUT(req: NextRequest) {
     frecuencia ?? "mensual",
     fecha_prox_pago,
     activa !== false,
+    vigenteDesde ?? new Date().toISOString().slice(0, 10),
   );
   if (!suscripcion) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ suscripcion });
