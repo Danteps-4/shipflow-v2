@@ -3,7 +3,7 @@ import { requireModule } from "@/lib/permissions";
 import { hasLinkAccess, hasLinkAction, LinkAction } from "@/lib/navGroups";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
-import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, getCreativoTipo, getCreativoById, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion, EstadoAngulo } from "@/lib/creativoDb";
+import { initCreativoTables, getCreativos, createCreativo, deleteCreativo, updateCreativoMeta, updateCreativoContenido, incrementarContadorObjecion, getCreativoTipo, getCreativoById, TipoCreativo, NuevoArchivo, WinnerOverride, EtapaGuion, EstadoAngulo } from "@/lib/creativoDb";
 import { destroyAsset } from "@/lib/cloudinary";
 import { User } from "@/lib/userStore";
 
@@ -40,7 +40,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
-const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion", "marca", "analisis"];
+const TIPOS_VALIDOS: TipoCreativo[] = ["angulo", "guion", "formato", "anuncio", "referencia", "renovacion", "marca", "analisis", "objecion"];
 
 // Campos propios del análisis de renovación (tipo "analisis"); en el resto
 // de los tipos vienen undefined y quedan null/vacío en la base. La
@@ -156,10 +156,28 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json() as {
     id?: number; titulo?: string; contenido?: string; tags?: string[]; links?: string[]; funnel?: string[];
     archivos?: NuevoArchivo[]; metaAdId?: string | null; winnerOverride?: WinnerOverride | null;
+    incrementar?: boolean;
   } & CamposAnalisis & CamposAngulo;
   if (!body.id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initCreativoTables();
+
+  // Sumar 1 al contador de una pregunta/objeción repetida (tipo "objecion")
+  // no es una edición de contenido, es más parecido a "agregar" un nuevo
+  // registro de que volvió a pasar.
+  if (body.incrementar === true) {
+    if (guard.user.role !== "admin") {
+      const itemTipo = await getCreativoTipo(storeId, Number(body.id));
+      if (!itemTipo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+      const denied = checkTabAccess(guard.user, itemTipo);
+      if (denied) return denied;
+      const deniedAccion = checkAccionAccess(guard.user, itemTipo, "agregar");
+      if (deniedAccion) return deniedAccion;
+    }
+    const creativo = await incrementarContadorObjecion(storeId, Number(body.id));
+    if (!creativo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+    return NextResponse.json({ creativo });
+  }
 
   if (typeof body.titulo === "string") {
     if (!body.titulo.trim()) return NextResponse.json({ error: "Falta título" }, { status: 400 });

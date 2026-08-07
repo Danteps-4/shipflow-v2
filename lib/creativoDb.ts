@@ -2,7 +2,7 @@ import { getDb } from "./db";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-export type TipoCreativo = "angulo" | "guion" | "formato" | "anuncio" | "referencia" | "renovacion" | "marca" | "analisis";
+export type TipoCreativo = "angulo" | "guion" | "formato" | "anuncio" | "referencia" | "renovacion" | "marca" | "analisis" | "objecion";
 export type TipoArchivo = "image" | "video" | "documento";
 export type WinnerOverride = "winner" | "regular" | "malo";
 export type EstadoAngulo = "sin_probar" | "validado" | "no_funciono";
@@ -48,6 +48,10 @@ export interface Creativo {
   // propia para que rinda mejor.
   estadoAngulo: EstadoAngulo | null;
   necesitaLanding: boolean;
+  // Sólo para tipo === "objecion": cuántas veces se repitió esa pregunta u
+  // objeción de clientes. Arranca en 1 al crearla; se suma con un "+1"
+  // cuando vuelve a aparecer, en vez de crear una entrada duplicada.
+  contador: number;
 }
 
 export interface NuevoArchivo {
@@ -84,7 +88,7 @@ export async function initCreativoTables(): Promise<void> {
   // perfiles de marcas de inspiración (notas + links + archivos de ejemplo),
   // y 'analisis' para el desglose de guion/estructura de una renovación.
   await sql`ALTER TABLE creativos DROP CONSTRAINT IF EXISTS creativos_tipo_check`;
-  await sql`ALTER TABLE creativos ADD CONSTRAINT creativos_tipo_check CHECK (tipo IN ('angulo','guion','formato','anuncio','referencia','renovacion','marca','analisis'))`;
+  await sql`ALTER TABLE creativos ADD CONSTRAINT creativos_tipo_check CHECK (tipo IN ('angulo','guion','formato','anuncio','referencia','renovacion','marca','analisis','objecion'))`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS meta_ad_id TEXT`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS winner_override TEXT`;
   // Links externos (ej. material de referencia que todavía no se descargó).
@@ -113,6 +117,9 @@ export async function initCreativoTables(): Promise<void> {
   // del estado: puede estar validado y aun así necesitar su landing).
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS estado_angulo TEXT`;
   await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS necesita_landing BOOLEAN NOT NULL DEFAULT false`;
+  // Contador de repeticiones (tipo 'objecion'): cuántas veces un cliente
+  // hizo esa misma pregunta/objeción. Arranca en 1 al crearla.
+  await sql`ALTER TABLE creativos ADD COLUMN IF NOT EXISTS contador INTEGER NOT NULL DEFAULT 1`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS creativo_archivos (
@@ -141,7 +148,7 @@ export async function getCreativos(
     SELECT c.id, c.tipo, c.titulo, c.contenido, c.tags, c.created_by, c.created_at,
            c.meta_ad_id, c.winner_override, c.links, c.funnel_tags,
            c.angulo, c.formato, c.estructura_guion, c.hipotesis,
-           c.estado_angulo, c.necesita_landing,
+           c.estado_angulo, c.necesita_landing, c.contador,
            a.id AS archivo_id, a.url AS archivo_url, a.public_id AS archivo_public_id,
            a.tipo_archivo AS archivo_tipo
     FROM creativos c
@@ -155,7 +162,7 @@ export async function getCreativos(
     created_by: string; created_at: string; meta_ad_id: string | null; winner_override: WinnerOverride | null;
     links: string[]; funnel_tags: string[];
     angulo: string | null; formato: string | null; estructura_guion: EtapaGuion[]; hipotesis: string | null;
-    estado_angulo: EstadoAngulo | null; necesita_landing: boolean;
+    estado_angulo: EstadoAngulo | null; necesita_landing: boolean; contador: number;
     archivo_id: number | null; archivo_url: string | null; archivo_public_id: string | null;
     archivo_tipo: TipoArchivo | null;
   }[];
@@ -168,7 +175,7 @@ export async function getCreativos(
         tags: r.tags, created_by: r.created_by, created_at: r.created_at, archivos: [],
         links: r.links, funnel: r.funnel_tags, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
         angulo: r.angulo, formato: r.formato, estructura: r.estructura_guion ?? [], hipotesis: r.hipotesis,
-        estadoAngulo: r.estado_angulo, necesitaLanding: r.necesita_landing,
+        estadoAngulo: r.estado_angulo, necesitaLanding: r.necesita_landing, contador: r.contador,
       });
     }
     if (r.archivo_id !== null) {
@@ -206,7 +213,7 @@ export async function createCreativo(
     )
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
       angulo, formato, estructura_guion AS estructura, hipotesis,
-      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding"
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding", contador
   ` as Omit<Creativo, "archivos">[];
   const creativo = rows[0];
 
@@ -242,7 +249,7 @@ export async function getCreativoById(storeId: string, id: number): Promise<Crea
   const rows = await sql`
     SELECT c.id, c.tipo, c.titulo, c.contenido, c.tags, c.created_by, c.created_at,
            c.meta_ad_id, c.winner_override, c.links, c.funnel_tags,
-           c.angulo, c.formato, c.estructura_guion, c.hipotesis, c.estado_angulo, c.necesita_landing,
+           c.angulo, c.formato, c.estructura_guion, c.hipotesis, c.estado_angulo, c.necesita_landing, c.contador,
            a.id AS archivo_id, a.url AS archivo_url, a.public_id AS archivo_public_id,
            a.tipo_archivo AS archivo_tipo
     FROM creativos c
@@ -253,7 +260,7 @@ export async function getCreativoById(storeId: string, id: number): Promise<Crea
     created_by: string; created_at: string; meta_ad_id: string | null; winner_override: WinnerOverride | null;
     links: string[]; funnel_tags: string[];
     angulo: string | null; formato: string | null; estructura_guion: EtapaGuion[]; hipotesis: string | null;
-    estado_angulo: EstadoAngulo | null; necesita_landing: boolean;
+    estado_angulo: EstadoAngulo | null; necesita_landing: boolean; contador: number;
     archivo_id: number | null; archivo_url: string | null; archivo_public_id: string | null;
     archivo_tipo: TipoArchivo | null;
   }[];
@@ -269,7 +276,7 @@ export async function getCreativoById(storeId: string, id: number): Promise<Crea
     created_by: r.created_by, created_at: r.created_at, archivos,
     links: r.links, funnel: r.funnel_tags, meta_ad_id: r.meta_ad_id, winner_override: r.winner_override,
     angulo: r.angulo, formato: r.formato, estructura: r.estructura_guion ?? [], hipotesis: r.hipotesis,
-    estadoAngulo: r.estado_angulo, necesitaLanding: r.necesita_landing,
+    estadoAngulo: r.estado_angulo, necesitaLanding: r.necesita_landing, contador: r.contador,
   };
 }
 
@@ -316,7 +323,7 @@ export async function updateCreativoContenido(
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
       angulo, formato, estructura_guion AS estructura, hipotesis,
-      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding"
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding", contador
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 
@@ -348,7 +355,30 @@ export async function updateCreativoMeta(
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
       angulo, formato, estructura_guion AS estructura, hipotesis,
-      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding"
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding", contador
+  ` as Omit<Creativo, "archivos">[];
+  if (!rows[0]) return null;
+
+  const archivos = await sql`
+    SELECT id, url, public_id, tipo_archivo FROM creativo_archivos WHERE creativo_id = ${id}
+  ` as CreativoArchivo[];
+
+  return { ...rows[0], archivos };
+}
+
+// Suma 1 al contador de repeticiones de una pregunta/objeción de cliente
+// (ej. volvió a preguntarla otro cliente): no toca título/contenido, así
+// que sólo requiere el permiso "agregar", no "editar".
+export async function incrementarContadorObjecion(storeId: string, id: number): Promise<Creativo | null> {
+  const sql = getDb();
+
+  const rows = await sql`
+    UPDATE creativos
+    SET contador = contador + 1
+    WHERE store_id = ${storeId} AND id = ${id} AND tipo = 'objecion'
+    RETURNING id, tipo, titulo, contenido, tags, created_by, created_at, meta_ad_id, winner_override, links, funnel_tags AS funnel,
+      angulo, formato, estructura_guion AS estructura, hipotesis,
+      estado_angulo AS "estadoAngulo", necesita_landing AS "necesitaLanding", contador
   ` as Omit<Creativo, "archivos">[];
   if (!rows[0]) return null;
 

@@ -6,7 +6,7 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import { hasLinkAccess, hasLinkAction, LinkAction } from "@/lib/navGroups";
 
-type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "analisis" | "anuncio";
+type Tipo = "angulo" | "guion" | "formato" | "marca" | "referencia" | "renovacion" | "analisis" | "anuncio" | "objecion";
 
 const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string; genero?: "f" }> = {
   angulo:      { label: "Ángulos",     singular: "ángulo",              icon: "fas fa-arrows-turn-to-dots" },
@@ -17,6 +17,7 @@ const TIPO_LABEL: Record<Tipo, { label: string; singular: string; icon: string; 
   renovacion:  { label: "Renovaciones", singular: "carpeta de renovación", icon: "fas fa-folder", genero: "f" },
   analisis:    { label: "Análisis de Renovaciones", singular: "análisis de renovación", icon: "fas fa-diagram-project" },
   anuncio:     { label: "Anuncios",    singular: "anuncio",             icon: "fas fa-rectangle-ad" },
+  objecion:    { label: "Preguntas y Objeciones", singular: "pregunta u objeción", icon: "fas fa-comments", genero: "f" },
 };
 
 interface CreativoArchivo {
@@ -56,6 +57,7 @@ interface Creativo {
   hipotesis: string | null;
   estadoAngulo: EstadoAngulo | null;
   necesitaLanding: boolean;
+  contador: number;
 }
 
 // Clasificación de funnel para las referencias de imagen (una imagen puede
@@ -178,22 +180,33 @@ export default function CreativoPage() {
   const [saving, setSaving]       = useState(false);
   const fileInputRef              = useRef<HTMLInputElement>(null);
 
+  // Guarda qué tipo pidió la última llamada a fetchItems: al montar, el tab
+  // por default ("angulo") y el tab real de la URL (ej. via ?tab=objecion)
+  // piden datos casi al mismo tiempo, y si la respuesta del tab viejo llega
+  // después de la del tab actual, no debe pisar los items que sí corresponden
+  // a lo que se está mostrando.
+  const ultimoTipoPedido = useRef<Tipo | null>(null);
+
   const fetchItems = useCallback(async () => {
     if (!tipo) return;
+    const tipoPedido = tipo;
+    ultimoTipoPedido.current = tipoPedido;
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ tipo });
       if (tagFiltro) params.set("tag", tagFiltro);
       const res = await fetch(`/api/creativo?${params}`);
+      if (ultimoTipoPedido.current !== tipoPedido) return;
       if (res.status === 401 || res.status === 403) { setError("No tenés acceso a este módulo."); return; }
       if (!res.ok) throw new Error("Error al cargar");
       const { creativos } = await res.json();
+      if (ultimoTipoPedido.current !== tipoPedido) return;
       setItems(creativos ?? []);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error desconocido");
+      if (ultimoTipoPedido.current === tipoPedido) setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
-      setLoading(false);
+      if (ultimoTipoPedido.current === tipoPedido) setLoading(false);
     }
   }, [tipo, tagFiltro]);
 
@@ -312,6 +325,18 @@ export default function CreativoPage() {
     if (res.ok) await fetchItems();
   }
 
+  async function handleIncrementarContador(id: number) {
+    const res = await fetch("/api/creativo", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, incrementar: true }),
+    });
+    if (res.ok) {
+      const { creativo } = await res.json();
+      setItems(prev => prev.map(i => i.id === id ? { ...i, contador: creativo.contador } : i));
+    }
+  }
+
   function fmtDate(iso: string) {
     return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
   }
@@ -400,7 +425,7 @@ export default function CreativoPage() {
                 </div>
               )}
 
-              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && tipo !== "marca" && tipo !== "analisis" && tipo !== "angulo" && (
+              {!loading && !error && items.length === 0 && tipo !== "anuncio" && tipo !== "renovacion" && tipo !== "referencia" && tipo !== "marca" && tipo !== "analisis" && tipo !== "angulo" && tipo !== "objecion" && (
                 <div className="sf-empty">
                   <i className={`${TIPO_LABEL[tipo].icon} sf-empty-icon`} />
                   <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
@@ -436,7 +461,11 @@ export default function CreativoPage() {
                 <AngulosSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
               )}
 
-              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && tipo !== "marca" && tipo !== "analisis" && tipo !== "angulo" && (
+              {!error && tipo === "objecion" && (
+                <ObjecionesSection items={items} onBorrar={handleBorrar} onEditar={handleEditarCreativo} onIncrementar={handleIncrementarContador} canAgregar={canDo(tipo, "agregar")} canEditar={canDo(tipo, "editar")} canEliminar={canDo(tipo, "eliminar")} />
+              )}
+
+              {!loading && items.length > 0 && tipo !== "anuncio" && tipo !== "referencia" && tipo !== "renovacion" && tipo !== "marca" && tipo !== "analisis" && tipo !== "angulo" && tipo !== "objecion" && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
                   {items.map(item => (
                     <div key={item.id} style={{
@@ -525,6 +554,7 @@ export default function CreativoPage() {
                       : tipo === "renovacion" ? "Ej: Renovación Producto X - Agosto"
                       : tipo === "marca" ? "Ej: Gymshark"
                       : tipo === "analisis" ? "Ej: Reno 54.3"
+                      : tipo === "objecion" ? "Ej: ¿Sirve para mujeres?"
                       : "Ej: Ángulo dolor -> solución rápida"
                     }
                     style={{ width: "100%" }} />
@@ -532,7 +562,7 @@ export default function CreativoPage() {
 
                 <div>
                   <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                    {tipo === "analisis" ? "Anotaciones" : "Contenido"}
+                    {tipo === "analisis" ? "Anotaciones" : tipo === "objecion" ? "Contexto / cómo la respondiste" : "Contenido"}
                   </label>
                   <textarea
                     className="sf-input" value={contenido} onChange={e => setContenido(e.target.value)}
@@ -543,6 +573,7 @@ export default function CreativoPage() {
                       : tipo === "renovacion" ? "Escribí el guion acá (opcional, también podés subirlo como archivo abajo)"
                       : tipo === "marca" ? "Qué hacen bien, qué formatos usan, por qué inspira... (opcional)"
                       : tipo === "analisis" ? "Notas generales sobre la renovación... (opcional)"
+                      : tipo === "objecion" ? "En qué producto, qué le respondiste... (opcional)"
                       : "El guion, la descripción del ángulo o del formato..."
                     }
                   />
@@ -556,44 +587,46 @@ export default function CreativoPage() {
                     placeholder="verano, producto-x, urgencia" style={{ width: "100%" }} />
                 </div>
 
-                <div>
-                  <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                    {tipo === "renovacion" ? "Video editado / archivo de guion (opcional)"
-                      : tipo === "analisis" ? "Video de la renovación"
-                      : "Imágenes / videos"}
-                  </label>
-                  <div
-                    onDragOver={e => e.preventDefault()}
-                    onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivos(e.dataTransfer.files); }}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="sf-dropzone"
-                  >
-                    <input
-                      ref={fileInputRef} type="file"
-                      accept={tipo === "renovacion" ? "video/*,application/pdf,.doc,.docx,.txt" : tipo === "analisis" ? "video/*" : "image/*,video/*"}
-                      multiple style={{ display: "none" }}
-                      onChange={e => { if (e.target.files?.length) subirArchivos(e.target.files); e.target.value = ""; }}
-                    />
-                    <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
-                    <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
-                  </div>
-
-                  {archivos.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
-                      {archivos.map(a => (
-                        <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
-                          {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
-                          {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
-                          {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
-                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
-                          <button onClick={() => quitarArchivo(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-                            <i className="fas fa-times" />
-                          </button>
-                        </div>
-                      ))}
+                {tipo !== "objecion" && (
+                  <div>
+                    <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                      {tipo === "renovacion" ? "Video editado / archivo de guion (opcional)"
+                        : tipo === "analisis" ? "Video de la renovación"
+                        : "Imágenes / videos"}
+                    </label>
+                    <div
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => { e.preventDefault(); if (e.dataTransfer.files.length) subirArchivos(e.dataTransfer.files); }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className="sf-dropzone"
+                    >
+                      <input
+                        ref={fileInputRef} type="file"
+                        accept={tipo === "renovacion" ? "video/*,application/pdf,.doc,.docx,.txt" : tipo === "analisis" ? "video/*" : "image/*,video/*"}
+                        multiple style={{ display: "none" }}
+                        onChange={e => { if (e.target.files?.length) subirArchivos(e.target.files); e.target.value = ""; }}
+                      />
+                      <i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} />
+                      <span style={{ fontWeight: 600 }}>Arrastrá o hacé click</span>
                     </div>
-                  )}
-                </div>
+
+                    {archivos.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", marginTop: "0.6rem" }}>
+                        {archivos.map(a => (
+                          <div key={a.nombre} style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem" }}>
+                            {a.status === "subiendo" && <i className="fas fa-spinner fa-spin" style={{ color: "var(--text-muted)" }} />}
+                            {a.status === "listo" && <i className="fas fa-circle-check" style={{ color: "var(--success-color)" }} />}
+                            {a.status === "error" && <i className="fas fa-circle-exclamation" style={{ color: "var(--error-color)" }} />}
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.nombre}</span>
+                            <button onClick={() => quitarArchivo(a.nombre)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
+                              <i className="fas fa-times" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {(tipo === "referencia" || tipo === "marca") && (
                   <div>
@@ -1957,6 +1990,174 @@ function AngulosSection({ items, onBorrar, onEditar, canEditar, canEliminar }: A
                 className="sf-btn" onClick={guardarEdicion}
                 disabled={savingEdit || !editTitulo.trim() || editArchivos.some(a => a.status === "subiendo")}
               >
+                {savingEdit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Preguntas y Objeciones (feedback de clientes, con contador de repeticiones) ──
+
+interface ObjecionesSectionProps {
+  items: Creativo[];
+  onBorrar: (id: number) => void;
+  onEditar: (id: number, data: { titulo: string; contenido: string; tags: string[] }) => Promise<void>;
+  onIncrementar: (id: number) => void;
+  canAgregar: boolean;
+  canEditar: boolean;
+  canEliminar: boolean;
+}
+
+function ObjecionesSection({ items, onBorrar, onEditar, onIncrementar, canAgregar, canEditar, canEliminar }: ObjecionesSectionProps) {
+  const [editing, setEditing]             = useState<Creativo | null>(null);
+  const [editTitulo, setEditTitulo]       = useState("");
+  const [editContenido, setEditContenido] = useState("");
+  const [editTagsInput, setEditTagsInput] = useState("");
+  const [savingEdit, setSavingEdit]       = useState(false);
+
+  // Las más repetidas primero: son las que más vale la pena atacar en un
+  // anuncio.
+  const ordenados = [...items].sort((a, b) => b.contador - a.contador);
+
+  function abrirEditar(item: Creativo) {
+    setEditing(item);
+    setEditTitulo(item.titulo);
+    setEditContenido(item.contenido);
+    setEditTagsInput(item.tags.join(", "));
+  }
+
+  async function guardarEdicion() {
+    if (!editing || !editTitulo.trim()) return;
+    setSavingEdit(true);
+    try {
+      await onEditar(editing.id, {
+        titulo: editTitulo.trim(),
+        contenido: editContenido.trim(),
+        tags: editTagsInput.split(",").map(t => t.trim()).filter(Boolean),
+      });
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="sf-empty">
+        <i className="fas fa-comments sf-empty-icon" />
+        <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>
+          Todavía no cargaste ninguna pregunta u objeción
+        </p>
+        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+          Hacé click en &quot;Nuevo&quot; para empezar.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+        {ordenados.map(item => (
+          <div key={item.id} style={{
+            display: "flex", alignItems: "flex-start", gap: "0.75rem",
+            border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+            padding: "0.75rem 1rem", background: "rgba(15,23,42,0.4)",
+          }}>
+            <div style={{
+              flexShrink: 0, minWidth: 64, textAlign: "center", padding: "0.4rem 0.5rem",
+              borderRadius: "var(--radius)", background: "rgba(167,139,250,0.15)", color: "#a78bfa",
+            }}>
+              <div style={{ fontSize: "1.15rem", fontWeight: 800, lineHeight: 1 }}>{item.contador}</div>
+              <div style={{ fontSize: "0.6rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.3px" }}>
+                {item.contador === 1 ? "vez" : "veces"}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+              <h3 style={{ fontSize: "0.9rem", fontWeight: 700 }}>{item.titulo}</h3>
+
+              {item.contenido && (
+                <p style={{ fontSize: "0.82rem", color: "var(--text-color)", whiteSpace: "pre-wrap" }}>{item.contenido}</p>
+              )}
+
+              {item.tags.length > 0 && (
+                <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
+                  {item.tags.map(tag => (
+                    <span key={tag} className="sf-badge" style={{ fontSize: "0.65rem" }}>{tag}</span>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                {item.created_by && <>Cargado por <strong>{item.created_by}</strong> · </>}
+                {fmtDateReferencia(item.created_at)}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", flexShrink: 0 }}>
+              {canAgregar && (
+                <button
+                  onClick={() => onIncrementar(item.id)}
+                  title="Volvió a pasar"
+                  className="sf-btn sf-btn-secondary"
+                  style={{ fontSize: "0.72rem", padding: "0.3rem 0.6rem" }}
+                >
+                  <i className="fas fa-plus" /> Se repitió
+                </button>
+              )}
+              <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end" }}>
+                {canEditar && (
+                  <button onClick={() => abrirEditar(item)} title="Editar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                    <i className="fas fa-pen" style={{ fontSize: "0.75rem" }} />
+                  </button>
+                )}
+                {canEliminar && (
+                  <button onClick={() => onBorrar(item.id)} title="Borrar" style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }}>
+                    <i className="fas fa-trash" style={{ fontSize: "0.75rem" }} />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {editing && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setEditing(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(520px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-comments" style={{ color: "#a78bfa" }} />
+                Editar pregunta u objeción
+              </h3>
+              <button className="sf-close-btn" onClick={() => setEditing(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <label className="sf-label">
+                Pregunta / objeción
+                <input className="sf-input" value={editTitulo} onChange={e => setEditTitulo(e.target.value)} autoFocus />
+              </label>
+              <label className="sf-label">
+                Contexto / cómo la respondiste
+                <textarea
+                  className="sf-input" value={editContenido} onChange={e => setEditContenido(e.target.value)}
+                  rows={4} style={{ resize: "vertical", fontFamily: "inherit" }}
+                />
+              </label>
+              <label className="sf-label">
+                Tags (separados por coma)
+                <input className="sf-input" value={editTagsInput} onChange={e => setEditTagsInput(e.target.value)} placeholder="envío, talles, precio" />
+              </label>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setEditing(null)}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarEdicion} disabled={savingEdit || !editTitulo.trim()}>
                 {savingEdit ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
               </button>
             </div>
