@@ -15,6 +15,7 @@ interface Cambio {
   email: string | null;
   dni: string | null;
   motivo: string | null;
+  numero_pedido_original: string | null;
   tipo: TipoCambio;
   direccion: string;
   numero_direccion: string;
@@ -31,8 +32,21 @@ interface Cambio {
 interface DireccionSugerida { label: string; lat: number; lng: number; }
 interface SucursalCercana { nombre: string; direccion: string; distanciaKm: number; horario: string | null; }
 
+// Datos mínimos de un pedido de Tienda Nube que nos importan para
+// prellenar un cambio (no filtramos por estado: el pedido original de un
+// cambio ya está entregado, así que no puede filtrarse por "unshipped"
+// como hace el importador de /procesar).
+interface TnOrderResumen {
+  number: number;
+  contact_name: string;
+  contact_phone?: string;
+  contact_email: string;
+  contact_identification?: string | null;
+  shipping_address?: { phone?: string } | null;
+}
+
 const EMPTY_FORM = {
-  nombre: "", telefono: "", email: "", dni: "", motivo: "",
+  nombre: "", telefono: "", email: "", dni: "", motivo: "", numeroPedidoOriginal: "",
   tipo: "sucursal" as TipoCambio,
   direccion: "", numeroDireccion: "", piso: "", localidad: "", provincia: "", codigoPostal: "",
   sucursal: "",
@@ -61,6 +75,14 @@ export default function CambiosPage() {
   const [buscandoCercanas, setBuscandoCercanas] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Buscador de pedido existente de Tienda Nube (para prellenar
+  // nombre/teléfono/email/DNI sin tenerlos que volver a tipear)
+  const [busquedaPedido, setBusquedaPedido] = useState("");
+  const [resultadosPedido, setResultadosPedido] = useState<TnOrderResumen[]>([]);
+  const [buscandoPedido, setBuscandoPedido] = useState(false);
+  const [pedidoVinculado, setPedidoVinculado] = useState<string | null>(null);
+  const debouncePedidoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     fetchCambios();
   }, []);
@@ -83,22 +105,66 @@ export default function CambiosPage() {
     setModal({});
     setForm(EMPTY_FORM);
     resetBuscadorDireccion();
+    resetBuscadorPedido(null);
   }
 
   function abrirEditar(c: Cambio) {
     setModal(c);
     setForm({
       nombre: c.nombre, telefono: c.telefono, email: c.email ?? "", dni: c.dni ?? "", motivo: c.motivo ?? "",
+      numeroPedidoOriginal: c.numero_pedido_original ?? "",
       tipo: c.tipo,
       direccion: c.direccion, numeroDireccion: c.numero_direccion, piso: c.piso,
       localidad: c.localidad, provincia: c.provincia, codigoPostal: c.codigo_postal,
       sucursal: c.sucursal,
     });
     resetBuscadorDireccion();
+    resetBuscadorPedido(c.numero_pedido_original);
   }
 
   function resetBuscadorDireccion() {
     setBusquedaDireccion(""); setSugerencias([]); setCercanas([]);
+  }
+
+  function resetBuscadorPedido(vinculadoActual: string | null) {
+    setBusquedaPedido(""); setResultadosPedido([]); setPedidoVinculado(vinculadoActual);
+  }
+
+  function onBuscarPedido(value: string) {
+    setBusquedaPedido(value);
+    if (debouncePedidoRef.current) clearTimeout(debouncePedidoRef.current);
+    if (value.trim().length < 2) { setResultadosPedido([]); return; }
+    debouncePedidoRef.current = setTimeout(async () => {
+      setBuscandoPedido(true);
+      try {
+        const res = await fetch(`/api/orders?q=${encodeURIComponent(value)}&per_page=8`);
+        if (res.ok) {
+          const data = await res.json();
+          setResultadosPedido((data.orders ?? []) as TnOrderResumen[]);
+        }
+      } finally {
+        setBuscandoPedido(false);
+      }
+    }, 400);
+  }
+
+  function elegirPedido(o: TnOrderResumen) {
+    setForm(f => ({
+      ...f,
+      nombre: o.contact_name || f.nombre,
+      telefono: o.contact_phone || o.shipping_address?.phone || f.telefono,
+      email: o.contact_email || f.email,
+      dni: o.contact_identification || f.dni,
+      numeroPedidoOriginal: String(o.number),
+    }));
+    setPedidoVinculado(String(o.number));
+    setBusquedaPedido("");
+    setResultadosPedido([]);
+  }
+
+  function quitarVinculoPedido() {
+    setPedidoVinculado(null);
+    setForm(f => ({ ...f, numeroPedidoOriginal: "" }));
   }
 
   function onBuscarDireccion(value: string) {
@@ -231,6 +297,54 @@ export default function CambiosPage() {
             </div>
 
             <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div style={{ position: "relative" }}>
+                <label className="sf-label">
+                  Pedido original en Tienda Nube (opcional)
+                  <input
+                    className="sf-input" value={busquedaPedido}
+                    onChange={e => onBuscarPedido(e.target.value)}
+                    placeholder="Buscar por número de pedido o nombre del cliente..."
+                  />
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                    Elegilo para completar nombre, teléfono, email y DNI automáticamente.
+                  </span>
+                </label>
+                {buscandoPedido && (
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.3rem" }}>
+                    <i className="fas fa-spinner fa-spin" /> Buscando...
+                  </div>
+                )}
+                {resultadosPedido.length > 0 && (
+                  <div style={{
+                    position: "absolute", zIndex: 10, top: "100%", left: 0, right: 0,
+                    background: "var(--bg-color, #0f172a)", border: "1px solid var(--border-color)",
+                    borderRadius: "var(--radius)", marginTop: "0.25rem", maxHeight: 220, overflowY: "auto",
+                  }}>
+                    {resultadosPedido.map((o, i) => (
+                      <div
+                        key={o.number} onClick={() => elegirPedido(o)}
+                        style={{ padding: "0.5rem 0.75rem", cursor: "pointer", fontSize: "0.82rem", borderBottom: i < resultadosPedido.length - 1 ? "1px solid var(--border-color)" : "none" }}
+                      >
+                        <strong>#{o.number}</strong> — {o.contact_name}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {pedidoVinculado && (
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.5rem" }}>
+                    <span className="sf-badge" style={{ background: "rgba(16,185,129,0.12)", color: "var(--success-color)" }}>
+                      <i className="fas fa-link" /> Vinculado a pedido #{pedidoVinculado}
+                    </span>
+                    <button
+                      type="button" onClick={quitarVinculoPedido}
+                      style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.75rem", textDecoration: "underline" }}
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                 <label className="sf-label">
                   Nombre y apellido
@@ -435,6 +549,7 @@ function CambiosList({
             <div style={{ fontSize: "0.88rem", fontWeight: 700 }}>{c.nombre}</div>
             <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
               {c.tipo === "sucursal" ? c.sucursal : `${c.direccion} ${c.numero_direccion}, ${c.localidad}`}
+              {c.numero_pedido_original && <> · Pedido #{c.numero_pedido_original}</>}
               {c.motivo && <> · {c.motivo}</>}
             </div>
           </div>

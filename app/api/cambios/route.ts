@@ -27,6 +27,7 @@ const TIPOS_VALIDOS: TipoCambio[] = ["domicilio", "sucursal"];
 
 interface CambioBody {
   nombre?: string; telefono?: string; email?: string; dni?: string; motivo?: string;
+  numeroPedidoOriginal?: string;
   tipo?: TipoCambio;
   direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
   provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -73,6 +74,7 @@ export async function POST(req: NextRequest) {
   const cambio = await createCambio(storeId, {
     nombre: body.nombre!.trim(), telefono: body.telefono!.trim(),
     email: body.email?.trim(), dni: body.dni?.trim(), motivo: body.motivo?.trim(),
+    numeroPedidoOriginal: body.numeroPedidoOriginal?.trim(),
     tipo: body.tipo!,
     direccion: body.direccion, numeroDireccion: body.numeroDireccion, piso: body.piso,
     localidad: body.localidad, provincia: body.provincia, codigoPostal: body.codigoPostal,
@@ -108,6 +110,7 @@ export async function PUT(req: NextRequest) {
   const cambio = await updateCambio(storeId, Number(body.id), {
     nombre: body.nombre!.trim(), telefono: body.telefono!.trim(),
     email: body.email?.trim(), dni: body.dni?.trim(), motivo: body.motivo?.trim(),
+    numeroPedidoOriginal: body.numeroPedidoOriginal?.trim(),
     tipo: body.tipo!,
     direccion: body.direccion, numeroDireccion: body.numeroDireccion, piso: body.piso,
     localidad: body.localidad, provincia: body.provincia, codigoPostal: body.codigoPostal,

@@ -15,6 +15,9 @@ export interface Cambio {
   email: string | null;
   dni: string | null;
   motivo: string | null;
+  // Número del pedido de Tienda Nube del que viene este cambio (opcional):
+  // se usa solo para trazabilidad, no afecta el procesamiento.
+  numero_pedido_original: string | null;
   tipo: TipoCambio;
   // Campos de domicilio (solo si tipo === "domicilio")
   direccion: string;
@@ -45,6 +48,7 @@ export async function initCambiosTables(): Promise<void> {
       email            TEXT,
       dni              TEXT,
       motivo           TEXT,
+      numero_pedido_original TEXT,
       tipo             TEXT NOT NULL CHECK (tipo IN ('domicilio','sucursal')),
       direccion        TEXT NOT NULL DEFAULT '',
       numero_direccion TEXT NOT NULL DEFAULT '',
@@ -63,6 +67,8 @@ export async function initCambiosTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS cambios_store_procesado
     ON cambios (store_id, procesado)
   `;
+  // Migración: vínculo opcional al pedido de Tienda Nube original.
+  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS numero_pedido_original TEXT`;
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────
@@ -85,6 +91,7 @@ export async function createCambio(
   storeId: string,
   data: {
     nombre: string; telefono: string; email?: string; dni?: string; motivo?: string;
+    numeroPedidoOriginal?: string;
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -94,12 +101,13 @@ export async function createCambio(
   const sql = getDb();
   const rows = await sql`
     INSERT INTO cambios (
-      store_id, nombre, telefono, email, dni, motivo, tipo,
+      store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, tipo,
       direccion, numero_direccion, piso, localidad, provincia, codigo_postal, sucursal,
       created_by
     )
     VALUES (
-      ${storeId}, ${data.nombre}, ${data.telefono}, ${data.email ?? null}, ${data.dni ?? null}, ${data.motivo ?? null}, ${data.tipo},
+      ${storeId}, ${data.nombre}, ${data.telefono}, ${data.email ?? null}, ${data.dni ?? null}, ${data.motivo ?? null},
+      ${data.numeroPedidoOriginal ?? null}, ${data.tipo},
       ${data.direccion ?? ""}, ${data.numeroDireccion ?? ""}, ${data.piso ?? ""}, ${data.localidad ?? ""},
       ${data.provincia ?? ""}, ${data.codigoPostal ?? ""}, ${data.sucursal ?? ""},
       ${data.createdBy}
@@ -113,6 +121,7 @@ export async function updateCambio(
   storeId: string, id: number,
   data: {
     nombre: string; telefono: string; email?: string; dni?: string; motivo?: string;
+    numeroPedidoOriginal?: string;
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -122,7 +131,8 @@ export async function updateCambio(
   const rows = await sql`
     UPDATE cambios
     SET nombre = ${data.nombre}, telefono = ${data.telefono}, email = ${data.email ?? null},
-        dni = ${data.dni ?? null}, motivo = ${data.motivo ?? null}, tipo = ${data.tipo},
+        dni = ${data.dni ?? null}, motivo = ${data.motivo ?? null},
+        numero_pedido_original = ${data.numeroPedidoOriginal ?? null}, tipo = ${data.tipo},
         direccion = ${data.direccion ?? ""}, numero_direccion = ${data.numeroDireccion ?? ""},
         piso = ${data.piso ?? ""}, localidad = ${data.localidad ?? ""},
         provincia = ${data.provincia ?? ""}, codigo_postal = ${data.codigoPostal ?? ""},
