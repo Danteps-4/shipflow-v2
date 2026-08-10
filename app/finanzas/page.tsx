@@ -17,6 +17,7 @@ const CATEGORIAS_NEGOCIO = [
   "Finanzas",
   "Google ADS",
   "Profit",
+  "Envíos",
   "Otros",
 ] as const;
 type CategoriaNegocio = (typeof CATEGORIAS_NEGOCIO)[number];

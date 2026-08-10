@@ -14,6 +14,7 @@ export const CATEGORIAS_GASTO_NEGOCIO = [
   "Finanzas",
   "Google ADS",
   "Profit",
+  "Envíos",
   "Otros",
 ] as const;
 

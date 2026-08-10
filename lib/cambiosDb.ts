@@ -18,6 +18,12 @@ export interface Cambio {
   // Número del pedido de Tienda Nube del que viene este cambio (opcional):
   // se usa solo para trazabilidad, no afecta el procesamiento.
   numero_pedido_original: string | null;
+  // Costo del envío (opcional): al cargarlo se crea/actualiza automáticamente
+  // un gasto en "Gastos del negocio" (categoría "Envíos") — gasto_id guarda
+  // el vínculo para poder mantenerlo sincronizado o borrarlo si se edita/
+  // borra el cambio.
+  costo: number | null;
+  gasto_id: number | null;
   tipo: TipoCambio;
   // Campos de domicilio (solo si tipo === "domicilio")
   direccion: string;
@@ -69,6 +75,11 @@ export async function initCambiosTables(): Promise<void> {
   `;
   // Migración: vínculo opcional al pedido de Tienda Nube original.
   await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS numero_pedido_original TEXT`;
+  // Migración: costo del envío + vínculo al gasto que genera en
+  // gastos_negocio (sin FK: son tablas de módulos distintos que pueden
+  // inicializarse en cualquier orden).
+  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS costo NUMERIC(12,2)`;
+  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS gasto_id INTEGER`;
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────
@@ -85,6 +96,14 @@ export async function getCambios(storeId: string, filtros: { procesado?: boolean
   return rows as Cambio[];
 }
 
+export async function getCambioById(storeId: string, id: number): Promise<Cambio | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT * FROM cambios WHERE id = ${id} AND store_id = ${storeId}
+  ` as Cambio[];
+  return rows[0] ?? null;
+}
+
 // ─── Escritura ───────────────────────────────────────────────────────────────
 
 export async function createCambio(
@@ -92,6 +111,7 @@ export async function createCambio(
   data: {
     nombre: string; telefono: string; email?: string; dni?: string; motivo?: string;
     numeroPedidoOriginal?: string;
+    costo?: number | null; gastoId?: number | null;
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -101,13 +121,13 @@ export async function createCambio(
   const sql = getDb();
   const rows = await sql`
     INSERT INTO cambios (
-      store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, tipo,
+      store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, costo, gasto_id, tipo,
       direccion, numero_direccion, piso, localidad, provincia, codigo_postal, sucursal,
       created_by
     )
     VALUES (
       ${storeId}, ${data.nombre}, ${data.telefono}, ${data.email ?? null}, ${data.dni ?? null}, ${data.motivo ?? null},
-      ${data.numeroPedidoOriginal ?? null}, ${data.tipo},
+      ${data.numeroPedidoOriginal ?? null}, ${data.costo ?? null}, ${data.gastoId ?? null}, ${data.tipo},
       ${data.direccion ?? ""}, ${data.numeroDireccion ?? ""}, ${data.piso ?? ""}, ${data.localidad ?? ""},
       ${data.provincia ?? ""}, ${data.codigoPostal ?? ""}, ${data.sucursal ?? ""},
       ${data.createdBy}
@@ -122,6 +142,7 @@ export async function updateCambio(
   data: {
     nombre: string; telefono: string; email?: string; dni?: string; motivo?: string;
     numeroPedidoOriginal?: string;
+    costo?: number | null; gastoId?: number | null;
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -132,7 +153,8 @@ export async function updateCambio(
     UPDATE cambios
     SET nombre = ${data.nombre}, telefono = ${data.telefono}, email = ${data.email ?? null},
         dni = ${data.dni ?? null}, motivo = ${data.motivo ?? null},
-        numero_pedido_original = ${data.numeroPedidoOriginal ?? null}, tipo = ${data.tipo},
+        numero_pedido_original = ${data.numeroPedidoOriginal ?? null},
+        costo = ${data.costo ?? null}, gasto_id = ${data.gastoId ?? null}, tipo = ${data.tipo},
         direccion = ${data.direccion ?? ""}, numero_direccion = ${data.numeroDireccion ?? ""},
         piso = ${data.piso ?? ""}, localidad = ${data.localidad ?? ""},
         provincia = ${data.provincia ?? ""}, codigo_postal = ${data.codigoPostal ?? ""},

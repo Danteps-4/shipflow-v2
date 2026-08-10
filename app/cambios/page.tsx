@@ -16,6 +16,7 @@ interface Cambio {
   dni: string | null;
   motivo: string | null;
   numero_pedido_original: string | null;
+  costo: number | null;
   tipo: TipoCambio;
   direccion: string;
   numero_direccion: string;
@@ -46,7 +47,7 @@ interface TnOrderResumen {
 }
 
 const EMPTY_FORM = {
-  nombre: "", telefono: "", email: "", dni: "", motivo: "", numeroPedidoOriginal: "",
+  nombre: "", telefono: "", email: "", dni: "", motivo: "", numeroPedidoOriginal: "", costo: "",
   tipo: "sucursal" as TipoCambio,
   direccion: "", numeroDireccion: "", piso: "", localidad: "", provincia: "", codigoPostal: "",
   sucursal: "",
@@ -54,6 +55,10 @@ const EMPTY_FORM = {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function fmtMoney(n: number) {
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
 }
 
 export default function CambiosPage() {
@@ -112,7 +117,7 @@ export default function CambiosPage() {
     setModal(c);
     setForm({
       nombre: c.nombre, telefono: c.telefono, email: c.email ?? "", dni: c.dni ?? "", motivo: c.motivo ?? "",
-      numeroPedidoOriginal: c.numero_pedido_original ?? "",
+      numeroPedidoOriginal: c.numero_pedido_original ?? "", costo: c.costo != null ? String(c.costo) : "",
       tipo: c.tipo,
       direccion: c.direccion, numeroDireccion: c.numero_direccion, piso: c.piso,
       localidad: c.localidad, provincia: c.provincia, codigoPostal: c.codigo_postal,
@@ -373,6 +378,18 @@ export default function CambiosPage() {
                 />
               </label>
 
+              <label className="sf-label">
+                Costo del envío (opcional)
+                <input
+                  className="sf-input" type="number" min="0" step="0.01"
+                  value={form.costo} onChange={e => setForm(f => ({ ...f, costo: e.target.value }))}
+                  placeholder="0.00"
+                />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                  Se suma automáticamente a Gastos del negocio, categoría &quot;Envíos&quot;.
+                </span>
+              </label>
+
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 {(["sucursal", "domicilio"] as TipoCambio[]).map(t => (
                   <button
@@ -550,6 +567,7 @@ function CambiosList({
             <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
               {c.tipo === "sucursal" ? c.sucursal : `${c.direccion} ${c.numero_direccion}, ${c.localidad}`}
               {c.numero_pedido_original && <> · Pedido #{c.numero_pedido_original}</>}
+              {c.costo != null && <> · {fmtMoney(c.costo)}</>}
               {c.motivo && <> · {c.motivo}</>}
             </div>
           </div>
