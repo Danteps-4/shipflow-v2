@@ -29,6 +29,14 @@ const TOOL_GROUPS = [
         tags: ["CSV → Excel", "Validación", "Andreani"],
       },
       {
+        href: "/cambios",
+        icon: "fas fa-right-left",
+        color: "#ec4899",
+        title: "Cambios",
+        description: "Cargá envíos de reposición que no vienen de un pedido de Tienda Nube y sumalos al Excel de Andreani, con la sucursal más cercana sugerida automáticamente.",
+        tags: ["Sucursal más cercana", "Reposiciones", "Andreani"],
+      },
+      {
         href: "/etiquetas",
         icon: "fas fa-tags",
         color: "#a78bfa",

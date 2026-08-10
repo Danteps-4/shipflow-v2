@@ -34,6 +34,7 @@ export const NAV_GROUPS: Apartado[] = [
     subApartados: [
       { href: "/orders", icon: "fas fa-receipt", label: "Pedidos" },
       { href: "/procesar", icon: "fas fa-file-excel", label: "Procesar Pedidos" },
+      { href: "/cambios", icon: "fas fa-right-left", label: "Cambios" },
       { href: "/etiquetas", icon: "fas fa-tags", label: "Agregar SKU a Etiquetas" },
       { href: "/tracking", icon: "fas fa-truck", label: "Subir Tracking" },
     ],
