@@ -5,14 +5,13 @@ import { requireModule } from "@/lib/permissions";
 import {
   initCambiosTables,
   getCambios,
-  getCambioById,
   createCambio,
   updateCambio,
   marcarCambiosProcesados,
   deleteCambio,
   TipoCambio,
 } from "@/lib/cambiosDb";
-import { initFinanzasTables, createGastoNegocio, updateGastoNegocio, deleteGastoNegocio } from "@/lib/finanzasDb";
+import { initFinanzasTables, createGastoNegocio } from "@/lib/finanzasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +29,6 @@ const TIPOS_VALIDOS: TipoCambio[] = ["domicilio", "sucursal"];
 interface CambioBody {
   nombre?: string; telefono?: string; email?: string; dni?: string; motivo?: string;
   numeroPedidoOriginal?: string;
-  costo?: number | string | null;
   tipo?: TipoCambio;
   direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
   provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -44,43 +42,6 @@ function validarCambio(body: CambioBody): string | null {
   if (body.tipo === "domicilio" && (!body.direccion?.trim() || !body.numeroDireccion?.trim())) {
     return "Falta calle y número";
   }
-  return null;
-}
-
-function parseCosto(raw: number | string | null | undefined): number | null {
-  if (raw == null || raw === "") return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-// Crea, actualiza o borra el gasto de "Gastos del negocio" (categoría
-// "Envíos") vinculado a un cambio, según el costo cargado. Sin costo (o
-// costo <= 0) borra el gasto que hubiera quedado vinculado antes.
-async function sincronizarGasto(
-  gastoIdExistente: number | null,
-  costo: number | null,
-  nombre: string,
-  numeroPedidoOriginal: string | undefined,
-  persona: string,
-): Promise<number | null> {
-  if (costo) {
-    const detalle = `Cambio - ${nombre}${numeroPedidoOriginal ? ` - Pedido #${numeroPedidoOriginal}` : ""}`;
-    if (gastoIdExistente) {
-      await updateGastoNegocio(gastoIdExistente, { monto: costo, detalle, persona });
-      return gastoIdExistente;
-    }
-    const gasto = await createGastoNegocio({
-      fecha: new Date().toISOString().slice(0, 10),
-      persona,
-      categoria: "Envíos",
-      detalle,
-      cantidad: null,
-      monto: costo,
-      pagado: false,
-    });
-    return gasto.id;
-  }
-  if (gastoIdExistente) await deleteGastoNegocio(gastoIdExistente);
   return null;
 }
 
@@ -111,16 +72,10 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error }, { status: 400 });
 
   await initCambiosTables();
-  await initFinanzasTables();
-
-  const costo = parseCosto(body.costo);
-  const gastoId = await sincronizarGasto(null, costo, body.nombre!.trim(), body.numeroPedidoOriginal, guard.user.name);
-
   const cambio = await createCambio(storeId, {
     nombre: body.nombre!.trim(), telefono: body.telefono!.trim(),
     email: body.email?.trim(), dni: body.dni?.trim(), motivo: body.motivo?.trim(),
     numeroPedidoOriginal: body.numeroPedidoOriginal?.trim(),
-    costo, gastoId,
     tipo: body.tipo!,
     direccion: body.direccion, numeroDireccion: body.numeroDireccion, piso: body.piso,
     localidad: body.localidad, provincia: body.provincia, codigoPostal: body.codigoPostal,
@@ -130,9 +85,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ cambio });
 }
 
-// Body: { id, marcarProcesados: number[] } marca una tanda de cambios como
-// ya incluidos en un Excel exportado. { id, ...resto } edita un cambio
-// existente (título/dirección/costo/etc, no el estado de procesado).
+// Body: { id, marcarProcesados: number[], costoTotal? } marca una tanda de
+// cambios como ya incluidos en un Excel exportado, y si se cargó un costo
+// total para ese lote, crea un único gasto agregado en "Gastos del negocio"
+// (categoría "Envíos") — no uno por cambio. { id, ...resto } edita un
+// cambio existente (título/dirección/etc, no el estado de procesado).
 export async function PUT(req: NextRequest) {
   const guard = await requireModule(req, "pedidos", "/cambios");
   if (!guard.ok) return guard.response;
@@ -140,11 +97,26 @@ export async function PUT(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const body = await req.json() as { id?: number; marcarProcesados?: number[] } & CambioBody;
+  const body = await req.json() as { id?: number; marcarProcesados?: number[]; costoTotal?: number | string } & CambioBody;
 
   if (body.marcarProcesados) {
     await initCambiosTables();
     await marcarCambiosProcesados(storeId, body.marcarProcesados);
+
+    const costoTotal = Number(body.costoTotal);
+    if (Number.isFinite(costoTotal) && costoTotal > 0) {
+      await initFinanzasTables();
+      const n = body.marcarProcesados.length;
+      await createGastoNegocio({
+        fecha: new Date().toISOString().slice(0, 10),
+        persona: guard.user.name,
+        categoria: "Envíos",
+        detalle: `Cambios procesados (${n} envío${n !== 1 ? "s" : ""})`,
+        cantidad: n,
+        monto: costoTotal,
+        pagado: false,
+      });
+    }
     return NextResponse.json({ ok: true });
   }
 
@@ -153,19 +125,10 @@ export async function PUT(req: NextRequest) {
   if (error) return NextResponse.json({ error }, { status: 400 });
 
   await initCambiosTables();
-  await initFinanzasTables();
-
-  const existing = await getCambioById(storeId, Number(body.id));
-  if (!existing) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-
-  const costo = parseCosto(body.costo);
-  const gastoId = await sincronizarGasto(existing.gasto_id, costo, body.nombre!.trim(), body.numeroPedidoOriginal, guard.user.name);
-
   const cambio = await updateCambio(storeId, Number(body.id), {
     nombre: body.nombre!.trim(), telefono: body.telefono!.trim(),
     email: body.email?.trim(), dni: body.dni?.trim(), motivo: body.motivo?.trim(),
     numeroPedidoOriginal: body.numeroPedidoOriginal?.trim(),
-    costo, gastoId,
     tipo: body.tipo!,
     direccion: body.direccion, numeroDireccion: body.numeroDireccion, piso: body.piso,
     localidad: body.localidad, provincia: body.provincia, codigoPostal: body.codigoPostal,
@@ -186,13 +149,6 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initCambiosTables();
-
-  const existing = await getCambioById(storeId, Number(id));
-  if (existing?.gasto_id) {
-    await initFinanzasTables();
-    await deleteGastoNegocio(existing.gasto_id);
-  }
-
   const ok = await deleteCambio(storeId, Number(id));
   if (!ok) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ ok: true });

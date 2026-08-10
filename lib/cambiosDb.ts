@@ -3,8 +3,8 @@ import { getDb } from "./db";
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
 // Envío de reposición (cambio) que no viene de un pedido real de Tienda
-// Nube: se carga a mano acá y se suma al Excel de Andreani desde
-// /procesar, igual que un pedido más.
+// Nube: se carga a mano acá y se suma al Excel de Andreani desde la
+// propia pestaña de Cambios, igual que un pedido más.
 export type TipoCambio = "domicilio" | "sucursal";
 
 export interface Cambio {
@@ -18,12 +18,6 @@ export interface Cambio {
   // Número del pedido de Tienda Nube del que viene este cambio (opcional):
   // se usa solo para trazabilidad, no afecta el procesamiento.
   numero_pedido_original: string | null;
-  // Costo del envío (opcional): al cargarlo se crea/actualiza automáticamente
-  // un gasto en "Gastos del negocio" (categoría "Envíos") — gasto_id guarda
-  // el vínculo para poder mantenerlo sincronizado o borrarlo si se edita/
-  // borra el cambio.
-  costo: number | null;
-  gasto_id: number | null;
   tipo: TipoCambio;
   // Campos de domicilio (solo si tipo === "domicilio")
   direccion: string;
@@ -75,11 +69,11 @@ export async function initCambiosTables(): Promise<void> {
   `;
   // Migración: vínculo opcional al pedido de Tienda Nube original.
   await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS numero_pedido_original TEXT`;
-  // Migración: costo del envío + vínculo al gasto que genera en
-  // gastos_negocio (sin FK: son tablas de módulos distintos que pueden
-  // inicializarse en cualquier orden).
-  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS costo NUMERIC(12,2)`;
-  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS gasto_id INTEGER`;
+  // El costo dejó de cargarse por cambio individual: ahora se carga un
+  // costo total al procesar un lote entero (ver marcarCambiosProcesados en
+  // app/api/cambios/route.ts), así que estas columnas no se usan más.
+  await sql`ALTER TABLE cambios DROP COLUMN IF EXISTS costo`;
+  await sql`ALTER TABLE cambios DROP COLUMN IF EXISTS gasto_id`;
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────
@@ -111,7 +105,6 @@ export async function createCambio(
   data: {
     nombre: string; telefono: string; email?: string; dni?: string; motivo?: string;
     numeroPedidoOriginal?: string;
-    costo?: number | null; gastoId?: number | null;
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -121,13 +114,13 @@ export async function createCambio(
   const sql = getDb();
   const rows = await sql`
     INSERT INTO cambios (
-      store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, costo, gasto_id, tipo,
+      store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, tipo,
       direccion, numero_direccion, piso, localidad, provincia, codigo_postal, sucursal,
       created_by
     )
     VALUES (
       ${storeId}, ${data.nombre}, ${data.telefono}, ${data.email ?? null}, ${data.dni ?? null}, ${data.motivo ?? null},
-      ${data.numeroPedidoOriginal ?? null}, ${data.costo ?? null}, ${data.gastoId ?? null}, ${data.tipo},
+      ${data.numeroPedidoOriginal ?? null}, ${data.tipo},
       ${data.direccion ?? ""}, ${data.numeroDireccion ?? ""}, ${data.piso ?? ""}, ${data.localidad ?? ""},
       ${data.provincia ?? ""}, ${data.codigoPostal ?? ""}, ${data.sucursal ?? ""},
       ${data.createdBy}
@@ -142,7 +135,6 @@ export async function updateCambio(
   data: {
     nombre: string; telefono: string; email?: string; dni?: string; motivo?: string;
     numeroPedidoOriginal?: string;
-    costo?: number | null; gastoId?: number | null;
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
@@ -153,8 +145,7 @@ export async function updateCambio(
     UPDATE cambios
     SET nombre = ${data.nombre}, telefono = ${data.telefono}, email = ${data.email ?? null},
         dni = ${data.dni ?? null}, motivo = ${data.motivo ?? null},
-        numero_pedido_original = ${data.numeroPedidoOriginal ?? null},
-        costo = ${data.costo ?? null}, gasto_id = ${data.gastoId ?? null}, tipo = ${data.tipo},
+        numero_pedido_original = ${data.numeroPedidoOriginal ?? null}, tipo = ${data.tipo},
         direccion = ${data.direccion ?? ""}, numero_direccion = ${data.numeroDireccion ?? ""},
         piso = ${data.piso ?? ""}, localidad = ${data.localidad ?? ""},
         provincia = ${data.provincia ?? ""}, codigo_postal = ${data.codigoPostal ?? ""},
@@ -166,8 +157,7 @@ export async function updateCambio(
 }
 
 // Marca como procesados los cambios que efectivamente salieron en un
-// Excel exportado (se llama después de una descarga exitosa desde
-// /procesar), para que no se vuelvan a importar la próxima vez.
+// Excel exportado, para que no se vuelvan a procesar la próxima vez.
 export async function marcarCambiosProcesados(storeId: string, ids: number[]): Promise<void> {
   if (!ids.length) return;
   const sql = getDb();

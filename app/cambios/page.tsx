@@ -5,6 +5,10 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import { ANDREANI_SUCURSALES } from "@/lib/andreaniData";
+import { transformOrders } from "@/lib/transformOrders";
+import { exportAndreaniWorkbook } from "@/lib/exportAndreaniWorkbook";
+import { cambioToGroupedOrder } from "@/lib/cambioToGroupedOrder";
+import { AndreaniDomicilio, AndreaniSucursal, ValidationError } from "@/types/orders";
 
 type TipoCambio = "domicilio" | "sucursal";
 
@@ -16,7 +20,6 @@ interface Cambio {
   dni: string | null;
   motivo: string | null;
   numero_pedido_original: string | null;
-  costo: number | null;
   tipo: TipoCambio;
   direccion: string;
   numero_direccion: string;
@@ -28,6 +31,12 @@ interface Cambio {
   procesado: boolean;
   created_by: string;
   created_at: string;
+}
+
+interface ProcesarPreview {
+  domicilio: AndreaniDomicilio[];
+  sucursal: AndreaniSucursal[];
+  errores: ValidationError[];
 }
 
 interface DireccionSugerida { label: string; lat: number; lng: number; }
@@ -47,7 +56,7 @@ interface TnOrderResumen {
 }
 
 const EMPTY_FORM = {
-  nombre: "", telefono: "", email: "", dni: "", motivo: "", numeroPedidoOriginal: "", costo: "",
+  nombre: "", telefono: "", email: "", dni: "", motivo: "", numeroPedidoOriginal: "",
   tipo: "sucursal" as TipoCambio,
   direccion: "", numeroDireccion: "", piso: "", localidad: "", provincia: "", codigoPostal: "",
   sucursal: "",
@@ -55,10 +64,6 @@ const EMPTY_FORM = {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function fmtMoney(n: number) {
-  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
 }
 
 export default function CambiosPage() {
@@ -87,6 +92,12 @@ export default function CambiosPage() {
   const [buscandoPedido, setBuscandoPedido] = useState(false);
   const [pedidoVinculado, setPedidoVinculado] = useState<string | null>(null);
   const debouncePedidoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Procesar en lote: genera el Excel de Andreani con los cambios
+  // pendientes y pide un costo total único para todo el lote.
+  const [procesarPreview, setProcesarPreview] = useState<ProcesarPreview | null>(null);
+  const [costoTotalProcesar, setCostoTotalProcesar] = useState("");
+  const [procesando, setProcesando] = useState(false);
 
   useEffect(() => {
     fetchCambios();
@@ -117,7 +128,7 @@ export default function CambiosPage() {
     setModal(c);
     setForm({
       nombre: c.nombre, telefono: c.telefono, email: c.email ?? "", dni: c.dni ?? "", motivo: c.motivo ?? "",
-      numeroPedidoOriginal: c.numero_pedido_original ?? "", costo: c.costo != null ? String(c.costo) : "",
+      numeroPedidoOriginal: c.numero_pedido_original ?? "",
       tipo: c.tipo,
       direccion: c.direccion, numeroDireccion: c.numero_direccion, piso: c.piso,
       localidad: c.localidad, provincia: c.provincia, codigoPostal: c.codigo_postal,
@@ -235,6 +246,44 @@ export default function CambiosPage() {
     form.nombre.trim() && form.telefono.trim() &&
     (form.tipo === "sucursal" ? !!form.sucursal.trim() : !!(form.direccion.trim() && form.numeroDireccion.trim()));
 
+  function abrirProcesar() {
+    const grouped = pendientes.map(cambioToGroupedOrder);
+    const { domicilio, sucursal, errores } = transformOrders(grouped);
+    setProcesarPreview({ domicilio, sucursal, errores });
+    setCostoTotalProcesar("");
+  }
+
+  function nombreDeError(numeroOrden: string): string {
+    const id = Number(numeroOrden.replace("CAMBIO-", ""));
+    return pendientes.find(c => c.id === id)?.nombre ?? numeroOrden;
+  }
+
+  async function confirmarProcesar() {
+    if (!procesarPreview) return;
+    setProcesando(true);
+    try {
+      await exportAndreaniWorkbook(procesarPreview.domicilio, procesarPreview.sucursal);
+
+      const erroredNums = new Set(procesarPreview.errores.map(e => e.numeroOrden));
+      const idsExitosos = pendientes.filter(c => !erroredNums.has(`CAMBIO-${c.id}`)).map(c => c.id);
+
+      if (idsExitosos.length > 0) {
+        await fetch("/api/cambios", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            marcarProcesados: idsExitosos,
+            costoTotal: costoTotalProcesar.trim() ? Number(costoTotalProcesar) : undefined,
+          }),
+        });
+      }
+      setProcesarPreview(null);
+      await fetchCambios();
+    } finally {
+      setProcesando(false);
+    }
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -253,13 +302,18 @@ export default function CambiosPage() {
         <div className="sf-container">
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Cambios</h1>
           <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
-            Cargá envíos de reposición que no vienen de un pedido de Tienda Nube. Se suman al Excel de Andreani desde &quot;Procesar Pedidos&quot;.
+            Cargá envíos de reposición que no vienen de un pedido de Tienda Nube, y procesalos acá mismo para generar el Excel de Andreani.
           </p>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-            <button className="sf-btn" onClick={abrirNuevo}>
-              <i className="fas fa-plus" /> Nuevo cambio
-            </button>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
+            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+              <button className="sf-btn" onClick={abrirNuevo}>
+                <i className="fas fa-plus" /> Nuevo cambio
+              </button>
+              <button className="sf-btn sf-btn-secondary" onClick={abrirProcesar} disabled={pendientes.length === 0}>
+                <i className="fas fa-file-excel" /> Procesar cambios pendientes ({pendientes.length})
+              </button>
+            </div>
             <button
               className="sf-btn sf-btn-secondary"
               onClick={() => setVerProcesados(v => !v)}
@@ -376,18 +430,6 @@ export default function CambiosPage() {
                   className="sf-input" value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))}
                   placeholder="Ej: cambio de talle - pedido original #1234"
                 />
-              </label>
-
-              <label className="sf-label">
-                Costo del envío (opcional)
-                <input
-                  className="sf-input" type="number" min="0" step="0.01"
-                  value={form.costo} onChange={e => setForm(f => ({ ...f, costo: e.target.value }))}
-                  placeholder="0.00"
-                />
-                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
-                  Se suma automáticamente a Gastos del negocio, categoría &quot;Envíos&quot;.
-                </span>
               </label>
 
               <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -527,6 +569,64 @@ export default function CambiosPage() {
           </div>
         </>
       )}
+
+      {procesarPreview && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => !procesando && setProcesarPreview(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(480px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-file-excel" style={{ color: "var(--success-color)" }} />
+                Procesar cambios pendientes
+              </h3>
+              <button className="sf-close-btn" onClick={() => !procesando && setProcesarPreview(null)}><i className="fas fa-times" /></button>
+            </div>
+
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem", fontSize: "0.85rem" }}>
+                <div><strong>{procesarPreview.domicilio.length}</strong> a domicilio</div>
+                <div><strong>{procesarPreview.sucursal.length}</strong> a sucursal</div>
+              </div>
+
+              {procesarPreview.errores.length > 0 && (
+                <div className="sf-alert sf-alert-warning">
+                  <i className="fas fa-triangle-exclamation" style={{ marginTop: "2px", flexShrink: 0 }} />
+                  <div>
+                    <div>{procesarPreview.errores.length} cambio(s) con errores van a quedar pendientes:</div>
+                    <ul style={{ marginTop: "0.4rem", paddingLeft: "1.1rem" }}>
+                      {procesarPreview.errores.map(e => (
+                        <li key={e.numeroOrden}>{nombreDeError(e.numeroOrden)} — {e.campos.join(", ")}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              <label className="sf-label">
+                Costo total de este envío (opcional)
+                <input
+                  className="sf-input" type="number" min="0" step="0.01"
+                  value={costoTotalProcesar} onChange={e => setCostoTotalProcesar(e.target.value)}
+                  placeholder="0.00"
+                />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                  Se suma como un único gasto a Gastos del negocio, categoría &quot;Envíos&quot;.
+                </span>
+              </label>
+            </div>
+
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setProcesarPreview(null)} disabled={procesando}>Cancelar</button>
+              <button
+                className="sf-btn" onClick={confirmarProcesar}
+                disabled={procesando || (procesarPreview.domicilio.length + procesarPreview.sucursal.length === 0)}
+              >
+                {procesando ? <><i className="fas fa-spinner fa-spin" /> Procesando...</> : <><i className="fas fa-download" /> Procesar y descargar Excel</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -567,7 +667,6 @@ function CambiosList({
             <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
               {c.tipo === "sucursal" ? c.sucursal : `${c.direccion} ${c.numero_direccion}, ${c.localidad}`}
               {c.numero_pedido_original && <> · Pedido #{c.numero_pedido_original}</>}
-              {c.costo != null && <> · {fmtMoney(c.costo)}</>}
               {c.motivo && <> · {c.motivo}</>}
             </div>
           </div>

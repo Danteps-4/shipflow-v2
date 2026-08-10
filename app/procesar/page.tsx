@@ -21,49 +21,6 @@ import Sidebar from "@/components/Sidebar";
 
 type Tab = "domicilio" | "sucursal" | "errores" | "retiro";
 
-// Forma mínima de un cambio (ver lib/cambiosDb.ts) — se redeclara acá en
-// vez de importar del lib server-only, igual que hace app/cambios/page.tsx.
-interface Cambio {
-  id: number;
-  nombre: string;
-  telefono: string;
-  email: string | null;
-  dni: string | null;
-  tipo: "domicilio" | "sucursal";
-  direccion: string;
-  numero_direccion: string;
-  piso: string;
-  localidad: string;
-  provincia: string;
-  codigo_postal: string;
-  sucursal: string;
-}
-
-// Un cambio se prefija "CAMBIO-{id}" en numeroOrden para poder distinguirlo
-// de un pedido real de Tienda Nube (y para poder identificarlo de nuevo
-// después de exportar, y marcarlo como procesado).
-function cambioToGroupedOrder(c: Cambio): GroupedOrder {
-  return {
-    numeroOrden: `CAMBIO-${c.id}`,
-    nombreEnvio: c.nombre,
-    dni: c.dni ?? "",
-    email: c.email ?? "",
-    telefono: c.telefono,
-    medioEnvio: c.tipo === "sucursal" ? "Punto de retiro" : "Andreani a Domicilio",
-    direccion: c.direccion,
-    numeroDireccion: c.numero_direccion,
-    piso: c.piso,
-    localidad: c.localidad,
-    provincia: c.provincia,
-    codigoPostal: c.codigo_postal,
-    ciudad: "",
-    rawLocalidad: c.localidad,
-    rawProvincia: c.provincia,
-    rawCodigoPostal: c.codigo_postal,
-    sucursal: c.sucursal,
-  };
-}
-
 // Trae los overrides manuales (tipo de envío, dirección o sucursal) cargados
 // en /orders para estos números de pedido (silencioso ante error: si falla,
 // se usa la detección automática como si no hubiera overrides).
@@ -161,30 +118,6 @@ export default function ProcesarPage() {
     else                           setActiveTab("sucursal");
   }
 
-  async function handleImportarCambios() {
-    const res = await fetch("/api/cambios?procesado=false");
-    if (!res.ok) return;
-    const { cambios } = await res.json() as { cambios: Cambio[] };
-    if (!cambios || cambios.length === 0) {
-      alert("No hay cambios pendientes para importar.");
-      return;
-    }
-    const nuevos = cambios.map(cambioToGroupedOrder);
-    const existing = result?.groupedOrders ?? [];
-    const existingNums = new Set(existing.map((o) => o.numeroOrden));
-    const filtered = nuevos.filter((o) => !existingNums.has(o.numeroOrden));
-    const merged = [...existing, ...filtered];
-    const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(merged);
-    setResult({
-      totalFilas: (result?.totalFilas ?? 0) + filtered.length,
-      ordenesUnicas: merged.length,
-      domicilio, sucursal, errores, retiroPresencial, groupedOrders: merged,
-    });
-    if (errores.length > 0)        setActiveTab("errores");
-    else if (domicilio.length > 0) setActiveTab("domicilio");
-    else                           setActiveTab("sucursal");
-  }
-
   async function handleFile(content: string) {
     setIsLoading(true);
     setParseWarning(null);
@@ -223,21 +156,6 @@ export default function ProcesarPage() {
     const snap = result;
     await exportAndreaniWorkbook(snap.domicilio, snap.sucursal);
     setExportSummary({ domicilio: snap.domicilio.length, sucursal: snap.sucursal.length });
-
-    // Los cambios que efectivamente salieron en el Excel quedan marcados
-    // como procesados, para que no se vuelvan a importar la próxima vez.
-    const cambioIds = [...snap.domicilio, ...snap.sucursal]
-      .map((r) => r["Numero Interno"])
-      .filter((n) => n.startsWith("CAMBIO-"))
-      .map((n) => Number(n.replace("CAMBIO-", "")))
-      .filter((n) => Number.isFinite(n));
-    if (cambioIds.length > 0) {
-      fetch("/api/cambios", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ marcarProcesados: cambioIds }),
-      }).catch(() => {});
-    }
   }
 
   function handleSaveOrder(updated: GroupedOrder) {
@@ -302,16 +220,13 @@ export default function ProcesarPage() {
 
           <FileUpload onFile={handleFile} isLoading={isLoading} />
 
-          <div style={{ marginTop: "1rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-            {tnConnected && (
+          {tnConnected && (
+            <div style={{ marginTop: "1rem" }}>
               <button className="sf-btn sf-btn-secondary" onClick={() => setShowPicker(true)}>
                 <i className="fas fa-store" /> Importar desde Tienda Nube
               </button>
-            )}
-            <button className="sf-btn sf-btn-secondary" onClick={handleImportarCambios}>
-              <i className="fas fa-right-left" /> Importar cambios pendientes
-            </button>
-          </div>
+            </div>
+          )}
 
           {parseWarning && (
             <div className="sf-alert sf-alert-warning" style={{ marginTop: "1rem" }}>
