@@ -144,13 +144,20 @@ export default function EtiquetasPage() {
   async function handlePdfAndreani(f: FileState) {
     setPdf(f);
     setDone(false);
+    setError(null);
     if (!f) return;
 
     try {
       const extractForm = new FormData();
       extractForm.append("pdf", f.file);
       const extractRes = await fetch("/api/etiquetas/extract", { method: "POST", body: extractForm });
-      if (!extractRes.ok) return; // el CSV sigue siendo la fuente principal, no bloqueamos por esto
+      if (!extractRes.ok) {
+        // El CSV sigue siendo la fuente principal, así que esto no bloquea
+        // el flujo — pero se avisa igual para no fallar en silencio.
+        const body = await extractRes.json().catch(() => ({}));
+        setError(body.error ?? "No se pudo leer el PDF para detectar etiquetas de cambios/envíos sin venta. Podés seguir con el CSV, o agregar esos pedidos a mano con \"Agregar pedido manual\".");
+        return;
+      }
       const { orderNumbers } = await extractRes.json() as { orderNumbers: string[] };
       if (!orderNumbers?.length) return;
 
@@ -161,7 +168,9 @@ export default function EtiquetasPage() {
         }
         return merged;
       });
-    } catch { /* el CSV sigue funcionando aunque falle la lectura del PDF */ }
+    } catch {
+      setError("No se pudo leer el PDF para detectar etiquetas de cambios/envíos sin venta. Podés seguir con el CSV, o agregar esos pedidos a mano con \"Agregar pedido manual\".");
+    }
   }
 
   // ── Envío Nube: extract orders from PDF → fetch SKUs from TN ──
