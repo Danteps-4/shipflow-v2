@@ -159,7 +159,10 @@ export default function EtiquetasPage() {
         return;
       }
       const { orderNumbers } = await extractRes.json() as { orderNumbers: string[] };
-      if (!orderNumbers?.length) return;
+      if (!orderNumbers?.length) {
+        setError("Se leyó el PDF pero no se detectó ningún número de pedido en el texto. Subí también el ventas.csv, o agregá los pedidos a mano con \"Agregar pedido manual\".");
+        return;
+      }
 
       setParsedOrders(prev => {
         const merged: ParsedOrders = { ...(prev ?? {}) };
