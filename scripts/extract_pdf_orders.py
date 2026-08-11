@@ -12,22 +12,29 @@ import re
 import PyPDF2
 
 
+def normalizar_nro(valor: str) -> str:
+    # Si es puramente numerico se normaliza (saca ceros a la izquierda);
+    # si no (ej. "CAMBIO-21", como Andreani imprime los envios cargados
+    # desde la pestana Cambios) se devuelve tal cual.
+    return str(int(valor)) if valor.isdigit() else valor.upper()
+
+
 def extraer_nro(texto: str):
     if not isinstance(texto, str):
         return None
     t = texto.replace("NÂ°", "N°").replace("Nº", "N°").replace("\n", " ")
-    # Andreani: "Interno: #12345"
-    m = re.search(r"Interno\s*:\s*#?\s*([0-9]+)", t, re.IGNORECASE)
+    # Andreani: "Interno: #12345" o "Interno:CAMBIO-21"
+    m = re.search(r"Interno\s*:\s*#?\s*([A-Za-z0-9-]+)", t, re.IGNORECASE)
     if m:
-        return str(int(m.group(1)))
+        return normalizar_nro(m.group(1))
     # Envio Nube / E-Pick: "Para: #4487"
     m = re.search(r"Para\s*:\s*#(\d+)", t, re.IGNORECASE)
     if m:
-        return str(int(m.group(1)))
+        return normalizar_nro(m.group(1))
     # Fallback: first bare #XXXX
     m = re.search(r"#(\d+)", t)
     if m:
-        return str(int(m.group(1)))
+        return normalizar_nro(m.group(1))
     return None
 
 

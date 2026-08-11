@@ -10,16 +10,26 @@ import { requireModule } from "@/lib/permissions";
 
 export const runtime = "nodejs";
 
+// Si el interno es puramente numérico se normaliza (saca ceros a la
+// izquierda, etc); si no (ej. "CAMBIO-21", que es como Andreani imprime
+// los envíos cargados desde la pestaña Cambios) se devuelve tal cual.
+function normalizarNro(valor: string): string {
+  return /^\d+$/.test(valor) ? String(Number(valor)) : valor.toUpperCase();
+}
+
 // Extrae el número de pedido/interno impreso en el texto de una página de
 // etiqueta (Andreani o Envío Nube). Usado por el fallback en Node.
 function extraerNro(texto: string): string | null {
   const t = texto.replace(/N[ÂºO]°?/gi, "N°").replace(/\n/g, " ");
-  let m = t.match(/Interno\s*:\s*#?\s*(\d+)/i);
-  if (m) return String(Number(m[1]));
+  // "N° Interno" puede ser un número de pedido normal ("#12345") o, para
+  // envíos cargados desde Cambios, el literal "CAMBIO-<id>" — no siempre
+  // son solo dígitos.
+  let m = t.match(/Interno\s*:\s*#?\s*([A-Za-z0-9-]+)/i);
+  if (m) return normalizarNro(m[1]);
   m = t.match(/Para\s*:\s*#(\d+)/i);
-  if (m) return String(Number(m[1]));
+  if (m) return normalizarNro(m[1]);
   m = t.match(/#(\d+)/);
-  if (m) return String(Number(m[1]));
+  if (m) return normalizarNro(m[1]);
   return null;
 }
 
@@ -84,10 +94,15 @@ export async function POST(req: NextRequest) {
 
   const pdfBuffer = Buffer.from(await pdfFile.arrayBuffer());
 
+  // Se prueban los dos métodos y se prefiere el que haya encontrado algo,
+  // por si uno de los dos falla en detectar el patrón en un PDF particular.
   const viaPython = tryPython(pdfBuffer.toString("base64"));
-  if (viaPython) return NextResponse.json(viaPython);
+  if (viaPython?.orderNumbers.length) return NextResponse.json(viaPython);
 
   const viaNode = await tryNode(pdfBuffer);
+  if (viaNode?.orderNumbers.length) return NextResponse.json(viaNode);
+
+  if (viaPython) return NextResponse.json(viaPython);
   if (viaNode) return NextResponse.json(viaNode);
 
   return NextResponse.json({ error: "No se pudo leer el PDF con ninguno de los métodos disponibles" }, { status: 500 });

@@ -71,11 +71,11 @@ def construir_mapa_skus(csv_bytes: bytes) -> dict:
 # ── Extractors ────────────────────────────────────────────────────────
 
 def extraer_nro_interno(texto: str):
-    """Andreani: busca 'Interno: #12345'"""
+    """Andreani: busca 'Interno: #12345' o 'Interno:CAMBIO-21'"""
     if not isinstance(texto, str):
         return None
     t = texto.replace("NÂ°", "N°").replace("Nº", "N°").replace("\n", " ")
-    m = re.search(r"Interno\s*:\s*#?\s*([0-9]+)", t, flags=re.IGNORECASE)
+    m = re.search(r"Interno\s*:\s*#?\s*([A-Za-z0-9-]+)", t, flags=re.IGNORECASE)
     return m.group(1) if m else None
 
 
@@ -190,7 +190,11 @@ def process_pdf_labels(pdf_bytes: bytes, skus_map: dict) -> bytes:
                 key = str(int(nro_orden))
             except ValueError:
                 key = nro_orden
-            skus_texto = skus_map.get(key)
+            # El mapa de SKUs que manda el front usa el interno tal como lo
+            # devolvió /api/etiquetas/extract, que normaliza a mayúsculas
+            # los que no son puramente numéricos (ej. "CAMBIO-21") — por
+            # las dudas se prueba también esa variante.
+            skus_texto = skus_map.get(key) or skus_map.get(key.upper())
 
             if skus_texto:
                 packet = io.BytesIO()
