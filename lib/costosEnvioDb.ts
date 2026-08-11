@@ -56,12 +56,13 @@ export async function getCostosEnvio(storeId: string, limit = 500): Promise<Cost
 
 export async function createCostoEnvio(
   storeId: string,
-  data: { cantidadEnvios: number; costoTotal: number; createdBy: string },
+  data: { cantidadEnvios: number; costoTotal: number; createdBy: string; fecha?: string },
 ): Promise<CostoEnvio> {
   const sql = getDb();
+  const fecha = data.fecha ?? new Date().toISOString().slice(0, 10);
   const rows = await sql`
-    INSERT INTO costos_envio (store_id, cantidad_envios, costo_total, created_by)
-    VALUES (${storeId}, ${data.cantidadEnvios}, ${data.costoTotal}, ${data.createdBy})
+    INSERT INTO costos_envio (store_id, cantidad_envios, costo_total, created_by, fecha)
+    VALUES (${storeId}, ${data.cantidadEnvios}, ${data.costoTotal}, ${data.createdBy}, ${fecha})
     RETURNING *
   ` as CostoEnvio[];
   return rows[0];

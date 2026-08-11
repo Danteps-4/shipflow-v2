@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { ValidationError } from "@/types/orders";
 
 interface ExportSummaryModalProps {
@@ -8,9 +8,6 @@ interface ExportSummaryModalProps {
   exportedSucursal: number;
   omitidos: ValidationError[];
   onClose: () => void;
-  // Guarda el costo total de este lote como estadística (envío promedio),
-  // no como gasto. Opcional: si no se pasa, no se muestra el campo.
-  onGuardarCosto?: (costoTotal: number, cantidadEnvios: number) => Promise<void>;
 }
 
 export default function ExportSummaryModal({
@@ -18,29 +15,12 @@ export default function ExportSummaryModal({
   exportedSucursal,
   omitidos,
   onClose,
-  onGuardarCosto,
 }: ExportSummaryModalProps) {
-  const [costoTotal, setCostoTotal] = useState("");
-  const [guardandoCosto, setGuardandoCosto] = useState(false);
-
   const totalExported = exportedDomicilio + exportedSucursal;
-
-  async function handleCerrar() {
-    const monto = Number(costoTotal);
-    if (onGuardarCosto && costoTotal.trim() && Number.isFinite(monto) && monto > 0) {
-      setGuardandoCosto(true);
-      try {
-        await onGuardarCosto(monto, totalExported);
-      } finally {
-        setGuardandoCosto(false);
-      }
-    }
-    onClose();
-  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") handleCerrar();
+      if (e.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -49,7 +29,7 @@ export default function ExportSummaryModal({
 
   return (
     <>
-      <div className="sf-modal-backdrop" onClick={handleCerrar} />
+      <div className="sf-modal-backdrop" onClick={onClose} />
       <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(580px, calc(100vw - 2rem))" }}>
 
         {/* Header */}
@@ -58,7 +38,7 @@ export default function ExportSummaryModal({
             <i className="fas fa-file-excel" style={{ color: "var(--success-color)" }} />
             Excel generado
           </h3>
-          <button className="sf-close-btn" onClick={handleCerrar}>
+          <button className="sf-close-btn" onClick={onClose}>
             <i className="fas fa-times" />
           </button>
         </div>
@@ -166,26 +146,11 @@ export default function ExportSummaryModal({
             </div>
           )}
 
-          {onGuardarCosto && totalExported > 0 && (
-            <label className="sf-label" style={{ marginTop: "1rem" }}>
-              Costo total de este envío (opcional)
-              <input
-                className="sf-input" type="number" min="0" step="0.01"
-                value={costoTotal} onChange={e => setCostoTotal(e.target.value)}
-                placeholder="0.00"
-              />
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
-                Solo para calcular el envío promedio del mes — no se agrega como gasto.
-              </span>
-            </label>
-          )}
         </div>
 
         {/* Footer */}
         <div className="sf-modal-footer">
-          <button className="sf-btn" onClick={handleCerrar} disabled={guardandoCosto}>
-            {guardandoCosto ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : "Entendido"}
-          </button>
+          <button className="sf-btn" onClick={onClose}>Entendido</button>
         </div>
       </div>
     </>

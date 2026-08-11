@@ -51,6 +51,10 @@ function fmtMoneyEnvio(n: number): string {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
 }
 
+function hoyStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // Trae los overrides manuales (tipo de envío, dirección o sucursal) cargados
 // en /orders para estos números de pedido (silencioso ante error: si falla,
 // se usa la detección automática como si no hubiera overrides).
@@ -105,9 +109,12 @@ export default function ProcesarPage() {
   const [tnConnected, setTnConnected]     = useState<boolean>(false);
 
   // Envío promedio: estadística de referencia (no un gasto) para ajustar
-  // el cálculo de profit en otro software.
+  // el cálculo de profit en otro software. Se carga aparte de la
+  // exportación, porque al descargar el Excel todavía no se sabe el costo.
   const [costosEnvio, setCostosEnvio] = useState<CostoEnvio[]>([]);
   const [mesEnvio, setMesEnvio]       = useState(mesActualStr());
+  const [costoModal, setCostoModal]   = useState<{ fecha: string; cantidadEnvios: string; costoTotal: string } | null>(null);
+  const [guardandoCosto, setGuardandoCosto] = useState(false);
 
   async function fetchCostosEnvio() {
     try {
@@ -116,13 +123,24 @@ export default function ProcesarPage() {
     } catch { /* silencioso: es solo una estadística de referencia */ }
   }
 
-  async function guardarCostoEnvio(costoTotal: number, cantidadEnvios: number) {
-    await fetch("/api/costos-envio", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ costoTotal, cantidadEnvios }),
-    }).catch(() => {});
-    await fetchCostosEnvio();
+  async function guardarCostoEnvio() {
+    if (!costoModal) return;
+    const cantidadEnvios = Number(costoModal.cantidadEnvios);
+    const costoTotal = Number(costoModal.costoTotal);
+    if (!Number.isFinite(cantidadEnvios) || cantidadEnvios <= 0) return alert("Ingresá la cantidad de envíos.");
+    if (!Number.isFinite(costoTotal) || costoTotal <= 0) return alert("Ingresá el costo total.");
+    setGuardandoCosto(true);
+    try {
+      await fetch("/api/costos-envio", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ costoTotal, cantidadEnvios, fecha: costoModal.fecha }),
+      });
+      setCostoModal(null);
+      await fetchCostosEnvio();
+    } finally {
+      setGuardandoCosto(false);
+    }
   }
 
   // Check TN connection + load orders pending from /orders page
@@ -300,6 +318,12 @@ export default function ProcesarPage() {
               )}
               <button className="sf-icon-btn" title="Mes siguiente" onClick={() => setMesEnvio(m => sumarMesesEnvio(m, 1))}>
                 <i className="fas fa-chevron-right" />
+              </button>
+              <button
+                className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem", marginLeft: "0.4rem" }}
+                onClick={() => setCostoModal({ fecha: hoyStr(), cantidadEnvios: "", costoTotal: "" })}
+              >
+                <i className="fas fa-plus" /> Agregar costo
               </button>
             </div>
           </div>
@@ -526,8 +550,58 @@ export default function ProcesarPage() {
           exportedSucursal={exportSummary.sucursal}
           omitidos={result.errores}
           onClose={() => setExportSummary(null)}
-          onGuardarCosto={guardarCostoEnvio}
         />
+      )}
+
+      {costoModal && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => !guardandoCosto && setCostoModal(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(420px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-coins" style={{ color: "var(--primary-color)" }} />
+                Agregar costo de envío
+              </h3>
+              <button className="sf-close-btn" onClick={() => !guardandoCosto && setCostoModal(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              <label className="sf-label">
+                Fecha
+                <input
+                  className="sf-input" type="date" value={costoModal.fecha}
+                  onChange={e => setCostoModal(m => m && ({ ...m, fecha: e.target.value }))}
+                />
+              </label>
+              <label className="sf-label">
+                Cantidad de envíos
+                <input
+                  className="sf-input" type="number" min="1" step="1"
+                  value={costoModal.cantidadEnvios}
+                  onChange={e => setCostoModal(m => m && ({ ...m, cantidadEnvios: e.target.value }))}
+                  placeholder="Ej: 10"
+                />
+              </label>
+              <label className="sf-label">
+                Costo total
+                <input
+                  className="sf-input" type="number" min="0" step="0.01"
+                  value={costoModal.costoTotal}
+                  onChange={e => setCostoModal(m => m && ({ ...m, costoTotal: e.target.value }))}
+                  placeholder="0.00"
+                />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                  Solo para calcular el envío promedio del mes — no se agrega como gasto.
+                </span>
+              </label>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setCostoModal(null)} disabled={guardandoCosto}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarCostoEnvio} disabled={guardandoCosto}>
+                {guardandoCosto ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-check" /> Guardar</>}
+              </button>
+            </div>
+          </div>
+        </>
       )}
 
       {editingOrder && (

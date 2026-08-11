@@ -85,11 +85,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ cambio });
 }
 
-// Body: { id, marcarProcesados: number[], costoTotal? } marca una tanda de
-// cambios como ya incluidos en un Excel exportado, y si se cargó un costo
-// total para ese lote, crea un único gasto agregado en "Gastos del negocio"
-// (categoría "Envíos") — no uno por cambio. { id, ...resto } edita un
-// cambio existente (título/dirección/etc, no el estado de procesado).
+// Body: { marcarProcesados: number[] } marca una tanda de cambios como ya
+// incluidos en un Excel exportado (no pide costo: recién se sabe el costo
+// real después). { registrarCosto: { costoTotal, cantidadEnvios, fecha? } }
+// crea, en cualquier momento posterior, un único gasto agregado en
+// "Gastos del negocio" (categoría "Envíos") para un lote ya procesado — no
+// uno por cambio. { id, ...resto } edita un cambio existente (título/
+// dirección/etc, no el estado de procesado).
 export async function PUT(req: NextRequest) {
   const guard = await requireModule(req, "pedidos", "/cambios");
   if (!guard.ok) return guard.response;
@@ -97,26 +99,41 @@ export async function PUT(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const body = await req.json() as { id?: number; marcarProcesados?: number[]; costoTotal?: number | string } & CambioBody;
+  const body = await req.json() as {
+    id?: number;
+    marcarProcesados?: number[];
+    registrarCosto?: { costoTotal?: number | string; cantidadEnvios?: number | string; fecha?: string };
+  } & CambioBody;
 
   if (body.marcarProcesados) {
     await initCambiosTables();
     await marcarCambiosProcesados(storeId, body.marcarProcesados);
+    return NextResponse.json({ ok: true });
+  }
 
-    const costoTotal = Number(body.costoTotal);
-    if (Number.isFinite(costoTotal) && costoTotal > 0) {
-      await initFinanzasTables();
-      const n = body.marcarProcesados.length;
-      await createGastoNegocio({
-        fecha: new Date().toISOString().slice(0, 10),
-        persona: guard.user.name,
-        categoria: "Envíos",
-        detalle: `Cambios procesados (${n} envío${n !== 1 ? "s" : ""})`,
-        cantidad: n,
-        monto: costoTotal,
-        pagado: false,
-      });
+  if (body.registrarCosto) {
+    const costoTotal = Number(body.registrarCosto.costoTotal);
+    const cantidadEnvios = Number(body.registrarCosto.cantidadEnvios);
+    if (!Number.isFinite(costoTotal) || costoTotal <= 0) {
+      return NextResponse.json({ error: "costoTotal inválido" }, { status: 400 });
     }
+    if (!Number.isFinite(cantidadEnvios) || cantidadEnvios <= 0) {
+      return NextResponse.json({ error: "cantidadEnvios inválido" }, { status: 400 });
+    }
+    const fecha = body.registrarCosto.fecha && /^\d{4}-\d{2}-\d{2}$/.test(body.registrarCosto.fecha)
+      ? body.registrarCosto.fecha
+      : new Date().toISOString().slice(0, 10);
+
+    await initFinanzasTables();
+    await createGastoNegocio({
+      fecha,
+      persona: guard.user.name,
+      categoria: "Envíos",
+      detalle: `Cambios procesados (${cantidadEnvios} envío${cantidadEnvios !== 1 ? "s" : ""})`,
+      cantidad: cantidadEnvios,
+      monto: costoTotal,
+      pagado: false,
+    });
     return NextResponse.json({ ok: true });
   }
 

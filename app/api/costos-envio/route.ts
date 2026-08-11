@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const body = await req.json() as { cantidadEnvios?: number; costoTotal?: number };
+  const body = await req.json() as { cantidadEnvios?: number; costoTotal?: number; fecha?: string };
   const cantidadEnvios = Number(body.cantidadEnvios);
   const costoTotal = Number(body.costoTotal);
   if (!Number.isFinite(cantidadEnvios) || cantidadEnvios <= 0) {
@@ -47,9 +47,10 @@ export async function POST(req: NextRequest) {
   if (!Number.isFinite(costoTotal) || costoTotal <= 0) {
     return NextResponse.json({ error: "costoTotal inválido" }, { status: 400 });
   }
+  const fecha = body.fecha && /^\d{4}-\d{2}-\d{2}$/.test(body.fecha) ? body.fecha : undefined;
 
   await initCostosEnvioTables();
-  const costo = await createCostoEnvio(storeId, { cantidadEnvios, costoTotal, createdBy: guard.user.name });
+  const costo = await createCostoEnvio(storeId, { cantidadEnvios, costoTotal, createdBy: guard.user.name, fecha });
   return NextResponse.json({ costo });
 }
 

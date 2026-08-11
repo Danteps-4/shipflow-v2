@@ -66,6 +66,10 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function hoyStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function CambiosPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendientes, setPendientes] = useState<Cambio[]>([]);
@@ -94,10 +98,15 @@ export default function CambiosPage() {
   const debouncePedidoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Procesar en lote: genera el Excel de Andreani con los cambios
-  // pendientes y pide un costo total único para todo el lote.
+  // pendientes y los marca como procesados. El costo todavía no se sabe en
+  // este momento, así que se carga después con "Cargar costo de envío".
   const [procesarPreview, setProcesarPreview] = useState<ProcesarPreview | null>(null);
-  const [costoTotalProcesar, setCostoTotalProcesar] = useState("");
   const [procesando, setProcesando] = useState(false);
+
+  // Carga posterior del costo total de un lote ya procesado (crea el gasto
+  // agregado en Gastos del negocio, categoría "Envíos").
+  const [costoModal, setCostoModal] = useState<{ fecha: string; cantidadEnvios: string; costoTotal: string } | null>(null);
+  const [guardandoCosto, setGuardandoCosto] = useState(false);
 
   useEffect(() => {
     fetchCambios();
@@ -250,7 +259,6 @@ export default function CambiosPage() {
     const grouped = pendientes.map(cambioToGroupedOrder);
     const { domicilio, sucursal, errores } = transformOrders(grouped);
     setProcesarPreview({ domicilio, sucursal, errores });
-    setCostoTotalProcesar("");
   }
 
   function nombreDeError(numeroOrden: string): string {
@@ -271,16 +279,33 @@ export default function CambiosPage() {
         await fetch("/api/cambios", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            marcarProcesados: idsExitosos,
-            costoTotal: costoTotalProcesar.trim() ? Number(costoTotalProcesar) : undefined,
-          }),
+          body: JSON.stringify({ marcarProcesados: idsExitosos }),
         });
       }
       setProcesarPreview(null);
       await fetchCambios();
     } finally {
       setProcesando(false);
+    }
+  }
+
+  async function guardarCostoEnvio() {
+    if (!costoModal) return;
+    const cantidadEnvios = Number(costoModal.cantidadEnvios);
+    const costoTotal = Number(costoModal.costoTotal);
+    if (!Number.isFinite(cantidadEnvios) || cantidadEnvios <= 0) return alert("Ingresá la cantidad de envíos.");
+    if (!Number.isFinite(costoTotal) || costoTotal <= 0) return alert("Ingresá el costo total.");
+    setGuardandoCosto(true);
+    try {
+      const res = await fetch("/api/cambios", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registrarCosto: { costoTotal, cantidadEnvios, fecha: costoModal.fecha } }),
+      });
+      if (res.ok) setCostoModal(null);
+      else { const d = await res.json().catch(() => null); alert(d?.error ?? "Error al guardar"); }
+    } finally {
+      setGuardandoCosto(false);
     }
   }
 
@@ -312,6 +337,12 @@ export default function CambiosPage() {
               </button>
               <button className="sf-btn sf-btn-secondary" onClick={abrirProcesar} disabled={pendientes.length === 0}>
                 <i className="fas fa-file-excel" /> Procesar cambios pendientes ({pendientes.length})
+              </button>
+              <button
+                className="sf-btn sf-btn-secondary"
+                onClick={() => setCostoModal({ fecha: hoyStr(), cantidadEnvios: "", costoTotal: "" })}
+              >
+                <i className="fas fa-coins" /> Cargar costo de envío
               </button>
             </div>
             <button
@@ -602,17 +633,10 @@ export default function CambiosPage() {
                 </div>
               )}
 
-              <label className="sf-label">
-                Costo total de este envío (opcional)
-                <input
-                  className="sf-input" type="number" min="0" step="0.01"
-                  value={costoTotalProcesar} onChange={e => setCostoTotalProcesar(e.target.value)}
-                  placeholder="0.00"
-                />
-                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
-                  Se suma como un único gasto a Gastos del negocio, categoría &quot;Envíos&quot;.
-                </span>
-              </label>
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                <i className="fas fa-circle-info" style={{ marginRight: "0.35rem" }} />
+                Una vez que sepas el costo, cargalo con &quot;Cargar costo de envío&quot;.
+              </p>
             </div>
 
             <div className="sf-modal-footer">
@@ -622,6 +646,57 @@ export default function CambiosPage() {
                 disabled={procesando || (procesarPreview.domicilio.length + procesarPreview.sucursal.length === 0)}
               >
                 {procesando ? <><i className="fas fa-spinner fa-spin" /> Procesando...</> : <><i className="fas fa-download" /> Procesar y descargar Excel</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {costoModal && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => !guardandoCosto && setCostoModal(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(420px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-coins" style={{ color: "var(--primary-color)" }} />
+                Cargar costo de envío
+              </h3>
+              <button className="sf-close-btn" onClick={() => !guardandoCosto && setCostoModal(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              <label className="sf-label">
+                Fecha
+                <input
+                  className="sf-input" type="date" value={costoModal.fecha}
+                  onChange={e => setCostoModal(m => m && ({ ...m, fecha: e.target.value }))}
+                />
+              </label>
+              <label className="sf-label">
+                Cantidad de envíos
+                <input
+                  className="sf-input" type="number" min="1" step="1"
+                  value={costoModal.cantidadEnvios}
+                  onChange={e => setCostoModal(m => m && ({ ...m, cantidadEnvios: e.target.value }))}
+                  placeholder="Ej: 10"
+                />
+              </label>
+              <label className="sf-label">
+                Costo total
+                <input
+                  className="sf-input" type="number" min="0" step="0.01"
+                  value={costoModal.costoTotal}
+                  onChange={e => setCostoModal(m => m && ({ ...m, costoTotal: e.target.value }))}
+                  placeholder="0.00"
+                />
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                  Se suma como un único gasto a Gastos del negocio, categoría &quot;Envíos&quot;.
+                </span>
+              </label>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setCostoModal(null)} disabled={guardandoCosto}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarCostoEnvio} disabled={guardandoCosto}>
+                {guardandoCosto ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-check" /> Guardar</>}
               </button>
             </div>
           </div>
