@@ -21,6 +21,36 @@ import Sidebar from "@/components/Sidebar";
 
 type Tab = "domicilio" | "sucursal" | "errores" | "retiro";
 
+interface CostoEnvio {
+  fecha: string;
+  cantidad_envios: number;
+  costo_total: number;
+}
+
+function mesActualStr(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+const NOMBRES_MES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+function fmtMesEnvio(mes: string): string {
+  const [y, m] = mes.split("-").map(Number);
+  return `${NOMBRES_MES[m - 1]} ${y}`;
+}
+
+function sumarMesesEnvio(mes: string, delta: number): string {
+  const [y, m] = mes.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function fmtMoneyEnvio(n: number): string {
+  return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
+}
+
 // Trae los overrides manuales (tipo de envío, dirección o sucursal) cargados
 // en /orders para estos números de pedido (silencioso ante error: si falla,
 // se usa la detección automática como si no hubiera overrides).
@@ -74,9 +104,31 @@ export default function ProcesarPage() {
   const [showPicker, setShowPicker]       = useState(false);
   const [tnConnected, setTnConnected]     = useState<boolean>(false);
 
+  // Envío promedio: estadística de referencia (no un gasto) para ajustar
+  // el cálculo de profit en otro software.
+  const [costosEnvio, setCostosEnvio] = useState<CostoEnvio[]>([]);
+  const [mesEnvio, setMesEnvio]       = useState(mesActualStr());
+
+  async function fetchCostosEnvio() {
+    try {
+      const res = await fetch("/api/costos-envio");
+      if (res.ok) setCostosEnvio((await res.json()).costos ?? []);
+    } catch { /* silencioso: es solo una estadística de referencia */ }
+  }
+
+  async function guardarCostoEnvio(costoTotal: number, cantidadEnvios: number) {
+    await fetch("/api/costos-envio", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ costoTotal, cantidadEnvios }),
+    }).catch(() => {});
+    await fetchCostosEnvio();
+  }
+
   // Check TN connection + load orders pending from /orders page
   useEffect(() => {
     fetch("/api/auth/status").then(r => r.json()).then(d => setTnConnected(!!d.connected)).catch(() => {});
+    fetchCostosEnvio();
 
     const pending = sessionStorage.getItem("tn_pending_orders");
     if (pending) {
@@ -182,6 +234,11 @@ export default function ProcesarPage() {
     { key: "retiro",    label: "Retiro presencial",  icon: "fas fa-store",                count: result?.retiroPresencial.length  },
   ];
 
+  const costosDelMes  = costosEnvio.filter(c => c.fecha.slice(0, 7) === mesEnvio);
+  const totalCostoMes = costosDelMes.reduce((s, c) => s + Number(c.costo_total), 0);
+  const totalEnviosMes = costosDelMes.reduce((s, c) => s + Number(c.cantidad_envios), 0);
+  const envioPromedio  = totalEnviosMes > 0 ? totalCostoMes / totalEnviosMes : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
 
@@ -204,9 +261,48 @@ export default function ProcesarPage() {
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>
             Procesar Pedidos
           </h1>
-          <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
             Transformá el CSV de Tienda Nube al formato Andreani listo para cargar.
           </p>
+
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: "0.75rem",
+            padding: "0.9rem 1.1rem", border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+            background: "rgba(15,23,42,0.4)", marginBottom: "2rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <i className="fas fa-chart-line" style={{ color: "var(--primary-color)" }} />
+              <div>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Envío promedio · {fmtMesEnvio(mesEnvio)}
+                </div>
+                <div style={{ fontSize: "1.1rem", fontWeight: 700 }}>
+                  {envioPromedio != null ? fmtMoneyEnvio(envioPromedio) : "Sin datos"}
+                  {totalEnviosMes > 0 && (
+                    <span style={{ fontSize: "0.72rem", fontWeight: 400, color: "var(--text-muted)", marginLeft: "0.5rem" }}>
+                      ({totalEnviosMes} envío{totalEnviosMes !== 1 ? "s" : ""})
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <button className="sf-icon-btn" title="Mes anterior" onClick={() => setMesEnvio(m => sumarMesesEnvio(m, -1))}>
+                <i className="fas fa-chevron-left" />
+              </button>
+              {mesEnvio !== mesActualStr() && (
+                <button
+                  className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem" }}
+                  onClick={() => setMesEnvio(mesActualStr())}
+                >
+                  Hoy
+                </button>
+              )}
+              <button className="sf-icon-btn" title="Mes siguiente" onClick={() => setMesEnvio(m => sumarMesesEnvio(m, 1))}>
+                <i className="fas fa-chevron-right" />
+              </button>
+            </div>
+          </div>
 
           <div className="sf-section-title">
             <div className={`sf-step-badge ${result ? "" : "pending"}`}>
@@ -430,6 +526,7 @@ export default function ProcesarPage() {
           exportedSucursal={exportSummary.sucursal}
           omitidos={result.errores}
           onClose={() => setExportSummary(null)}
+          onGuardarCosto={guardarCostoEnvio}
         />
       )}
 
