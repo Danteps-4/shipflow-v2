@@ -17,6 +17,11 @@ const provLocCpExact = new Map<string, string>();
 const provLocPartial = new Map<string, string>();
 // slug of "PROV / CP" -> first matching full value (fallback when locality is wrong)
 const provCpMap = new Map<string, string>();
+// slug of "PROV / CP" -> TODAS las localidades con ese CP (un mismo código
+// postal puede cubrir muchas localidades distintas en zonas viejas de
+// Argentina), para poder elegir la correcta por nombre en vez de quedarse
+// siempre con la primera.
+const provCpEntries = new Map<string, string[]>();
 
 for (const v of ANDREANI_PROV_LOC_CP) {
   provLocCpExact.set(slugify(v), v);
@@ -32,6 +37,9 @@ for (const v of ANDREANI_PROV_LOC_CP) {
     if (!provCpMap.has(keyProvCp)) {
       provCpMap.set(keyProvCp, v);
     }
+    const list = provCpEntries.get(keyProvCp) ?? [];
+    list.push(v);
+    provCpEntries.set(keyProvCp, list);
   }
 }
 
@@ -341,6 +349,28 @@ export function matchProvLocCp(
   // 1. Exact
   const exact = provLocCpExact.get(slugify(candidate));
   if (exact) return exact;
+
+  // 1.5. Localidades ambiguas: un mismo CP puede cubrir muchas localidades
+  // distintas dentro de la provincia (zonas viejas de Argentina), y la
+  // localidad real puede tener un nombre más largo que el que manda
+  // Tienda Nube (ej. cliente dice "SANTA MARIA", la oficial es "VILLA
+  // SANTA MARIA"). Si entre TODAS las localidades de ese CP hay una cuyo
+  // nombre contiene todas las palabras de la localidad dada, se confía en
+  // esa combinación por sobre el primer match de nombre (que ignora el CP
+  // y puede caer en una localidad homónima con otro CP).
+  if (provincia && localidad && cp) {
+    const entries = provCpEntries.get(slugify(`${provincia} / ${cp}`)) ?? [];
+    const locWords = slugify(localidad).split(/\s+/).filter(Boolean);
+    if (locWords.length > 0) {
+      const match = entries.find(v => {
+        const parts = v.split(" / ");
+        if (parts.length !== 3) return false;
+        const foundLocSlug = slugify(parts[1]);
+        return locWords.every(w => foundLocSlug.includes(w));
+      });
+      if (match) return match;
+    }
+  }
 
   // 2. Partial (by PROV / LOC)
   if (provincia && localidad) {
