@@ -60,8 +60,8 @@ interface Creativo {
   contador: number;
 }
 
-// Clasificación de funnel para las referencias de imagen (una imagen puede
-// ser, por ejemplo, MOF y BOF al mismo tiempo).
+// Clasificación de funnel para las referencias (imagen o video: un
+// ejemplo puede ser, por ejemplo, MOF y BOF al mismo tiempo).
 const FUNNEL_VALUES = ["TOF", "MOF", "BOF"] as const;
 const FUNNEL_COLORS: Record<string, string> = { TOF: "#3b82f6", MOF: "#f59e0b", BOF: "#10b981" };
 
@@ -663,7 +663,7 @@ export default function CreativoPage() {
                 {tipo === "referencia" && (
                   <div>
                     <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                      Funnel (solo aplica a imágenes)
+                      Funnel
                     </label>
                     <div style={{ display: "flex", gap: "0.5rem" }}>
                       {FUNNEL_VALUES.map(v => (
@@ -849,21 +849,22 @@ function ReferenciasSection({ items, onBorrar, onEditar, canEditar, canEliminar 
   // Los links quedan agrupados junto con los videos (misma ventana), no en
   // una pestaña aparte: un item con solo links (sin archivo todavía) también
   // aparece acá, y un item con video Y links muestra ambos en la misma tarjeta.
-  const gruposVideo: ReferenciaGrupo[] = [];
+  const gruposVideoTodos: ReferenciaGrupo[] = [];
   const gruposImagenTodas: ReferenciaGrupo[] = [];
   for (const item of items) {
     const videos = item.archivos.filter(a => a.tipo_archivo === "video");
     const imagenes = item.archivos.filter(a => a.tipo_archivo === "image");
-    if (videos.length > 0 || item.links.length > 0) gruposVideo.push({ item, archivos: videos });
+    if (videos.length > 0 || item.links.length > 0) gruposVideoTodos.push({ item, archivos: videos });
     if (imagenes.length > 0) gruposImagenTodas.push({ item, archivos: imagenes });
   }
-  const gruposImagen = filtroFunnel.length === 0
-    ? gruposImagenTodas
-    : gruposImagenTodas.filter(g => g.item.funnel.some(f => filtroFunnel.includes(f)));
+  const filtrarPorFunnel = (grupos: ReferenciaGrupo[]) =>
+    filtroFunnel.length === 0 ? grupos : grupos.filter(g => g.item.funnel.some(f => filtroFunnel.includes(f)));
+  const gruposVideo  = filtrarPorFunnel(gruposVideoTodos);
+  const gruposImagen = filtrarPorFunnel(gruposImagenTodas);
 
   // El total es la cantidad de referencias (no la cantidad de archivos
   // subidos: un formato con 3 videos cuenta como 1, no como 3).
-  const totalVideos = gruposVideo.length;
+  const totalVideos = gruposVideoTodos.length;
   const totalImagenes = gruposImagenTodas.length;
   const grupos = subTab === "video" ? gruposVideo : gruposImagen;
 
@@ -946,32 +947,30 @@ function ReferenciasSection({ items, onBorrar, onEditar, canEditar, canEliminar 
         </button>
       </div>
 
-      {subTab === "imagen" && (
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-          <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Filtrar por funnel:</span>
-          {FUNNEL_VALUES.map(v => (
-            <button
-              key={v} onClick={() => toggleFiltroFunnel(v)}
-              style={{
-                padding: "0.25rem 0.7rem", borderRadius: 999, cursor: "pointer", fontSize: "0.72rem", fontWeight: 700,
-                border: `1px solid ${filtroFunnel.includes(v) ? FUNNEL_COLORS[v] : "var(--border-color)"}`,
-                background: filtroFunnel.includes(v) ? FUNNEL_COLORS[v] : "transparent",
-                color: filtroFunnel.includes(v) ? "#fff" : "var(--text-muted)",
-              }}
-            >
-              {v}
-            </button>
-          ))}
-          {filtroFunnel.length > 0 && (
-            <button
-              onClick={() => setFiltroFunnel([])}
-              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", textDecoration: "underline" }}
-            >
-              Limpiar
-            </button>
-          )}
-        </div>
-      )}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
+        <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Filtrar por funnel:</span>
+        {FUNNEL_VALUES.map(v => (
+          <button
+            key={v} onClick={() => toggleFiltroFunnel(v)}
+            style={{
+              padding: "0.25rem 0.7rem", borderRadius: 999, cursor: "pointer", fontSize: "0.72rem", fontWeight: 700,
+              border: `1px solid ${filtroFunnel.includes(v) ? FUNNEL_COLORS[v] : "var(--border-color)"}`,
+              background: filtroFunnel.includes(v) ? FUNNEL_COLORS[v] : "transparent",
+              color: filtroFunnel.includes(v) ? "#fff" : "var(--text-muted)",
+            }}
+          >
+            {v}
+          </button>
+        ))}
+        {filtroFunnel.length > 0 && (
+          <button
+            onClick={() => setFiltroFunnel([])}
+            style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.72rem", textDecoration: "underline" }}
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
 
       {grupos.length === 0 ? (
         <div className="sf-empty">
@@ -1044,7 +1043,7 @@ function ReferenciasSection({ items, onBorrar, onEditar, canEditar, canEliminar 
                   </div>
                 )}
 
-                {subTab === "imagen" && grupo.item.funnel.length > 0 && (
+                {grupo.item.funnel.length > 0 && (
                   <div style={{ display: "flex", gap: "0.3rem", flexWrap: "wrap" }}>
                     {grupo.item.funnel.map(f => (
                       <span
@@ -1249,7 +1248,7 @@ function ReferenciasSection({ items, onBorrar, onEditar, canEditar, canEliminar 
 
               <div>
                 <label style={{ display: "block", fontSize: "0.8rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.3rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
-                  Funnel (solo aplica a imágenes)
+                  Funnel
                 </label>
                 <div style={{ display: "flex", gap: "0.5rem" }}>
                   {FUNNEL_VALUES.map(v => (
