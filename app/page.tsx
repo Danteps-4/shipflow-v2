@@ -148,6 +148,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Reclamos",
+    module: "reclamos" as ModuleKey,
+    tools: [
+      {
+        href: "/reclamos",
+        icon: "fas fa-triangle-exclamation",
+        color: "#f97316",
+        title: "Reclamos",
+        description: "Casos convertidos desde Tickets de Soporte, para gestionarlos uno por uno hasta resolverlos.",
+        tags: ["Devoluciones", "Quejas", "Tablero"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

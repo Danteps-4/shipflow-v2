@@ -42,7 +42,9 @@ interface Ticket {
   resolved_by: string | null;
   resolved_at: string | null;
   telefono: string | null;
+  plataforma: string | null;
   lista_id: number | null;
+  convertido_a_reclamo_id: number | null;
   imagenes: TicketImagen[];
 }
 
@@ -60,7 +62,7 @@ const CAT_COLORS: Record<string, string> = {
   "Otro": "#6b7280",
 };
 
-const EMPTY_FORM = { titulo: "", descripcion: "", categoria: "Otro" as Categoria, telefono: "" };
+const EMPTY_FORM = { titulo: "", descripcion: "", categoria: "Otro" as Categoria, telefono: "", plataforma: "" };
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-AR", {
@@ -101,6 +103,12 @@ export default function SoportePage() {
   const [telefonoDraft, setTelefonoDraft] = useState("");
   const [savingTelefono, setSavingTelefono] = useState(false);
 
+  const [editingPlataforma, setEditingPlataforma] = useState(false);
+  const [plataformaDraft, setPlataformaDraft] = useState("");
+  const [savingPlataforma, setSavingPlataforma] = useState(false);
+
+  const [converting, setConverting] = useState(false);
+
   const [addingLista, setAddingLista] = useState(false);
   const [newListaNombre, setNewListaNombre] = useState("");
   const [creatingLista, setCreatingLista] = useState(false);
@@ -121,6 +129,7 @@ export default function SoportePage() {
 
   useEffect(() => {
     setEditingTelefono(false);
+    setEditingPlataforma(false);
   }, [detailTicket?.id]);
 
   async function fetchTickets() {
@@ -251,6 +260,7 @@ export default function SoportePage() {
           descripcion: form.descripcion || null,
           categoria: form.categoria,
           telefono: form.telefono.trim() || null,
+          plataforma: form.plataforma.trim() || null,
           imagenes,
         }),
       });
@@ -359,6 +369,52 @@ export default function SoportePage() {
       }
     } finally {
       setSavingTelefono(false);
+    }
+  }
+
+  async function savePlataforma() {
+    if (!detailTicket) return;
+    setSavingPlataforma(true);
+    try {
+      const r = await fetch("/api/soporte/tickets", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: detailTicket.id, plataforma: plataformaDraft.trim() || null }),
+      });
+      if (r.ok) {
+        const { ticket: updated } = await r.json();
+        setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+        setDetailTicket(updated);
+        setEditingPlataforma(false);
+      }
+    } finally {
+      setSavingPlataforma(false);
+    }
+  }
+
+  // Manda el ticket a Reclamos para que lo gestione la persona a cargo de
+  // eso, copiando título/descripción/categoría/plataforma/teléfono/
+  // imágenes; el ticket queda marcado como convertido para no duplicarlo.
+  async function convertirAReclamo() {
+    if (!detailTicket || detailTicket.convertido_a_reclamo_id) return;
+    if (!confirm(`¿Convertir "${detailTicket.titulo}" en un reclamo?`)) return;
+    setConverting(true);
+    try {
+      const r = await fetch("/api/reclamos/convertir", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: detailTicket.id }),
+      });
+      if (r.ok) {
+        const { reclamo } = await r.json();
+        setTickets((prev) => prev.map((t) => (t.id === detailTicket.id ? { ...t, convertido_a_reclamo_id: reclamo.id } : t)));
+        setDetailTicket((prev) => (prev ? { ...prev, convertido_a_reclamo_id: reclamo.id } : prev));
+      } else {
+        const d = await r.json().catch(() => null);
+        alert(d?.error ?? "No se pudo convertir el ticket");
+      }
+    } finally {
+      setConverting(false);
     }
   }
 
@@ -557,16 +613,27 @@ export default function SoportePage() {
                   autoFocus
                 />
               </label>
-              <label className="sf-label">
-                Categoría
-                <select
-                  className="sf-input"
-                  value={form.categoria}
-                  onChange={(e) => setForm((f) => ({ ...f, categoria: e.target.value as Categoria }))}
-                >
-                  {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                <label className="sf-label">
+                  Categoría
+                  <select
+                    className="sf-input"
+                    value={form.categoria}
+                    onChange={(e) => setForm((f) => ({ ...f, categoria: e.target.value as Categoria }))}
+                  >
+                    {CATEGORIAS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
+                <label className="sf-label">
+                  Plataforma (opcional)
+                  <input
+                    className="sf-input"
+                    value={form.plataforma}
+                    onChange={(e) => setForm((f) => ({ ...f, plataforma: e.target.value }))}
+                    placeholder="ej. Instagram, WhatsApp..."
+                  />
+                </label>
+              </div>
               <label className="sf-label">
                 Celular (opcional)
                 <input
@@ -669,6 +736,39 @@ export default function SoportePage() {
                 >
                   {detailTicket.categoria}
                 </span>
+                {editingPlataforma ? (
+                  <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                    <input
+                      className="sf-input"
+                      style={{ width: 140, padding: "0.2rem 0.5rem", fontSize: "0.78rem" }}
+                      value={plataformaDraft}
+                      onChange={(e) => setPlataformaDraft(e.target.value)}
+                      placeholder="ej. Instagram"
+                      autoFocus
+                      onKeyDown={(e) => { if (e.key === "Enter") savePlataforma(); if (e.key === "Escape") setEditingPlataforma(false); }}
+                    />
+                    <button className="sf-icon-btn" onClick={savePlataforma} disabled={savingPlataforma} title="Guardar" style={{ width: 24, height: 24, fontSize: "0.65rem" }}>
+                      {savingPlataforma ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+                    </button>
+                  </span>
+                ) : detailTicket.plataforma ? (
+                  <span
+                    className="sf-badge"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => { setPlataformaDraft(detailTicket.plataforma || ""); setEditingPlataforma(true); }}
+                    title="Editar plataforma"
+                  >
+                    <i className="fas fa-share-nodes" /> {detailTicket.plataforma}
+                  </span>
+                ) : (
+                  <button
+                    className="sf-btn sf-btn-secondary"
+                    style={{ fontSize: "0.72rem", padding: "0.2rem 0.6rem" }}
+                    onClick={() => { setPlataformaDraft(""); setEditingPlataforma(true); }}
+                  >
+                    <i className="fas fa-plus" /> Plataforma
+                  </button>
+                )}
                 {detailTicket.lista_id != null && (
                   <span className="sf-badge">
                     <i className="fas fa-list" /> {listas.find((l) => l.id === detailTicket.lista_id)?.nombre ?? "—"}
@@ -754,11 +854,29 @@ export default function SoportePage() {
                   {detailTicket.resolucion && <p style={{ fontSize: "0.85rem" }}>{detailTicket.resolucion}</p>}
                 </div>
               )}
+
+              {detailTicket.convertido_a_reclamo_id && (
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "rgba(249,115,22,0.08)", border: "1px solid rgba(249,115,22,0.3)", borderRadius: "var(--radius)", padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "#f97316", fontWeight: 700 }}>
+                  <i className="fas fa-triangle-exclamation" /> Convertido a reclamo
+                </div>
+              )}
             </div>
             <div className="sf-modal-footer" style={{ justifyContent: "space-between" }}>
-              <button className="sf-icon-btn danger" title="Eliminar" onClick={() => deleteTicketFn(detailTicket.id)} disabled={deletingId === detailTicket.id}>
-                {deletingId === detailTicket.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button className="sf-icon-btn danger" title="Eliminar" onClick={() => deleteTicketFn(detailTicket.id)} disabled={deletingId === detailTicket.id}>
+                  {deletingId === detailTicket.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+                </button>
+                {!detailTicket.convertido_a_reclamo_id && (
+                  <button
+                    className="sf-btn sf-btn-secondary"
+                    onClick={convertirAReclamo}
+                    disabled={converting}
+                    title="Convertir a reclamo"
+                  >
+                    {converting ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-triangle-exclamation" /> Convertir a reclamo</>}
+                  </button>
+                )}
+              </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 {detailTicket.estado === "pendiente" && (
                   <button className="sf-btn" onClick={() => moveTicket(detailTicket, "en_proceso")} disabled={movingId === detailTicket.id}>

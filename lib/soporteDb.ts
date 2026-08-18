@@ -35,7 +35,11 @@ export interface Ticket {
   resolved_by: string | null;
   resolved_at: string | null;
   telefono: string | null;
+  plataforma: string | null;
   lista_id: number | null;
+  // Si esta tarjeta ya se pasó a Reclamos (vía "Convertir a reclamo"), acá
+  // queda el id del reclamo generado — evita convertirla dos veces.
+  convertido_a_reclamo_id: number | null;
   imagenes: TicketImagen[];
 }
 
@@ -79,6 +83,13 @@ export async function initSoporteTables(): Promise<void> {
   `;
   await sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS telefono TEXT`;
   await sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS lista_id INTEGER REFERENCES ticket_listas(id) ON DELETE SET NULL`;
+  // Canal de origen del reclamo/consulta (ej. "Instagram", "WhatsApp",
+  // "Trusty") — dato que ya venían llevando a mano en una planilla.
+  await sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS plataforma TEXT`;
+  // Sin REFERENCES a "reclamos" a propósito: esa tabla la crea
+  // initReclamosTables() por separado, y no hay garantía de qué init corre
+  // primero según qué ruta se pega primero.
+  await sql`ALTER TABLE tickets ADD COLUMN IF NOT EXISTS convertido_a_reclamo_id INTEGER`;
   await sql`
     CREATE INDEX IF NOT EXISTS tickets_store_estado
     ON tickets (store_id, estado, created_at DESC)
@@ -160,7 +171,7 @@ async function attachImagenes(storeId: string, tickets: Omit<Ticket, "imagenes">
 export async function getTickets(storeId: string): Promise<Ticket[]> {
   const sql = getDb();
   const rows = await sql`
-    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, lista_id
+    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
     FROM tickets
     WHERE store_id = ${storeId}
     ORDER BY created_at DESC
@@ -178,14 +189,15 @@ export async function createTicket(
     categoria: string;
     createdBy: string;
     telefono?: string | null;
+    plataforma?: string | null;
     imagenes: { url: string; publicId: string | null }[];
   },
 ): Promise<Ticket> {
   const sql = getDb();
   const rows = await sql`
-    INSERT INTO tickets (store_id, titulo, descripcion, categoria, created_by, telefono)
-    VALUES (${storeId}, ${data.titulo}, ${data.descripcion}, ${data.categoria}, ${data.createdBy}, ${data.telefono ?? null})
-    RETURNING id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, lista_id
+    INSERT INTO tickets (store_id, titulo, descripcion, categoria, created_by, telefono, plataforma)
+    VALUES (${storeId}, ${data.titulo}, ${data.descripcion}, ${data.categoria}, ${data.createdBy}, ${data.telefono ?? null}, ${data.plataforma ?? null})
+    RETURNING id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
   ` as Omit<Ticket, "imagenes">[];
   const ticket = rows[0];
 
@@ -229,7 +241,7 @@ export async function updateTicketEstado(
   }
 
   const rows = await sql`
-    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, lista_id
+    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
     FROM tickets WHERE store_id = ${storeId} AND id = ${id}
   ` as Omit<Ticket, "imagenes">[];
   const [withImagenes] = await attachImagenes(storeId, rows);
@@ -244,7 +256,7 @@ export async function moveTicketToLista(storeId: string, id: number, listaId: nu
     WHERE store_id = ${storeId} AND id = ${id}
   `;
   const rows = await sql`
-    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, lista_id
+    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
     FROM tickets WHERE store_id = ${storeId} AND id = ${id}
   ` as Omit<Ticket, "imagenes">[];
   const [withImagenes] = await attachImagenes(storeId, rows);
@@ -258,11 +270,46 @@ export async function updateTicketTelefono(storeId: string, id: number, telefono
     WHERE store_id = ${storeId} AND id = ${id}
   `;
   const rows = await sql`
-    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, lista_id
+    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
     FROM tickets WHERE store_id = ${storeId} AND id = ${id}
   ` as Omit<Ticket, "imagenes">[];
   const [withImagenes] = await attachImagenes(storeId, rows);
   return withImagenes ?? null;
+}
+
+export async function updateTicketPlataforma(storeId: string, id: number, plataforma: string | null): Promise<Ticket | null> {
+  const sql = getDb();
+  await sql`
+    UPDATE tickets SET plataforma = ${plataforma}
+    WHERE store_id = ${storeId} AND id = ${id}
+  `;
+  const rows = await sql`
+    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
+    FROM tickets WHERE store_id = ${storeId} AND id = ${id}
+  ` as Omit<Ticket, "imagenes">[];
+  const [withImagenes] = await attachImagenes(storeId, rows);
+  return withImagenes ?? null;
+}
+
+export async function getTicketById(storeId: string, id: number): Promise<Ticket | null> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, titulo, descripcion, categoria, estado, resolucion, created_by, created_at, resolved_by, resolved_at, telefono, plataforma, lista_id, convertido_a_reclamo_id
+    FROM tickets WHERE store_id = ${storeId} AND id = ${id}
+  ` as Omit<Ticket, "imagenes">[];
+  if (!rows.length) return null;
+  const [withImagenes] = await attachImagenes(storeId, rows);
+  return withImagenes ?? null;
+}
+
+// Marca un ticket como ya convertido a reclamo, para no poder convertirlo
+// dos veces y para que Soporte pueda mostrar un link al reclamo generado.
+export async function marcarTicketConvertido(storeId: string, id: number, reclamoId: number): Promise<void> {
+  const sql = getDb();
+  await sql`
+    UPDATE tickets SET convertido_a_reclamo_id = ${reclamoId}
+    WHERE store_id = ${storeId} AND id = ${id}
+  `;
 }
 
 export async function deleteTicket(storeId: string, id: number): Promise<{ publicIds: string[] } | null> {
