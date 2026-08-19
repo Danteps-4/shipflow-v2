@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
-import { initSoporteTables, getTickets, createTicket, updateTicketEstado, moveTicketToLista, updateTicketTelefono, updateTicketPlataforma, deleteTicket, ESTADOS_TICKET } from "@/lib/soporteDb";
+import { initSoporteTables, getTickets, createTicket, updateTicketEstado, moveTicketToLista, updateTicketCampos, deleteTicket, ESTADOS_TICKET } from "@/lib/soporteDb";
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const { titulo, descripcion, categoria, telefono, plataforma, imagenes } = await req.json();
+  const { titulo, descripcion, categoria, telefono, email, instagram, plataforma, imagenes } = await req.json();
   if (!titulo) return NextResponse.json({ error: "Falta el título" }, { status: 400 });
 
   await initSoporteTables();
@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
     categoria: categoria || "Otro",
     createdBy: guard.user.name,
     telefono: telefono || null,
+    email: email || null,
+    instagram: instagram || null,
     plataforma: plataforma || null,
     imagenes: Array.isArray(imagenes) ? imagenes : [],
   });
@@ -53,7 +55,8 @@ export async function POST(req: NextRequest) {
 
 // Body: { id, estado, resolucion? } mueve entre columnas fijas;
 // { id, listaId } mueve a una lista personalizada;
-// { id, telefono } solo actualiza el celular.
+// { id, telefono?, email?, instagram?, plataforma?, tracking?, notas?, asignadoA? }
+// actualiza los campos "vivos" del caso (los que no piden pasar por Resolver).
 export async function PATCH(req: NextRequest) {
   const guard = await requireModule(req, "soporte", "/soporte");
   if (!guard.ok) return guard.response;
@@ -73,14 +76,16 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ticket });
   }
 
-  if (typeof body.telefono !== "undefined" && typeof body.estado === "undefined") {
-    const ticket = await updateTicketTelefono(storeId, Number(id), body.telefono || null);
-    if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-    return NextResponse.json({ ticket });
-  }
-
-  if (typeof body.plataforma !== "undefined" && typeof body.estado === "undefined") {
-    const ticket = await updateTicketPlataforma(storeId, Number(id), body.plataforma || null);
+  if (typeof body.estado === "undefined") {
+    const ticket = await updateTicketCampos(storeId, Number(id), {
+      telefono: body.telefono,
+      email: body.email,
+      instagram: body.instagram,
+      plataforma: body.plataforma,
+      tracking: body.tracking,
+      notas: body.notas,
+      asignadoA: body.asignadoA,
+    });
     if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
     return NextResponse.json({ ticket });
   }

@@ -10,6 +10,10 @@ import Sidebar from "@/components/Sidebar";
 const CATEGORIAS = ["Envío", "Producto", "Pago", "Devolución", "Reclamo", "Consulta", "Otro"] as const;
 type Categoria = (typeof CATEGORIAS)[number];
 
+// Canal de origen: determina qué dato de contacto tiene sentido pedir.
+const PLATAFORMAS = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"] as const;
+type Plataforma = (typeof PLATAFORMAS)[number];
+
 type Estado = "pendiente" | "en_proceso" | "resuelto";
 
 const COLUMNAS: { estado: Estado; label: string; icon: string; color: string }[] = [
@@ -37,14 +41,18 @@ interface Ticket {
   categoria: Categoria;
   estado: Estado;
   resolucion: string | null;
+  notas: string | null;
+  tracking: string | null;
+  asignado_a: string | null;
   created_by: string;
   created_at: string;
   resolved_by: string | null;
   resolved_at: string | null;
   telefono: string | null;
+  email: string | null;
+  instagram: string | null;
   plataforma: string | null;
   lista_id: number | null;
-  convertido_a_reclamo_id: number | null;
   imagenes: TicketImagen[];
 }
 
@@ -62,7 +70,10 @@ const CAT_COLORS: Record<string, string> = {
   "Otro": "#6b7280",
 };
 
-const EMPTY_FORM = { titulo: "", descripcion: "", categoria: "Otro" as Categoria, telefono: "", plataforma: "" };
+const EMPTY_FORM = {
+  titulo: "", descripcion: "", categoria: "Otro" as Categoria,
+  plataforma: "" as Plataforma | "", telefono: "", email: "", instagram: "",
+};
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-AR", {
@@ -72,6 +83,10 @@ function fmtDateTime(iso: string) {
 
 function whatsappHref(telefono: string) {
   return `https://wa.me/${telefono.replace(/\D/g, "")}`;
+}
+
+function instagramHref(usuario: string) {
+  return `https://instagram.com/${usuario.replace(/^@/, "").trim()}`;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -99,15 +114,21 @@ export default function SoportePage() {
 
   const [previewImage, setPreviewImage] = useState<string | null>(null);
 
+  const [editingPlataforma, setEditingPlataforma] = useState(false);
+  const [plataformaDraft, setPlataformaDraft] = useState<Plataforma | "">("");
   const [editingTelefono, setEditingTelefono] = useState(false);
   const [telefonoDraft, setTelefonoDraft] = useState("");
-  const [savingTelefono, setSavingTelefono] = useState(false);
-
-  const [editingPlataforma, setEditingPlataforma] = useState(false);
-  const [plataformaDraft, setPlataformaDraft] = useState("");
-  const [savingPlataforma, setSavingPlataforma] = useState(false);
-
-  const [converting, setConverting] = useState(false);
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [editingInstagram, setEditingInstagram] = useState(false);
+  const [instagramDraft, setInstagramDraft] = useState("");
+  const [editingAsignado, setEditingAsignado] = useState(false);
+  const [asignadoDraft, setAsignadoDraft] = useState("");
+  const [editingTracking, setEditingTracking] = useState(false);
+  const [trackingDraft, setTrackingDraft] = useState("");
+  const [editingNotas, setEditingNotas] = useState(false);
+  const [notasDraft, setNotasDraft] = useState("");
+  const [savingCampo, setSavingCampo] = useState(false);
 
   const [addingLista, setAddingLista] = useState(false);
   const [newListaNombre, setNewListaNombre] = useState("");
@@ -128,8 +149,13 @@ export default function SoportePage() {
   }, []);
 
   useEffect(() => {
-    setEditingTelefono(false);
     setEditingPlataforma(false);
+    setEditingTelefono(false);
+    setEditingEmail(false);
+    setEditingInstagram(false);
+    setEditingAsignado(false);
+    setEditingTracking(false);
+    setEditingNotas(false);
   }, [detailTicket?.id]);
 
   async function fetchTickets() {
@@ -259,8 +285,10 @@ export default function SoportePage() {
           titulo: form.titulo,
           descripcion: form.descripcion || null,
           categoria: form.categoria,
+          plataforma: form.plataforma || null,
           telefono: form.telefono.trim() || null,
-          plataforma: form.plataforma.trim() || null,
+          email: form.email.trim() || null,
+          instagram: form.instagram.trim() || null,
           imagenes,
         }),
       });
@@ -352,69 +380,25 @@ export default function SoportePage() {
     }
   }
 
-  async function saveTelefono() {
+  // Campos "vivos" (plataforma, contacto, asignado, tracking, notas): todos
+  // usan el mismo endpoint PATCH sin `estado`, así que comparten este helper.
+  async function saveCampo(campo: { telefono?: string | null; email?: string | null; instagram?: string | null; plataforma?: string | null; asignadoA?: string | null; tracking?: string | null; notas?: string | null }, onDone: () => void) {
     if (!detailTicket) return;
-    setSavingTelefono(true);
+    setSavingCampo(true);
     try {
       const r = await fetch("/api/soporte/tickets", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: detailTicket.id, telefono: telefonoDraft.trim() || null }),
+        body: JSON.stringify({ id: detailTicket.id, ...campo }),
       });
       if (r.ok) {
         const { ticket: updated } = await r.json();
         setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
         setDetailTicket(updated);
-        setEditingTelefono(false);
+        onDone();
       }
     } finally {
-      setSavingTelefono(false);
-    }
-  }
-
-  async function savePlataforma() {
-    if (!detailTicket) return;
-    setSavingPlataforma(true);
-    try {
-      const r = await fetch("/api/soporte/tickets", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: detailTicket.id, plataforma: plataformaDraft.trim() || null }),
-      });
-      if (r.ok) {
-        const { ticket: updated } = await r.json();
-        setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-        setDetailTicket(updated);
-        setEditingPlataforma(false);
-      }
-    } finally {
-      setSavingPlataforma(false);
-    }
-  }
-
-  // Manda el ticket a Reclamos para que lo gestione la persona a cargo de
-  // eso, copiando título/descripción/categoría/plataforma/teléfono/
-  // imágenes; el ticket queda marcado como convertido para no duplicarlo.
-  async function convertirAReclamo() {
-    if (!detailTicket || detailTicket.convertido_a_reclamo_id) return;
-    if (!confirm(`¿Convertir "${detailTicket.titulo}" en un reclamo?`)) return;
-    setConverting(true);
-    try {
-      const r = await fetch("/api/reclamos/convertir", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticketId: detailTicket.id }),
-      });
-      if (r.ok) {
-        const { reclamo } = await r.json();
-        setTickets((prev) => prev.map((t) => (t.id === detailTicket.id ? { ...t, convertido_a_reclamo_id: reclamo.id } : t)));
-        setDetailTicket((prev) => (prev ? { ...prev, convertido_a_reclamo_id: reclamo.id } : prev));
-      } else {
-        const d = await r.json().catch(() => null);
-        alert(d?.error ?? "No se pudo convertir el ticket");
-      }
-    } finally {
-      setConverting(false);
+      setSavingCampo(false);
     }
   }
 
@@ -625,24 +609,57 @@ export default function SoportePage() {
                   </select>
                 </label>
                 <label className="sf-label">
-                  Plataforma (opcional)
-                  <input
+                  Plataforma
+                  <select
                     className="sf-input"
                     value={form.plataforma}
-                    onChange={(e) => setForm((f) => ({ ...f, plataforma: e.target.value }))}
-                    placeholder="ej. Instagram, WhatsApp..."
-                  />
+                    onChange={(e) => setForm((f) => ({ ...f, plataforma: e.target.value as Plataforma }))}
+                  >
+                    <option value="">Seleccionar...</option>
+                    {PLATAFORMAS.map((p) => <option key={p} value={p}>{p}</option>)}
+                  </select>
                 </label>
               </div>
-              <label className="sf-label">
-                Celular (opcional)
-                <input
-                  className="sf-input"
-                  value={form.telefono}
-                  onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
-                  placeholder="ej. 5491122334455"
-                />
-              </label>
+
+              {/* El campo de contacto cambia según la plataforma elegida:
+                  WhatsApp pide teléfono, Instagram pide usuario, Email
+                  pide el email del cliente. Trusty/Otro no tienen un
+                  contacto directo asociado. */}
+              {form.plataforma === "WhatsApp" && (
+                <label className="sf-label">
+                  Celular
+                  <input
+                    className="sf-input"
+                    value={form.telefono}
+                    onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))}
+                    placeholder="ej. 5491122334455"
+                  />
+                </label>
+              )}
+              {form.plataforma === "Instagram" && (
+                <label className="sf-label">
+                  Usuario de Instagram
+                  <input
+                    className="sf-input"
+                    value={form.instagram}
+                    onChange={(e) => setForm((f) => ({ ...f, instagram: e.target.value }))}
+                    placeholder="ej. @usuario"
+                  />
+                </label>
+              )}
+              {form.plataforma === "Email" && (
+                <label className="sf-label">
+                  Email del cliente
+                  <input
+                    className="sf-input"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="ej. cliente@mail.com"
+                  />
+                </label>
+              )}
+
               <label className="sf-label">
                 Descripción
                 <textarea
@@ -736,26 +753,34 @@ export default function SoportePage() {
                 >
                   {detailTicket.categoria}
                 </span>
+
                 {editingPlataforma ? (
                   <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                    <input
+                    <select
                       className="sf-input"
                       style={{ width: 140, padding: "0.2rem 0.5rem", fontSize: "0.78rem" }}
                       value={plataformaDraft}
-                      onChange={(e) => setPlataformaDraft(e.target.value)}
-                      placeholder="ej. Instagram"
+                      onChange={(e) => setPlataformaDraft(e.target.value as Plataforma)}
                       autoFocus
-                      onKeyDown={(e) => { if (e.key === "Enter") savePlataforma(); if (e.key === "Escape") setEditingPlataforma(false); }}
-                    />
-                    <button className="sf-icon-btn" onClick={savePlataforma} disabled={savingPlataforma} title="Guardar" style={{ width: 24, height: 24, fontSize: "0.65rem" }}>
-                      {savingPlataforma ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+                    >
+                      <option value="">Sin plataforma</option>
+                      {PLATAFORMAS.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <button
+                      className="sf-icon-btn"
+                      onClick={() => saveCampo({ plataforma: plataformaDraft || null }, () => setEditingPlataforma(false))}
+                      disabled={savingCampo}
+                      title="Guardar"
+                      style={{ width: 24, height: 24, fontSize: "0.65rem" }}
+                    >
+                      {savingCampo ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
                     </button>
                   </span>
                 ) : detailTicket.plataforma ? (
                   <span
                     className="sf-badge"
                     style={{ cursor: "pointer" }}
-                    onClick={() => { setPlataformaDraft(detailTicket.plataforma || ""); setEditingPlataforma(true); }}
+                    onClick={() => { setPlataformaDraft((detailTicket.plataforma as Plataforma) || ""); setEditingPlataforma(true); }}
                     title="Editar plataforma"
                   >
                     <i className="fas fa-share-nodes" /> {detailTicket.plataforma}
@@ -769,63 +794,69 @@ export default function SoportePage() {
                     <i className="fas fa-plus" /> Plataforma
                   </button>
                 )}
+
+                <InlineEditBadge
+                  icon="fas fa-user" label="Asignado a" value={detailTicket.asignado_a}
+                  editing={editingAsignado} draft={asignadoDraft} setDraft={setAsignadoDraft}
+                  saving={savingCampo}
+                  onStart={() => { setAsignadoDraft(detailTicket.asignado_a || ""); setEditingAsignado(true); }}
+                  onCancel={() => setEditingAsignado(false)}
+                  onSave={() => saveCampo({ asignadoA: asignadoDraft.trim() || null }, () => setEditingAsignado(false))}
+                />
+
                 {detailTicket.lista_id != null && (
                   <span className="sf-badge">
                     <i className="fas fa-list" /> {listas.find((l) => l.id === detailTicket.lista_id)?.nombre ?? "—"}
                   </span>
                 )}
-                <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                  Cargado por {detailTicket.created_by || "—"} · {fmtDateTime(detailTicket.created_at)}
-                </span>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                {editingTelefono ? (
-                  <>
-                    <input
-                      className="sf-input"
-                      style={{ maxWidth: 220 }}
-                      value={telefonoDraft}
-                      onChange={(e) => setTelefonoDraft(e.target.value)}
-                      placeholder="ej. 5491122334455"
-                      autoFocus
-                    />
-                    <button className="sf-icon-btn" onClick={saveTelefono} disabled={savingTelefono} title="Guardar">
-                      {savingTelefono ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
-                    </button>
-                    <button className="sf-icon-btn" onClick={() => setEditingTelefono(false)} title="Cancelar">
-                      <i className="fas fa-times" />
-                    </button>
-                  </>
-                ) : detailTicket.telefono ? (
-                  <>
-                    <a
-                      href={whatsappHref(detailTicket.telefono)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: "#25D366", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.35rem", fontWeight: 600 }}
-                    >
-                      <i className="fab fa-whatsapp" /> {detailTicket.telefono}
-                    </a>
-                    <button
-                      className="sf-icon-btn"
-                      title="Editar celular"
-                      onClick={() => { setTelefonoDraft(detailTicket.telefono || ""); setEditingTelefono(true); }}
-                      style={{ width: 26, height: 26, fontSize: "0.7rem" }}
-                    >
-                      <i className="fas fa-pen" />
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="sf-btn sf-btn-secondary"
-                    onClick={() => { setTelefonoDraft(""); setEditingTelefono(true); }}
-                    style={{ fontSize: "0.78rem" }}
-                  >
-                    <i className="fab fa-whatsapp" /> Agregar celular
-                  </button>
-                )}
+              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Cargado por {detailTicket.created_by || "—"} · {fmtDateTime(detailTicket.created_at)}
+              </span>
+
+              {/* Contacto: se muestran los que ya tengan valor, y se puede
+                  agregar cualquiera de los tres sin importar la plataforma
+                  actual (por si se cargó a mano o la plataforma cambió). */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                <ContactoRow
+                  icon="fab fa-whatsapp" iconColor="#25D366" label="Celular"
+                  value={detailTicket.telefono} href={detailTicket.telefono ? whatsappHref(detailTicket.telefono) : undefined}
+                  editing={editingTelefono} draft={telefonoDraft} setDraft={setTelefonoDraft} saving={savingCampo}
+                  placeholder="ej. 5491122334455"
+                  onStart={() => { setTelefonoDraft(detailTicket.telefono || ""); setEditingTelefono(true); }}
+                  onCancel={() => setEditingTelefono(false)}
+                  onSave={() => saveCampo({ telefono: telefonoDraft.trim() || null }, () => setEditingTelefono(false))}
+                />
+                <ContactoRow
+                  icon="fab fa-instagram" iconColor="#e1306c" label="Instagram"
+                  value={detailTicket.instagram} href={detailTicket.instagram ? instagramHref(detailTicket.instagram) : undefined}
+                  editing={editingInstagram} draft={instagramDraft} setDraft={setInstagramDraft} saving={savingCampo}
+                  placeholder="ej. @usuario"
+                  onStart={() => { setInstagramDraft(detailTicket.instagram || ""); setEditingInstagram(true); }}
+                  onCancel={() => setEditingInstagram(false)}
+                  onSave={() => saveCampo({ instagram: instagramDraft.trim() || null }, () => setEditingInstagram(false))}
+                />
+                <ContactoRow
+                  icon="fas fa-envelope" iconColor="#60a5fa" label="Email"
+                  value={detailTicket.email} href={detailTicket.email ? `mailto:${detailTicket.email}` : undefined}
+                  editing={editingEmail} draft={emailDraft} setDraft={setEmailDraft} saving={savingCampo}
+                  placeholder="ej. cliente@mail.com"
+                  onStart={() => { setEmailDraft(detailTicket.email || ""); setEditingEmail(true); }}
+                  onCancel={() => setEditingEmail(false)}
+                  onSave={() => saveCampo({ email: emailDraft.trim() || null }, () => setEditingEmail(false))}
+                />
               </div>
+
+              <InlineEditBadge
+                icon="fas fa-truck-fast" label="N° de seguimiento" value={detailTicket.tracking}
+                editing={editingTracking} draft={trackingDraft} setDraft={setTrackingDraft}
+                saving={savingCampo}
+                onStart={() => { setTrackingDraft(detailTicket.tracking || ""); setEditingTracking(true); }}
+                onCancel={() => setEditingTracking(false)}
+                onSave={() => saveCampo({ tracking: trackingDraft.trim() || null }, () => setEditingTracking(false))}
+                block
+              />
 
               {detailTicket.descripcion && (
                 <p style={{ fontSize: "0.9rem", whiteSpace: "pre-wrap" }}>{detailTicket.descripcion}</p>
@@ -846,6 +877,50 @@ export default function SoportePage() {
                 </div>
               )}
 
+              <div>
+                <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: "0.4px" }}>
+                  Notas de seguimiento
+                  {!editingNotas && (
+                    <button
+                      className="sf-icon-btn"
+                      title="Editar notas"
+                      onClick={() => { setNotasDraft(detailTicket.notas || ""); setEditingNotas(true); }}
+                      style={{ width: 22, height: 22, fontSize: "0.65rem" }}
+                    >
+                      <i className="fas fa-pen" />
+                    </button>
+                  )}
+                </label>
+                {editingNotas ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                    <textarea
+                      className="sf-input"
+                      value={notasDraft}
+                      onChange={(e) => setNotasDraft(e.target.value)}
+                      placeholder="Ej: se envía abdomen completo, tracking 360..."
+                      rows={3}
+                      style={{ resize: "vertical", fontFamily: "inherit" }}
+                      autoFocus
+                    />
+                    <div style={{ display: "flex", gap: "0.4rem", justifyContent: "flex-end" }}>
+                      <button className="sf-btn sf-btn-secondary" onClick={() => setEditingNotas(false)} style={{ fontSize: "0.78rem", padding: "0.3rem 0.7rem" }}>Cancelar</button>
+                      <button
+                        className="sf-btn"
+                        onClick={() => saveCampo({ notas: notasDraft.trim() || null }, () => setEditingNotas(false))}
+                        disabled={savingCampo}
+                        style={{ fontSize: "0.78rem", padding: "0.3rem 0.7rem" }}
+                      >
+                        {savingCampo ? <i className="fas fa-spinner fa-spin" /> : "Guardar"}
+                      </button>
+                    </div>
+                  </div>
+                ) : detailTicket.notas ? (
+                  <p style={{ fontSize: "0.85rem", whiteSpace: "pre-wrap", color: "var(--text-muted)" }}>{detailTicket.notas}</p>
+                ) : (
+                  <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontStyle: "italic" }}>Sin notas todavía.</p>
+                )}
+              </div>
+
               {detailTicket.estado === "resuelto" && detailTicket.lista_id == null && (
                 <div style={{ background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: "var(--radius)", padding: "0.75rem 1rem" }}>
                   <div style={{ fontSize: "0.8rem", color: "var(--success-color)", fontWeight: 700, marginBottom: "0.25rem" }}>
@@ -854,29 +929,11 @@ export default function SoportePage() {
                   {detailTicket.resolucion && <p style={{ fontSize: "0.85rem" }}>{detailTicket.resolucion}</p>}
                 </div>
               )}
-
-              {detailTicket.convertido_a_reclamo_id && (
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", background: "rgba(249,115,22,0.08)", border: "1px solid rgba(249,115,22,0.3)", borderRadius: "var(--radius)", padding: "0.6rem 0.9rem", fontSize: "0.8rem", color: "#f97316", fontWeight: 700 }}>
-                  <i className="fas fa-triangle-exclamation" /> Convertido a reclamo
-                </div>
-              )}
             </div>
             <div className="sf-modal-footer" style={{ justifyContent: "space-between" }}>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button className="sf-icon-btn danger" title="Eliminar" onClick={() => deleteTicketFn(detailTicket.id)} disabled={deletingId === detailTicket.id}>
-                  {deletingId === detailTicket.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
-                </button>
-                {!detailTicket.convertido_a_reclamo_id && (
-                  <button
-                    className="sf-btn sf-btn-secondary"
-                    onClick={convertirAReclamo}
-                    disabled={converting}
-                    title="Convertir a reclamo"
-                  >
-                    {converting ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-triangle-exclamation" /> Convertir a reclamo</>}
-                  </button>
-                )}
-              </div>
+              <button className="sf-icon-btn danger" title="Eliminar" onClick={() => deleteTicketFn(detailTicket.id)} disabled={deletingId === detailTicket.id}>
+                {deletingId === detailTicket.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+              </button>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 {detailTicket.estado === "pendiente" && (
                   <button className="sf-btn" onClick={() => moveTicket(detailTicket, "en_proceso")} disabled={movingId === detailTicket.id}>
@@ -973,6 +1030,104 @@ export default function SoportePage() {
 
 // ─── Helpers de UI ────────────────────────────────────────────────────────────
 
+// Badge chico que muestra "icono: valor" y al click se convierte en un
+// input inline para editarlo. Si no hay valor todavía, muestra un botón
+// "+ Label" en su lugar. `block` lo hace ocupar toda la fila.
+function InlineEditBadge({
+  icon, label, value, editing, draft, setDraft, saving, onStart, onCancel, onSave, block,
+}: {
+  icon: string; label: string; value: string | null;
+  editing: boolean; draft: string; setDraft: (v: string) => void; saving: boolean;
+  onStart: () => void; onCancel: () => void; onSave: () => void;
+  block?: boolean;
+}) {
+  if (editing) {
+    return (
+      <span style={{ display: "flex", alignItems: "center", gap: "0.3rem", width: block ? "100%" : undefined }}>
+        <input
+          className="sf-input"
+          style={{ width: block ? "100%" : 160, padding: "0.2rem 0.5rem", fontSize: "0.78rem" }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={label}
+          autoFocus
+          onKeyDown={(e) => { if (e.key === "Enter") onSave(); if (e.key === "Escape") onCancel(); }}
+        />
+        <button className="sf-icon-btn" onClick={onSave} disabled={saving} title="Guardar" style={{ width: 24, height: 24, fontSize: "0.65rem", flexShrink: 0 }}>
+          {saving ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+        </button>
+      </span>
+    );
+  }
+  if (value) {
+    return (
+      <span className="sf-badge" style={{ cursor: "pointer" }} onClick={onStart} title={`Editar ${label.toLowerCase()}`}>
+        <i className={icon} /> {value}
+      </span>
+    );
+  }
+  return (
+    <button className="sf-btn sf-btn-secondary" style={{ fontSize: "0.72rem", padding: "0.2rem 0.6rem" }} onClick={onStart}>
+      <i className="fas fa-plus" /> {label}
+    </button>
+  );
+}
+
+// Fila de contacto (celular / instagram / email): si hay valor, muestra un
+// link clickeable (WhatsApp, Instagram o mailto) con un lápiz para editar;
+// si no, un botón para agregarlo.
+function ContactoRow({
+  icon, iconColor, label, value, href, editing, draft, setDraft, saving, placeholder, onStart, onCancel, onSave,
+}: {
+  icon: string; iconColor: string; label: string; value: string | null; href: string | undefined;
+  editing: boolean; draft: string; setDraft: (v: string) => void; saving: boolean; placeholder: string;
+  onStart: () => void; onCancel: () => void; onSave: () => void;
+}) {
+  if (editing) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <input
+          className="sf-input"
+          style={{ maxWidth: 220 }}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={placeholder}
+          autoFocus
+          onKeyDown={(e) => { if (e.key === "Enter") onSave(); if (e.key === "Escape") onCancel(); }}
+        />
+        <button className="sf-icon-btn" onClick={onSave} disabled={saving} title="Guardar">
+          {saving ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+        </button>
+        <button className="sf-icon-btn" onClick={onCancel} title="Cancelar">
+          <i className="fas fa-times" />
+        </button>
+      </div>
+    );
+  }
+  if (value && href) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: iconColor, fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.35rem", fontWeight: 600 }}
+        >
+          <i className={icon} /> {value}
+        </a>
+        <button className="sf-icon-btn" title={`Editar ${label.toLowerCase()}`} onClick={onStart} style={{ width: 26, height: 26, fontSize: "0.7rem" }}>
+          <i className="fas fa-pen" />
+        </button>
+      </div>
+    );
+  }
+  return (
+    <button className="sf-btn sf-btn-secondary" onClick={onStart} style={{ fontSize: "0.78rem", alignSelf: "flex-start" }}>
+      <i className={icon} /> Agregar {label.toLowerCase()}
+    </button>
+  );
+}
+
 function TicketCard({
   t, onClick, isDragging, onDragStart, onDragEnd,
 }: {
@@ -1015,6 +1170,11 @@ function TicketCard({
         >
           {t.categoria}
         </span>
+        {t.asignado_a && (
+          <span className="sf-badge" style={{ fontSize: "0.7rem" }}>
+            <i className="fas fa-user" /> {t.asignado_a}
+          </span>
+        )}
         {t.telefono && (
           <a
             href={whatsappHref(t.telefono)}
