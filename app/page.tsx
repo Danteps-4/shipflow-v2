@@ -148,6 +148,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Tickets de Soporte",
+    module: "tickets" as ModuleKey,
+    tools: [
+      {
+        href: "/tickets",
+        icon: "fas fa-ticket",
+        color: "#8b5cf6",
+        title: "Tickets de Soporte",
+        description: "Casos vinculados a pedidos reales de Tienda Nube o Mercado Libre, con acciones, costos e historial completo.",
+        tags: ["Pedidos", "Acciones", "Costos"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

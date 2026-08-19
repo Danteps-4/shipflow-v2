@@ -16,6 +16,7 @@ interface TeamUser {
   modules: ModuleKey[];
   linkAccess?: string[];
   linkActions?: Record<string, LinkAction[]>;
+  ticketsPuedeSupervisar?: boolean;
   createdAt: string;
 }
 
@@ -60,13 +61,14 @@ export default function EquipoPage() {
   async function saveAccess(
     id: string, role: "admin" | "member", modules: ModuleKey[],
     linkAccess?: string[], linkActions?: Record<string, LinkAction[]>,
+    ticketsPuedeSupervisar?: boolean,
   ) {
     setSavingId(id);
     try {
       await fetch(`/api/team/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, modules, linkAccess, linkActions }),
+        body: JSON.stringify({ role, modules, linkAccess, linkActions, ticketsPuedeSupervisar }),
       });
       await fetchUsers();
     } finally {
@@ -77,7 +79,7 @@ export default function EquipoPage() {
   function toggleModule(u: TeamUser, mod: ModuleKey) {
     const has = u.modules.includes(mod);
     const next = has ? u.modules.filter((m) => m !== mod) : [...u.modules, mod];
-    saveAccess(u.id, u.role, next, u.linkAccess, u.linkActions);
+    saveAccess(u.id, u.role, next, u.linkAccess, u.linkActions, u.ticketsPuedeSupervisar);
   }
 
   // linkAccess undefined = "todo permitido"; al tocar un sub apartado por
@@ -86,7 +88,7 @@ export default function EquipoPage() {
     const current = u.linkAccess ?? ALL_HREFS;
     const has = current.includes(href);
     const next = has ? current.filter((h) => h !== href) : [...current, href];
-    saveAccess(u.id, u.role, u.modules, next, u.linkActions);
+    saveAccess(u.id, u.role, u.modules, next, u.linkActions, u.ticketsPuedeSupervisar);
   }
 
   // linkActions[href] undefined = "sin restricción, puede las 3"; al tocar
@@ -96,11 +98,17 @@ export default function EquipoPage() {
     const has = current.includes(accion);
     const nextForHref = has ? current.filter((a) => a !== accion) : [...current, accion];
     const nextLinkActions = { ...(u.linkActions ?? {}), [href]: nextForHref };
-    saveAccess(u.id, u.role, u.modules, u.linkAccess, nextLinkActions);
+    saveAccess(u.id, u.role, u.modules, u.linkAccess, nextLinkActions, u.ticketsPuedeSupervisar);
+  }
+
+  // A diferencia de toggleAccion, arranca en false (no en "todo permitido")
+  // — es una capacidad nueva, ver el comentario en lib/userStore.ts.
+  function toggleSupervisor(u: TeamUser) {
+    saveAccess(u.id, u.role, u.modules, u.linkAccess, u.linkActions, !u.ticketsPuedeSupervisar);
   }
 
   function changeRole(u: TeamUser, role: "admin" | "member") {
-    saveAccess(u.id, role, u.modules, u.linkAccess, u.linkActions);
+    saveAccess(u.id, role, u.modules, u.linkAccess, u.linkActions, u.ticketsPuedeSupervisar);
   }
 
   function toggleExpand(userId: string, mod: ModuleKey) {
@@ -240,6 +248,25 @@ export default function EquipoPage() {
                                               {LINK_ACTION_LABELS[accion]}
                                             </label>
                                           ))}
+                                        </div>
+                                      )}
+                                      {sub.ticketsSupervisor && (
+                                        <div style={{ padding: "0.1rem 0.75rem 0.5rem 3.7rem" }}>
+                                          <label
+                                            style={{
+                                              display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.75rem",
+                                              cursor: subChecked ? "pointer" : "default",
+                                              color: subChecked ? "var(--text-muted)" : "var(--border-color)",
+                                            }}
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={subChecked && !!u.ticketsPuedeSupervisar}
+                                              disabled={!subChecked || savingId === u.id}
+                                              onChange={() => toggleSupervisor(u)}
+                                            />
+                                            Puede supervisar (cerrar, reasignar, borrar costos/adjuntos)
+                                          </label>
                                         </div>
                                       )}
                                     </div>

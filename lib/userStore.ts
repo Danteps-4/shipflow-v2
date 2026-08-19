@@ -26,6 +26,12 @@ export interface User {
   // apartado, hoy solo aplicable a los tabs de Creativo que son biblioteca
   // de entradas. Sin entrada para un href = sin restricción (puede las 3).
   linkActions?: Record<string, LinkAction[]>;
+  // Capacidad de supervisión dentro de Tickets (cerrar, reasignar, salir de
+  // "pendiente supervisión", borrar costos/adjuntos). A diferencia de
+  // linkAccess/linkActions, arranca en `false`/undefined = SIN supervisión
+  // — es una capacidad nueva, nadie la tuvo antes, así que no debe heredar
+  // el criterio "undefined = permitido" del resto de los permisos.
+  ticketsPuedeSupervisar?: boolean;
 }
 
 // Usuarios creados antes de que existiera role/modules no tienen esos campos
@@ -87,7 +93,10 @@ export function createUser(data: { name: string; email: string; passwordHash: st
 
 export function updateUserAccess(
   id: string,
-  access: { role: UserRole; modules: ModuleKey[]; linkAccess?: string[]; linkActions?: Record<string, LinkAction[]> }
+  access: {
+    role: UserRole; modules: ModuleKey[]; linkAccess?: string[]; linkActions?: Record<string, LinkAction[]>;
+    ticketsPuedeSupervisar?: boolean;
+  }
 ): User | null {
   const users = readUsers();
   const user = users.find((u) => u.id === id);
@@ -96,6 +105,7 @@ export function updateUserAccess(
   user.modules = access.modules;
   user.linkAccess = access.linkAccess;
   user.linkActions = access.linkActions;
+  user.ticketsPuedeSupervisar = access.ticketsPuedeSupervisar;
   writeUsers(users);
   return user;
 }

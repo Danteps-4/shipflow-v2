@@ -19,6 +19,10 @@ export interface SubApartado {
   // true = además de poder verse, este sub apartado admite restringir
   // Agregar/Editar/Eliminar por separado (ver /equipo).
   acciones?: boolean;
+  // true = este sub apartado admite un checkbox propio "Puede supervisar"
+  // (hoy solo Tickets). No reusa `acciones`/LinkAction porque "supervisor"
+  // es una capacidad de aprobación, no un verbo CRUD — ver lib/permissions.ts.
+  ticketsSupervisor?: boolean;
 }
 
 export interface Apartado {
@@ -84,6 +88,13 @@ export const NAV_GROUPS: Apartado[] = [
     module: "soporte",
     subApartados: [
       { href: "/soporte", icon: "fas fa-headset", label: "Tickets de Soporte" },
+    ],
+  },
+  {
+    label: "Tickets de Soporte",
+    module: "tickets",
+    subApartados: [
+      { href: "/tickets", icon: "fas fa-ticket", label: "Tickets de Soporte", ticketsSupervisor: true },
     ],
   },
 ];

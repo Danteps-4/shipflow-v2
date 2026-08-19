@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     modules: u.modules,
     linkAccess: u.linkAccess,
     linkActions: u.linkActions,
+    ticketsPuedeSupervisar: u.ticketsPuedeSupervisar,
     createdAt: u.createdAt,
   }));
   return NextResponse.json({ users });

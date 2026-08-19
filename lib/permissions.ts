@@ -32,6 +32,17 @@ export async function requireModule(req: NextRequest, moduleKey: ModuleKey, href
   return { ok: true, user };
 }
 
+// Para las acciones de Tickets que requieren supervisión (cerrar, sacar de
+// "pendiente supervisión", reasignar a otra persona, borrar costos/adjuntos).
+// Distinto de requireModule: además de tener el módulo, hace falta el flag
+// `ticketsPuedeSupervisar` (o ser admin).
+export async function requireTicketsSupervisor(req: NextRequest): Promise<Guard> {
+  const guard = await requireModule(req, "tickets", "/tickets");
+  if (!guard.ok) return guard;
+  if (guard.user.role === "admin" || guard.user.ticketsPuedeSupervisar) return guard;
+  return { ok: false, response: NextResponse.json({ error: "Requiere permisos de supervisión" }, { status: 403 }) };
+}
+
 export async function requireAdmin(req: NextRequest): Promise<Guard> {
   const user = await getCurrentUser(req);
   if (!user) {

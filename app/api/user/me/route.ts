@@ -16,8 +16,9 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     user: {
-      name: user.name, email: user.email, role: user.role, modules: user.modules,
+      id: user.id, name: user.name, email: user.email, role: user.role, modules: user.modules,
       linkAccess: user.linkAccess, linkActions: user.linkActions,
+      ticketsPuedeSupervisar: user.ticketsPuedeSupervisar,
     },
   });
 }

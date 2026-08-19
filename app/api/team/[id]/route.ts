@@ -22,20 +22,22 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (!guard.ok) return guard.response;
 
   const body = await req.json() as {
-    role?: string; modules?: string[]; linkAccess?: string[]; linkActions?: unknown;
+    role?: string; modules?: string[]; linkAccess?: string[]; linkActions?: unknown; ticketsPuedeSupervisar?: boolean;
   };
   const role = body.role === "admin" ? "admin" : "member";
   const modules = (body.modules ?? []).filter(isModuleKey);
   const linkAccess = body.linkAccess?.filter(isValidHref);
   const linkActions = sanitizeLinkActions(body.linkActions);
+  const ticketsPuedeSupervisar = body.ticketsPuedeSupervisar === true;
 
-  const updated = updateUserAccess(params.id, { role, modules, linkAccess, linkActions });
+  const updated = updateUserAccess(params.id, { role, modules, linkAccess, linkActions, ticketsPuedeSupervisar });
   if (!updated) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
 
   return NextResponse.json({
     user: {
       id: updated.id, name: updated.name, email: updated.email,
       role: updated.role, modules: updated.modules, linkAccess: updated.linkAccess, linkActions: updated.linkActions,
+      ticketsPuedeSupervisar: updated.ticketsPuedeSupervisar,
     },
   });
 }
