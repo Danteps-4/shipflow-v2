@@ -26,15 +26,12 @@ export interface CambioGeneradoUI {
 }
 
 const TIPOS_ACCION_LABELS: Record<string, { label: string; icon: string }> = {
-  enviar_producto: { label: "Enviar producto", icon: "fas fa-box" },
-  cambiar_producto: { label: "Cambiar producto", icon: "fas fa-right-left" },
-  crear_pedido: { label: "Crear nuevo pedido", icon: "fas fa-plus" },
+  generar_envio: { label: "Generar nuevo envío", icon: "fas fa-box" },
   modificar_pedido: { label: "Modificar pedido", icon: "fas fa-pen" },
-  cambiar_direccion: { label: "Cambiar dirección", icon: "fas fa-map-pin" },
+  cambiar_direccion: { label: "Cambio de dirección/sucursal", icon: "fas fa-map-pin" },
   generar_devolucion: { label: "Generar devolución", icon: "fas fa-truck-ramp-box" },
   reembolso: { label: "Reembolso", icon: "fas fa-money-bill-transfer" },
   cancelar_pedido: { label: "Cancelar pedido", icon: "fas fa-ban" },
-  reenviar_pedido: { label: "Reenviar pedido", icon: "fas fa-truck" },
   generar_link_pago: { label: "Generar link de pago", icon: "fas fa-link" },
   resolver_sin_costo: { label: "Resolver sin costo", icon: "fas fa-check" },
   otra_accion: { label: "Otra acción", icon: "fas fa-ellipsis" },
@@ -46,15 +43,12 @@ const TIPOS_ACCION = Object.keys(TIPOS_ACCION_LABELS);
 // `null` = esta acción no representa un costo real (link de pago, resolver
 // sin costo), no se muestra el checkbox.
 const COSTO_SUGERIDO: Record<string, { tipo: string; checked: boolean } | null> = {
-  enviar_producto: { tipo: "producto_enviado", checked: true },
-  cambiar_producto: { tipo: "producto_enviado", checked: true },
-  crear_pedido: { tipo: "otro", checked: false },
+  generar_envio: { tipo: "producto_enviado", checked: true },
   modificar_pedido: { tipo: "otro", checked: false },
   cambiar_direccion: { tipo: "otro", checked: false },
   generar_devolucion: { tipo: "devolucion", checked: true },
   reembolso: { tipo: "reembolso", checked: true },
   cancelar_pedido: { tipo: "otro", checked: false },
-  reenviar_pedido: { tipo: "envio", checked: true },
   generar_link_pago: null,
   resolver_sin_costo: null,
   otra_accion: { tipo: "otro", checked: false },
@@ -68,10 +62,12 @@ const TIPOS_COSTO_LABELS: Record<string, string> = {
   otro: "Otro",
 };
 
-// Acciones que típicamente implican mandarle algo físico al cliente — para
-// estas se ofrece generar directamente un Cambio real (módulo Cambios), que
-// después se procesa y se paga con Andreani como cualquier otro envío.
-const REQUIERE_ENVIO = ["enviar_producto", "cambiar_producto", "crear_pedido", "reenviar_pedido"];
+// Acciones que implican generar o corregir un envío físico al cliente —
+// para estas se ofrece crear/actualizar directamente un Cambio real (módulo
+// Cambios), que después se procesa y se paga con Andreani como cualquier
+// otro envío. "cambiar_direccion" usa el mismo formulario para registrar el
+// destino corregido (domicilio o sucursal).
+const REQUIERE_ENVIO = ["generar_envio", "cambiar_direccion"];
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });

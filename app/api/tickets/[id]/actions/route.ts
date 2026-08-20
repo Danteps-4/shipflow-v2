@@ -17,15 +17,12 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 }
 
 const ACCION_LABELS: Record<TipoAccion, string> = {
-  enviar_producto: "Enviar producto",
-  cambiar_producto: "Cambiar producto",
-  crear_pedido: "Crear pedido",
+  generar_envio: "Generar nuevo envío",
   modificar_pedido: "Modificar pedido",
-  cambiar_direccion: "Cambiar dirección",
+  cambiar_direccion: "Cambio de dirección/sucursal",
   generar_devolucion: "Generar devolución",
   reembolso: "Reembolso",
   cancelar_pedido: "Cancelar pedido",
-  reenviar_pedido: "Reenviar pedido",
   generar_link_pago: "Generar link de pago",
   resolver_sin_costo: "Resolver sin costo",
   otra_accion: "Otra acción",

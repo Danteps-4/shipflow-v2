@@ -22,16 +22,18 @@ export type CanalPedido = (typeof CANAL_PEDIDO)[number];
 // Mismo vocabulario que ya usa Soporte para el canal de contacto.
 export const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"] as const;
 
+// "generar_envio" unifica lo que antes eran 4 botones separados (enviar
+// producto, cambiar producto, crear pedido, reenviar pedido) — todos
+// terminaban haciendo lo mismo: registrar la acción y, opcionalmente,
+// generar un Cambio real para Andreani. El detalle libre de la acción
+// aclara qué se está mandando exactamente.
 export const TIPOS_ACCION = [
-  "enviar_producto",
-  "cambiar_producto",
-  "crear_pedido",
+  "generar_envio",
   "modificar_pedido",
   "cambiar_direccion",
   "generar_devolucion",
   "reembolso",
   "cancelar_pedido",
-  "reenviar_pedido",
   "generar_link_pago",
   "resolver_sin_costo",
   "otra_accion",

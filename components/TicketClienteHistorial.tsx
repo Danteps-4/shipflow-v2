@@ -11,8 +11,7 @@ export interface TicketResumenClienteUI {
 const ESTADOS_ABIERTOS = new Set(["nuevo", "pendiente_supervision", "en_gestion", "esperando_cliente", "esperando_pago", "esperando_devolucion", "esperando_logistica"]);
 
 const CONTADORES_RESUMEN: { tipo: string; label: string }[] = [
-  { tipo: "cambiar_producto", label: "Cambios de producto" },
-  { tipo: "enviar_producto", label: "Reemplazos enviados" },
+  { tipo: "generar_envio", label: "Envíos generados" },
   { tipo: "generar_devolucion", label: "Devoluciones" },
   { tipo: "reembolso", label: "Reembolsos" },
 ];
