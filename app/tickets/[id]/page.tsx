@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
-import TicketResolverSection, { TicketAccionUI } from "@/components/TicketResolverSection";
+import TicketResolverSection, { TicketAccionUI, CambioGeneradoUI } from "@/components/TicketResolverSection";
 import TicketHistorial, { TicketHistorialEntryUI } from "@/components/TicketHistorial";
 import TicketClienteHistorial, { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
 import { labelCategoria, labelSubcategoria1, labelSubcategoria2 } from "@/lib/ticketCategorias";
@@ -108,6 +108,7 @@ export default function TicketDetallePage() {
   const [detalle, setDetalle] = useState<TicketDetalle | null>(null);
   const [otrosTickets, setOtrosTickets] = useState<TicketResumenClienteUI[]>([]);
   const [accionesResumen, setAccionesResumen] = useState<Record<string, number>>({});
+  const [cambiosGenerados, setCambiosGenerados] = useState<CambioGeneradoUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [savingCampo, setSavingCampo] = useState(false);
@@ -150,6 +151,7 @@ export default function TicketDetallePage() {
         setDetalle(d.ticket);
         setOtrosTickets(d.otrosTickets ?? []);
         setAccionesResumen(d.accionesResumen ?? {});
+        setCambiosGenerados(d.cambiosGenerados ?? []);
       }
     } finally {
       setLoading(false);
@@ -514,7 +516,15 @@ export default function TicketDetallePage() {
 
                 {/* Resolver ticket */}
                 <div className="ticket-card">
-                  <TicketResolverSection ticketId={detalle.id} acciones={detalle.acciones} onRegistrada={fetchDetalle} puedeSupervisar={puedeSupervisar} />
+                  <TicketResolverSection
+                    ticketId={detalle.id} acciones={detalle.acciones} onRegistrada={fetchDetalle} puedeSupervisar={puedeSupervisar}
+                    ticketCliente={{
+                      nombre: detalle.cliente_nombre, telefono: detalle.cliente_telefono,
+                      email: detalle.cliente_email, dni: detalle.cliente_dni, direccion: detalle.cliente_direccion,
+                    }}
+                    ticketNumeroPedido={detalle.numero_pedido}
+                    cambiosGenerados={cambiosGenerados}
+                  />
                 </div>
 
                 {/* Costos */}

@@ -3,6 +3,7 @@ import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireTicketsSupervisor } from "@/lib/permissions";
 import { initTicketsTables, getTicketById, getTicketsByContact, getAccionCountsForTickets, updateTicket, deleteTicket, ESTADOS_TICKET, UpdateTicketData } from "@/lib/ticketsDb";
+import { initCambiosTables, getCambiosByTicketCasoId } from "@/lib/cambiosDb";
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -32,7 +33,10 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }, ticket.id);
   const accionesResumen = await getAccionCountsForTickets([ticket.id, ...otrosTickets.map(t => t.id)]);
 
-  return NextResponse.json({ ticket, otrosTickets, accionesResumen });
+  await initCambiosTables();
+  const cambiosGenerados = await getCambiosByTicketCasoId(storeId, ticket.id);
+
+  return NextResponse.json({ ticket, otrosTickets, accionesResumen, cambiosGenerados });
 }
 
 interface PatchBody {

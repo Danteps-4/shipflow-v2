@@ -28,6 +28,10 @@ export interface Cambio {
   codigo_postal: string;
   // Campo de sucursal (solo si tipo === "sucursal")
   sucursal: string;
+  // Ticket de Soporte (módulo Tickets, tabla `casos`) del que se generó este
+  // envío, si vino de ahí — referencia blanda (sin FK), mismo criterio que
+  // numero_pedido_original: Tickets y Cambios son módulos independientes.
+  ticket_caso_id: number | null;
   procesado: boolean;
   created_by: string;
   created_at: string;
@@ -57,6 +61,7 @@ export async function initCambiosTables(): Promise<void> {
       provincia        TEXT NOT NULL DEFAULT '',
       codigo_postal    TEXT NOT NULL DEFAULT '',
       sucursal         TEXT NOT NULL DEFAULT '',
+      ticket_caso_id   INTEGER,
       procesado        BOOLEAN NOT NULL DEFAULT FALSE,
       created_by       TEXT NOT NULL DEFAULT '',
       created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -69,6 +74,9 @@ export async function initCambiosTables(): Promise<void> {
   `;
   // Migración: vínculo opcional al pedido de Tienda Nube original.
   await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS numero_pedido_original TEXT`;
+  // Migración: vínculo opcional al Ticket de Soporte que generó el envío.
+  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS ticket_caso_id INTEGER`;
+  await sql`CREATE INDEX IF NOT EXISTS cambios_store_ticket ON cambios (store_id, ticket_caso_id)`;
   // El costo dejó de cargarse por cambio individual: ahora se carga un
   // costo total al procesar un lote entero (ver marcarCambiosProcesados en
   // app/api/cambios/route.ts), así que estas columnas no se usan más.
@@ -108,6 +116,7 @@ export async function createCambio(
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
+    ticketCasoId?: number | null;
     createdBy: string;
   },
 ): Promise<Cambio> {
@@ -116,18 +125,26 @@ export async function createCambio(
     INSERT INTO cambios (
       store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, tipo,
       direccion, numero_direccion, piso, localidad, provincia, codigo_postal, sucursal,
-      created_by
+      ticket_caso_id, created_by
     )
     VALUES (
       ${storeId}, ${data.nombre}, ${data.telefono}, ${data.email ?? null}, ${data.dni ?? null}, ${data.motivo ?? null},
       ${data.numeroPedidoOriginal ?? null}, ${data.tipo},
       ${data.direccion ?? ""}, ${data.numeroDireccion ?? ""}, ${data.piso ?? ""}, ${data.localidad ?? ""},
       ${data.provincia ?? ""}, ${data.codigoPostal ?? ""}, ${data.sucursal ?? ""},
-      ${data.createdBy}
+      ${data.ticketCasoId ?? null}, ${data.createdBy}
     )
     RETURNING *
   `;
   return (rows as Cambio[])[0];
+}
+
+export async function getCambiosByTicketCasoId(storeId: string, casoId: number): Promise<Cambio[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT * FROM cambios WHERE store_id = ${storeId} AND ticket_caso_id = ${casoId} ORDER BY created_at DESC
+  `;
+  return rows as Cambio[];
 }
 
 export async function updateCambio(

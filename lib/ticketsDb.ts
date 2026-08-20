@@ -286,9 +286,12 @@ export async function initTicketsTables(): Promise<void> {
   await sql`CREATE INDEX IF NOT EXISTS caso_historial_caso ON caso_historial (caso_id, created_at)`;
 }
 
-// ─── Historial (interno) ──────────────────────────────────────────────────────
+// ─── Historial ──────────────────────────────────────────────────────────────
+// Exportada además de usarse internamente: rutas que integran Tickets con
+// otro módulo (ej. generar un Cambio para Andreani) necesitan poder dejar
+// su propia fila en la timeline sin duplicar el INSERT acá.
 
-async function addHistorial(
+export async function addHistorial(
   casoId: number,
   tipo: string,
   descripcion: string,
