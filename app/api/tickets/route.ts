@@ -47,6 +47,7 @@ interface CreateTicketBody {
   clienteNombre?: string;
   clienteTelefono?: string;
   clienteEmail?: string;
+  clienteInstagram?: string;
   clienteDni?: string;
   clienteDireccion?: string;
   pedidoTotal?: number;
@@ -90,6 +91,7 @@ export async function POST(req: NextRequest) {
     clienteNombre: body.clienteNombre || "",
     clienteTelefono: body.clienteTelefono,
     clienteEmail: body.clienteEmail,
+    clienteInstagram: body.clienteInstagram,
     clienteDni: body.clienteDni,
     clienteDireccion: body.clienteDireccion,
     pedidoTotal: body.pedidoTotal,

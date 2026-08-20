@@ -9,6 +9,7 @@ import TicketResolverSection, { TicketAccionUI } from "@/components/TicketResolv
 import TicketHistorial, { TicketHistorialEntryUI } from "@/components/TicketHistorial";
 import TicketClienteHistorial, { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
 import { labelCategoria, labelSubcategoria1, labelSubcategoria2 } from "@/lib/ticketCategorias";
+import ContactoRow, { whatsappHref, instagramHref } from "@/components/ContactoRow";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,18 @@ const ESTADOS_LABELS: Record<string, string> = {
   cancelado: "Cancelado",
 };
 const ESTADOS = Object.keys(ESTADOS_LABELS);
+const ESTADO_COLORS: Record<string, string> = {
+  nuevo: "#3b82f6",
+  pendiente_supervision: "#f59e0b",
+  en_gestion: "#8b5cf6",
+  esperando_cliente: "#eab308",
+  esperando_pago: "#eab308",
+  esperando_devolucion: "#f97316",
+  esperando_logistica: "#06b6d4",
+  resuelto: "#22c55e",
+  cerrado: "#64748b",
+  cancelado: "#ef4444",
+};
 const PRIORIDADES = ["normal", "alta", "urgente"];
 const PRIORIDAD_LABELS: Record<string, string> = { normal: "Normal", alta: "Alta", urgente: "Urgente" };
 const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"];
@@ -45,6 +58,7 @@ interface TicketDetalle {
   cliente_nombre: string;
   cliente_telefono: string | null;
   cliente_email: string | null;
+  cliente_instagram: string | null;
   cliente_dni: string | null;
   cliente_direccion: string | null;
   pedido_total: string | null;
@@ -106,6 +120,15 @@ export default function TicketDetallePage() {
 
   const [editandoValorComercial, setEditandoValorComercial] = useState(false);
   const [valorComercialDraft, setValorComercialDraft] = useState("");
+
+  const [editingTelefono, setEditingTelefono] = useState(false);
+  const [telefonoDraft, setTelefonoDraft] = useState("");
+  const [editingInstagram, setEditingInstagram] = useState(false);
+  const [instagramDraft, setInstagramDraft] = useState("");
+  const [editingEmail, setEditingEmail] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [editingDireccion, setEditingDireccion] = useState(false);
+  const [direccionDraft, setDireccionDraft] = useState("");
 
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -289,13 +312,19 @@ export default function TicketDetallePage() {
               <i className="fas fa-spinner fa-spin" style={{ fontSize: "1.5rem" }} />
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem", alignItems: "start" }}>
+            <div className="ticket-detail-grid">
               {/* ── Columna principal ── */}
-              <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
                 {/* Header */}
-                <div>
+                <div className="ticket-card">
                   <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.4rem" }}>
                     <h1 style={{ fontSize: "1.4rem", fontWeight: 700 }}>Ticket #{detalle.id}</h1>
+                    <span
+                      className="sf-badge"
+                      style={{ background: ESTADO_COLORS[detalle.estado] + "22", color: ESTADO_COLORS[detalle.estado], border: `1px solid ${ESTADO_COLORS[detalle.estado]}44` }}
+                    >
+                      {ESTADOS_LABELS[detalle.estado]}
+                    </span>
                     <span className="sf-badge">{labelCategoria(detalle.categoria)}</span>
                     {detalle.subcategoria_1 && <span className="sf-badge">{labelSubcategoria1(detalle.categoria, detalle.subcategoria_1)}</span>}
                     {detalle.subcategoria_2 && <span className="sf-badge">{labelSubcategoria2(detalle.categoria, detalle.subcategoria_1 ?? "", detalle.subcategoria_2)}</span>}
@@ -304,20 +333,20 @@ export default function TicketDetallePage() {
                     Creado por {detalle.created_by || "—"} · {fmtDateTime(detalle.created_at)}
                   </p>
 
-                  <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.85rem" }}>
-                    <label className="sf-label" style={{ minWidth: 170 }}>
+                  <div className="ticket-field-grid" style={{ marginTop: "0.85rem" }}>
+                    <label className="sf-label">
                       Estado
                       <select className="sf-input" value={detalle.estado} disabled={savingCampo} onChange={e => patchTicket({ estado: e.target.value })}>
                         {ESTADOS.map(e => <option key={e} value={e}>{ESTADOS_LABELS[e]}</option>)}
                       </select>
                     </label>
-                    <label className="sf-label" style={{ minWidth: 140 }}>
+                    <label className="sf-label">
                       Prioridad
                       <select className="sf-input" value={detalle.prioridad} disabled={savingCampo} onChange={e => patchTicket({ prioridad: e.target.value })}>
                         {PRIORIDADES.map(p => <option key={p} value={p}>{PRIORIDAD_LABELS[p]}</option>)}
                       </select>
                     </label>
-                    <label className="sf-label" style={{ minWidth: 150 }}>
+                    <label className="sf-label">
                       Canal de contacto
                       <select className="sf-input" value={detalle.canal_contacto ?? ""} disabled={savingCampo} onChange={e => patchTicket({ canalContacto: e.target.value || null })}>
                         <option value="">Sin especificar</option>
@@ -326,7 +355,7 @@ export default function TicketDetallePage() {
                     </label>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginTop: "0.75rem" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
                     <span style={{ fontSize: "0.85rem" }}>
                       <i className="fas fa-user" style={{ marginRight: "0.35rem", color: "var(--text-muted)" }} />
                       Responsable: <strong>{detalle.responsable_nombre || "Sin asignar"}</strong>
@@ -347,7 +376,7 @@ export default function TicketDetallePage() {
                 </div>
 
                 {/* Pedido original */}
-                <div>
+                <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-receipt" style={{ fontSize: "0.65rem" }} /></div>
                     <div>
@@ -355,13 +384,59 @@ export default function TicketDetallePage() {
                       <p>{detalle.canal_pedido === "tiendanube" ? "Tienda Nube" : "Mercado Libre"} · #{detalle.numero_pedido}</p>
                     </div>
                   </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.85rem" }}>
+                    <ContactoRow
+                      icon="fab fa-whatsapp" iconColor="#25D366" label="Teléfono"
+                      value={detalle.cliente_telefono} href={detalle.cliente_telefono ? whatsappHref(detalle.cliente_telefono) : undefined}
+                      editing={editingTelefono} draft={telefonoDraft} setDraft={setTelefonoDraft} saving={savingCampo}
+                      placeholder="ej. 5491122334455"
+                      onStart={() => { setTelefonoDraft(detalle.cliente_telefono || ""); setEditingTelefono(true); }}
+                      onCancel={() => setEditingTelefono(false)}
+                      onSave={() => patchTicket({ clienteTelefono: telefonoDraft.trim() || null }).then(() => setEditingTelefono(false))}
+                    />
+                    <ContactoRow
+                      icon="fab fa-instagram" iconColor="#e1306c" label="Instagram"
+                      value={detalle.cliente_instagram} href={detalle.cliente_instagram ? instagramHref(detalle.cliente_instagram) : undefined}
+                      editing={editingInstagram} draft={instagramDraft} setDraft={setInstagramDraft} saving={savingCampo}
+                      placeholder="ej. @usuario"
+                      onStart={() => { setInstagramDraft(detalle.cliente_instagram || ""); setEditingInstagram(true); }}
+                      onCancel={() => setEditingInstagram(false)}
+                      onSave={() => patchTicket({ clienteInstagram: instagramDraft.trim() || null }).then(() => setEditingInstagram(false))}
+                    />
+                    <ContactoRow
+                      icon="fas fa-envelope" iconColor="#60a5fa" label="Email"
+                      value={detalle.cliente_email} href={detalle.cliente_email ? `mailto:${detalle.cliente_email}` : undefined}
+                      editing={editingEmail} draft={emailDraft} setDraft={setEmailDraft} saving={savingCampo}
+                      placeholder="ej. cliente@mail.com"
+                      onStart={() => { setEmailDraft(detalle.cliente_email || ""); setEditingEmail(true); }}
+                      onCancel={() => setEditingEmail(false)}
+                      onSave={() => patchTicket({ clienteEmail: emailDraft.trim() || null }).then(() => setEditingEmail(false))}
+                    />
+                  </div>
+
                   <div className="sf-info-block">
                     <div className="sf-info-block-grid">
                       <div><strong>Cliente:</strong> {detalle.cliente_nombre || "—"}</div>
-                      <div><strong>Teléfono:</strong> {detalle.cliente_telefono || "—"}</div>
-                      <div><strong>Email:</strong> {detalle.cliente_email || "—"}</div>
                       <div><strong>DNI:</strong> {detalle.cliente_dni || "—"}</div>
-                      <div style={{ gridColumn: "1 / -1" }}><strong>Dirección:</strong> {detalle.cliente_direccion || "—"}</div>
+                      <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                        {editingDireccion ? (
+                          <>
+                            <strong>Dirección:</strong>
+                            <input className="sf-input" style={{ maxWidth: 320, flex: 1 }} value={direccionDraft} onChange={e => setDireccionDraft(e.target.value)} autoFocus
+                              onKeyDown={e => { if (e.key === "Enter") patchTicket({ clienteDireccion: direccionDraft.trim() || null }).then(() => setEditingDireccion(false)); if (e.key === "Escape") setEditingDireccion(false); }} />
+                            <button className="sf-icon-btn" onClick={() => patchTicket({ clienteDireccion: direccionDraft.trim() || null }).then(() => setEditingDireccion(false))} disabled={savingCampo}><i className="fas fa-check" /></button>
+                            <button className="sf-icon-btn" onClick={() => setEditingDireccion(false)}><i className="fas fa-times" /></button>
+                          </>
+                        ) : (
+                          <>
+                            <strong>Dirección:</strong> {detalle.cliente_direccion || "—"}
+                            <button className="sf-icon-btn" title="Editar dirección" onClick={() => { setDireccionDraft(detalle.cliente_direccion || ""); setEditingDireccion(true); }} style={{ width: 24, height: 24, fontSize: "0.68rem" }}>
+                              <i className="fas fa-pen" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                       <div><strong>Total:</strong> {detalle.pedido_total ? `${detalle.pedido_moneda ?? ""} ${Number(detalle.pedido_total).toLocaleString("es-AR")}` : "—"}</div>
                       <div><strong>Fecha:</strong> {detalle.pedido_fecha ? fmtDateTime(detalle.pedido_fecha) : "—"}</div>
                       <div><strong>Transportista:</strong> {detalle.pedido_transportista || "—"}</div>
@@ -383,7 +458,7 @@ export default function TicketDetallePage() {
                 </div>
 
                 {/* Descripción + adjuntos */}
-                <div>
+                <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-file-lines" style={{ fontSize: "0.65rem" }} /></div>
                     <div><h2>Descripción</h2></div>
@@ -438,10 +513,12 @@ export default function TicketDetallePage() {
                 </div>
 
                 {/* Resolver ticket */}
-                <TicketResolverSection ticketId={detalle.id} acciones={detalle.acciones} onRegistrada={fetchDetalle} />
+                <div className="ticket-card">
+                  <TicketResolverSection ticketId={detalle.id} acciones={detalle.acciones} onRegistrada={fetchDetalle} puedeSupervisar={puedeSupervisar} />
+                </div>
 
                 {/* Costos */}
-                <div>
+                <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-coins" style={{ fontSize: "0.65rem" }} /></div>
                     <div>
@@ -450,7 +527,7 @@ export default function TicketDetallePage() {
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: "1.5rem", marginBottom: "1rem" }}>
+                  <div style={{ display: "flex", gap: "1.5rem", marginBottom: "0.5rem", flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Valor comercial</div>
                       {editandoValorComercial ? (
@@ -469,6 +546,10 @@ export default function TicketDetallePage() {
                       <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--error-color)" }}>${detalle.costoTotal.toLocaleString("es-AR")}</div>
                     </div>
                   </div>
+                  <p style={{ fontSize: "0.76rem", color: "var(--text-muted)", marginBottom: "0.85rem" }}>
+                    <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
+                    Son dos cosas distintas: el <strong>valor comercial</strong> es lo que el producto/pedido vale de lista (un solo número, editable arriba). El <strong>costo total</strong> es la suma de los ítems cargados en la lista de abajo — se registra acá o marcando &quot;sumar como costo&quot; al cargar una acción en Resolver ticket, nunca automáticamente.
+                  </p>
 
                   {detalle.costos.length > 0 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", marginBottom: "0.85rem" }}>
@@ -490,33 +571,35 @@ export default function TicketDetallePage() {
                     </div>
                   )}
 
-                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "flex-end" }}>
-                    <label className="sf-label" style={{ minWidth: 140 }}>
-                      Tipo
-                      <select className="sf-input" value={costoForm.tipo} onChange={e => setCostoForm(f => ({ ...f, tipo: e.target.value }))}>
-                        {Object.entries(TIPOS_COSTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                      </select>
-                    </label>
-                    <label className="sf-label" style={{ minWidth: 150 }}>
+                  <div style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
+                    <div className="ticket-field-grid" style={{ marginBottom: "0.6rem" }}>
+                      <label className="sf-label">
+                        Tipo
+                        <select className="sf-input" value={costoForm.tipo} onChange={e => setCostoForm(f => ({ ...f, tipo: e.target.value }))}>
+                          {Object.entries(TIPOS_COSTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                      </label>
+                      <label className="sf-label">
+                        Monto
+                        <input className="sf-input" type="number" min="0" step="0.01" value={costoForm.monto} onChange={e => setCostoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0.00" />
+                      </label>
+                      <label className="sf-label">
+                        SKU (opcional)
+                        <input className="sf-input" value={costoForm.sku} onChange={e => setCostoForm(f => ({ ...f, sku: e.target.value }))} placeholder="Opcional" />
+                      </label>
+                    </div>
+                    <label className="sf-label" style={{ marginBottom: "0.6rem" }}>
                       Descripción
                       <input className="sf-input" value={costoForm.descripcion} onChange={e => setCostoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Opcional" />
                     </label>
-                    <label className="sf-label" style={{ width: 110 }}>
-                      Monto
-                      <input className="sf-input" type="number" min="0" step="0.01" value={costoForm.monto} onChange={e => setCostoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0.00" />
-                    </label>
-                    <label className="sf-label" style={{ width: 110 }}>
-                      SKU
-                      <input className="sf-input" value={costoForm.sku} onChange={e => setCostoForm(f => ({ ...f, sku: e.target.value }))} placeholder="Opcional" />
-                    </label>
                     <button className="sf-btn" onClick={agregarCosto} disabled={guardandoCosto || !costoForm.monto.trim()}>
-                      {guardandoCosto ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-plus" /> Agregar</>}
+                      {guardandoCosto ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-plus" /> Agregar costo</>}
                     </button>
                   </div>
                 </div>
 
                 {/* Comentarios internos */}
-                <div>
+                <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-lock" style={{ fontSize: "0.65rem" }} /></div>
                     <div>
@@ -543,7 +626,7 @@ export default function TicketDetallePage() {
                 </div>
 
                 {/* Historial */}
-                <div>
+                <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-clock-rotate-left" style={{ fontSize: "0.65rem" }} /></div>
                     <div><h2>Historial</h2></div>
@@ -553,7 +636,7 @@ export default function TicketDetallePage() {
               </div>
 
               {/* ── Columna lateral ── */}
-              <div>
+              <div className="ticket-card">
                 <TicketClienteHistorial otrosTickets={otrosTickets} accionesResumen={accionesResumen} />
               </div>
             </div>

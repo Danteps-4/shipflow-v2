@@ -56,6 +56,7 @@ export interface Ticket {
   cliente_nombre: string;
   cliente_telefono: string | null;
   cliente_email: string | null;
+  cliente_instagram: string | null;
   cliente_dni: string | null;
   cliente_direccion: string | null;
   pedido_total: string | null;
@@ -172,6 +173,7 @@ export async function initTicketsTables(): Promise<void> {
       cliente_nombre        TEXT NOT NULL DEFAULT '',
       cliente_telefono      TEXT,
       cliente_email         TEXT,
+      cliente_instagram     TEXT,
       cliente_dni           TEXT,
       cliente_direccion     TEXT,
 
@@ -208,6 +210,7 @@ export async function initTicketsTables(): Promise<void> {
       cerrado_at            TIMESTAMPTZ
     )
   `;
+  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS cliente_instagram TEXT`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_estado  ON casos (store_id, estado, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_pedido  ON casos (store_id, numero_pedido)`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_tel     ON casos (store_id, cliente_telefono)`;
@@ -460,6 +463,7 @@ export interface CreateTicketData {
   clienteNombre: string;
   clienteTelefono?: string | null;
   clienteEmail?: string | null;
+  clienteInstagram?: string | null;
   clienteDni?: string | null;
   clienteDireccion?: string | null;
   pedidoTotal?: number | null;
@@ -485,13 +489,13 @@ export async function createTicket(storeId: string, data: CreateTicketData, slaV
   const rows = await sql`
     INSERT INTO casos (
       store_id, canal_pedido, numero_pedido, pedido_id_interno,
-      cliente_nombre, cliente_telefono, cliente_email, cliente_dni, cliente_direccion,
+      cliente_nombre, cliente_telefono, cliente_email, cliente_instagram, cliente_dni, cliente_direccion,
       pedido_total, pedido_moneda, pedido_fecha, pedido_estado, pedido_transportista, pedido_tracking, pedido_productos_json,
       categoria, subcategoria_1, subcategoria_2, canal_contacto, descripcion, troubleshooting, marca,
       prioridad, sla_vencimiento, created_by
     ) VALUES (
       ${storeId}, ${data.canalPedido}, ${data.numeroPedido}, ${data.pedidoIdInterno ?? null},
-      ${data.clienteNombre}, ${data.clienteTelefono ?? null}, ${data.clienteEmail ?? null}, ${data.clienteDni ?? null}, ${data.clienteDireccion ?? null},
+      ${data.clienteNombre}, ${data.clienteTelefono ?? null}, ${data.clienteEmail ?? null}, ${data.clienteInstagram ?? null}, ${data.clienteDni ?? null}, ${data.clienteDireccion ?? null},
       ${data.pedidoTotal ?? null}, ${data.pedidoMoneda ?? null}, ${data.pedidoFecha ?? null}, ${data.pedidoEstado ?? null}, ${data.pedidoTransportista ?? null}, ${data.pedidoTracking ?? null}, ${data.pedidoProductos ? JSON.stringify(data.pedidoProductos) : null},
       ${data.categoria}, ${data.subcategoria1 ?? null}, ${data.subcategoria2 ?? null}, ${data.canalContacto ?? null}, ${data.descripcion ?? null}, ${data.troubleshooting ?? null}, ${data.marca ?? null},
       ${data.prioridad ?? "normal"}, ${slaVencimiento.toISOString()}, ${data.createdBy}
@@ -519,6 +523,10 @@ export interface UpdateTicketData {
   marca?: string | null;
   canalContacto?: string | null;
   valorComercial?: number | null;
+  clienteTelefono?: string | null;
+  clienteEmail?: string | null;
+  clienteInstagram?: string | null;
+  clienteDireccion?: string | null;
 }
 
 export async function updateTicket(
@@ -540,6 +548,10 @@ export async function updateTicket(
   const marca               = data.marca               !== undefined ? data.marca               : current.marca;
   const canalContacto       = data.canalContacto       !== undefined ? data.canalContacto       : current.canal_contacto;
   const valorComercial      = data.valorComercial      !== undefined ? data.valorComercial      : current.valor_comercial;
+  const clienteTelefono     = data.clienteTelefono     !== undefined ? data.clienteTelefono     : current.cliente_telefono;
+  const clienteEmail        = data.clienteEmail        !== undefined ? data.clienteEmail        : current.cliente_email;
+  const clienteInstagram    = data.clienteInstagram    !== undefined ? data.clienteInstagram    : current.cliente_instagram;
+  const clienteDireccion    = data.clienteDireccion    !== undefined ? data.clienteDireccion    : current.cliente_direccion;
 
   const resueltoAt = estado === "resuelto" && current.estado !== "resuelto" ? new Date().toISOString() : current.resuelto_at;
   const cerradoAt  = estado === "cerrado"  && current.estado !== "cerrado"  ? new Date().toISOString() : current.cerrado_at;
@@ -555,6 +567,8 @@ export async function updateTicket(
       categoria = ${categoria}, subcategoria_1 = ${subcategoria1}, subcategoria_2 = ${subcategoria2},
       descripcion = ${descripcion}, troubleshooting = ${troubleshooting}, marca = ${marca},
       canal_contacto = ${canalContacto}, valor_comercial = ${valorComercial},
+      cliente_telefono = ${clienteTelefono}, cliente_email = ${clienteEmail},
+      cliente_instagram = ${clienteInstagram}, cliente_direccion = ${clienteDireccion},
       sla_vencimiento = ${slaVencimiento}, updated_at = NOW(),
       resuelto_at = ${resueltoAt}, cerrado_at = ${cerradoAt}
     WHERE store_id = ${storeId} AND id = ${id}
@@ -565,6 +579,14 @@ export async function updateTicket(
   }
   if (data.responsableId !== undefined && data.responsableId !== current.responsable_id) {
     await addHistorial(id, "cambio_responsable", `Reasignó el ticket a ${responsableNombre || "sin asignar"}`, updatedBy, { from: current.responsable_id, to: responsableId });
+  }
+  if (
+    (data.clienteTelefono !== undefined && data.clienteTelefono !== current.cliente_telefono) ||
+    (data.clienteEmail !== undefined && data.clienteEmail !== current.cliente_email) ||
+    (data.clienteInstagram !== undefined && data.clienteInstagram !== current.cliente_instagram) ||
+    (data.clienteDireccion !== undefined && data.clienteDireccion !== current.cliente_direccion)
+  ) {
+    await addHistorial(id, "otro", `${updatedBy} actualizó los datos de contacto del cliente`, updatedBy);
   }
 
   const rows = await sql`SELECT * FROM casos WHERE store_id = ${storeId} AND id = ${id}` as Ticket[];
@@ -635,6 +657,40 @@ export async function addAccion(
   ` as TicketAccion[];
   await addHistorial(casoId, "accion", `${createdBy} registró la acción "${data.tipo}"`, createdBy, { tipo: data.tipo });
   return rows[0];
+}
+
+export async function updateAccion(
+  casoId: number,
+  accionId: number,
+  data: { detalle?: string | null; monto?: number | null; referencia?: string | null },
+  updatedBy: string,
+): Promise<TicketAccion | null> {
+  const sql = getDb();
+  const current = await sql`SELECT * FROM caso_acciones WHERE id = ${accionId} AND caso_id = ${casoId}` as TicketAccion[];
+  if (!current.length) return null;
+  const actual = current[0];
+
+  const detalle    = data.detalle    !== undefined ? data.detalle    : actual.detalle;
+  const monto       = data.monto       !== undefined ? data.monto       : actual.monto;
+  const referencia   = data.referencia   !== undefined ? data.referencia   : actual.referencia;
+
+  const rows = await sql`
+    UPDATE caso_acciones SET detalle = ${detalle}, monto = ${monto}, referencia = ${referencia}
+    WHERE id = ${accionId} AND caso_id = ${casoId}
+    RETURNING *
+  ` as TicketAccion[];
+  await addHistorial(casoId, "accion", `${updatedBy} editó la acción "${actual.tipo}"`, updatedBy, { tipo: actual.tipo });
+  return rows[0] ?? null;
+}
+
+export async function deleteAccion(casoId: number, accionId: number, deletedBy: string): Promise<boolean> {
+  const sql = getDb();
+  const rows = await sql`
+    DELETE FROM caso_acciones WHERE id = ${accionId} AND caso_id = ${casoId} RETURNING id, tipo
+  ` as { id: number; tipo: string }[];
+  if (!rows.length) return false;
+  await addHistorial(casoId, "accion", `${deletedBy} eliminó la acción "${rows[0].tipo}"`, deletedBy);
+  return true;
 }
 
 // ─── Escritura: costos ──────────────────────────────────────────────────────────

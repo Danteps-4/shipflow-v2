@@ -760,6 +760,33 @@ body {
   gap: 0.75rem;
 }
 
+/* ── Ticket detail page ───────────────────────────────────────── */
+.ticket-detail-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.ticket-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 1.1rem 1.25rem;
+  background: var(--surface-color);
+}
+
+.ticket-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+
+@media (max-width: 860px) {
+  .ticket-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Tool cards (home) ────────────────────────────────────────── */
 .sf-tool-card {
   display: flex;

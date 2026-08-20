@@ -24,6 +24,18 @@ const ESTADOS_LABELS: Record<string, string> = {
   cancelado: "Cancelado",
 };
 const ESTADOS = Object.keys(ESTADOS_LABELS);
+const ESTADO_COLORS: Record<string, string> = {
+  nuevo: "#3b82f6",
+  pendiente_supervision: "#f59e0b",
+  en_gestion: "#8b5cf6",
+  esperando_cliente: "#eab308",
+  esperando_pago: "#eab308",
+  esperando_devolucion: "#f97316",
+  esperando_logistica: "#06b6d4",
+  resuelto: "#22c55e",
+  cerrado: "#64748b",
+  cancelado: "#ef4444",
+};
 const PRIORIDADES = ["normal", "alta", "urgente"];
 const PRIORIDAD_LABELS: Record<string, string> = { normal: "Normal", alta: "Alta", urgente: "Urgente" };
 const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"];
@@ -63,7 +75,7 @@ function isVencido(slaVencimiento: string | null, estado: string): boolean {
 // Formulario de creación (paso 2, tras elegir el pedido)
 const EMPTY_CREAR_FORM = {
   categoria: "", subcategoria1: "", subcategoria2: "", canalContacto: "",
-  descripcion: "", troubleshooting: "", prioridad: "normal",
+  clienteInstagram: "", descripcion: "", troubleshooting: "", prioridad: "normal",
 };
 
 export default function TicketsPage() {
@@ -200,6 +212,7 @@ export default function TicketsPage() {
           subcategoria1: crearForm.subcategoria1 || null,
           subcategoria2: crearForm.subcategoria2 || null,
           canalContacto: crearForm.canalContacto || null,
+          clienteInstagram: crearForm.clienteInstagram || null,
           descripcion: crearForm.descripcion || null,
           troubleshooting: crearForm.troubleshooting || null,
           prioridad: crearForm.prioridad,
@@ -322,7 +335,14 @@ export default function TicketsPage() {
                         <td>{t.canal_contacto || "—"}</td>
                         <td style={{ fontSize: "0.82rem" }}>{labelCategoria(t.categoria)}</td>
                         <td style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{t.subcategoria_1 ? labelSubcategoria1(t.categoria, t.subcategoria_1) : "—"}</td>
-                        <td><span className="sf-badge">{ESTADOS_LABELS[t.estado] ?? t.estado}</span></td>
+                        <td>
+                          <span
+                            className="sf-badge"
+                            style={{ background: (ESTADO_COLORS[t.estado] ?? "#94a3b8") + "22", color: ESTADO_COLORS[t.estado] ?? "#94a3b8", border: `1px solid ${ESTADO_COLORS[t.estado] ?? "#94a3b8"}44` }}
+                          >
+                            {ESTADOS_LABELS[t.estado] ?? t.estado}
+                          </span>
+                        </td>
                         <td>
                           <span className={`sf-badge ${t.prioridad === "urgente" ? "sf-badge-error" : t.prioridad === "alta" ? "sf-badge-warning" : ""}`}>
                             {PRIORIDAD_LABELS[t.prioridad] ?? t.prioridad}
@@ -423,13 +443,21 @@ export default function TicketsPage() {
                 </div>
               )}
 
-              <label className="sf-label">
-                Canal de contacto
-                <select className="sf-input" value={crearForm.canalContacto} onChange={e => setCrearForm(f => ({ ...f, canalContacto: e.target.value }))}>
-                  <option value="">Sin especificar</option>
-                  {CANALES_CONTACTO.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </label>
+              <div style={{ display: "grid", gridTemplateColumns: crearForm.canalContacto === "Instagram" ? "1fr 1fr" : "1fr", gap: "0.75rem" }}>
+                <label className="sf-label">
+                  Canal de contacto
+                  <select className="sf-input" value={crearForm.canalContacto} onChange={e => setCrearForm(f => ({ ...f, canalContacto: e.target.value }))}>
+                    <option value="">Sin especificar</option>
+                    {CANALES_CONTACTO.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </label>
+                {crearForm.canalContacto === "Instagram" && (
+                  <label className="sf-label">
+                    Usuario de Instagram
+                    <input className="sf-input" value={crearForm.clienteInstagram} onChange={e => setCrearForm(f => ({ ...f, clienteInstagram: e.target.value }))} placeholder="@usuario" />
+                  </label>
+                )}
+              </div>
 
               <label className="sf-label">
                 Descripción

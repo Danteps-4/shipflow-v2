@@ -48,6 +48,10 @@ interface PatchBody {
   marca?: string | null;
   canalContacto?: string | null;
   valorComercial?: number | null;
+  clienteTelefono?: string | null;
+  clienteEmail?: string | null;
+  clienteInstagram?: string | null;
+  clienteDireccion?: string | null;
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -92,6 +96,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     marca: body.marca,
     canalContacto: body.canalContacto,
     valorComercial: body.valorComercial,
+    clienteTelefono: body.clienteTelefono,
+    clienteEmail: body.clienteEmail,
+    clienteInstagram: body.clienteInstagram,
+    clienteDireccion: body.clienteDireccion,
   };
   const ticket = await updateTicket(storeId, id, data, guard.user.name);
   if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
