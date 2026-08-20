@@ -115,6 +115,10 @@ export interface TicketAdjunto {
   id: number;
   caso_id: number;
   accion_id: number | null;
+  // Vínculo blando (no FK) a un Cambio del módulo Cambios — comprobante/
+  // etiqueta de Andreani subido para ese envío puntual. Sin FK dura por el
+  // mismo motivo que cambios.ticket_caso_id: son módulos independientes.
+  cambio_id: number | null;
   url: string;
   public_id: string | null;
   resource_type: string;
@@ -253,6 +257,7 @@ export async function initTicketsTables(): Promise<void> {
       id              SERIAL PRIMARY KEY,
       caso_id         INTEGER NOT NULL REFERENCES casos(id) ON DELETE CASCADE,
       accion_id       INTEGER REFERENCES caso_acciones(id) ON DELETE SET NULL,
+      cambio_id       INTEGER,
       url             TEXT NOT NULL,
       public_id       TEXT,
       resource_type   TEXT NOT NULL DEFAULT 'image',
@@ -262,6 +267,7 @@ export async function initTicketsTables(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS caso_adjuntos_caso ON caso_adjuntos (caso_id)`;
+  await sql`ALTER TABLE caso_adjuntos ADD COLUMN IF NOT EXISTS cambio_id INTEGER`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS caso_comentarios (
@@ -623,16 +629,17 @@ export async function addComentario(casoId: number, texto: string, createdBy: st
 
 export async function addAdjunto(
   casoId: number,
-  data: { url: string; publicId: string | null; resourceType: string; nombreArchivo?: string | null; accionId?: number | null },
+  data: { url: string; publicId: string | null; resourceType: string; nombreArchivo?: string | null; accionId?: number | null; cambioId?: number | null },
   createdBy: string,
 ): Promise<TicketAdjunto> {
   const sql = getDb();
   const rows = await sql`
-    INSERT INTO caso_adjuntos (caso_id, accion_id, url, public_id, resource_type, nombre_archivo, created_by)
-    VALUES (${casoId}, ${data.accionId ?? null}, ${data.url}, ${data.publicId}, ${data.resourceType}, ${data.nombreArchivo ?? null}, ${createdBy})
+    INSERT INTO caso_adjuntos (caso_id, accion_id, cambio_id, url, public_id, resource_type, nombre_archivo, created_by)
+    VALUES (${casoId}, ${data.accionId ?? null}, ${data.cambioId ?? null}, ${data.url}, ${data.publicId}, ${data.resourceType}, ${data.nombreArchivo ?? null}, ${createdBy})
     RETURNING *
   ` as TicketAdjunto[];
-  await addHistorial(casoId, "archivo", `${createdBy} adjuntó un archivo${data.nombreArchivo ? `: ${data.nombreArchivo}` : ""}`, createdBy);
+  const label = data.cambioId ? `comprobante del envío #${data.cambioId}` : "un archivo";
+  await addHistorial(casoId, "archivo", `${createdBy} adjuntó ${label}${data.nombreArchivo ? `: ${data.nombreArchivo}` : ""}`, createdBy);
   return rows[0];
 }
 

@@ -6,10 +6,10 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import TicketResolverSection, { TicketAccionUI, CambioGeneradoUI, EnvioOverrideUI } from "@/components/TicketResolverSection";
-import TicketHistorial, { TicketHistorialEntryUI } from "@/components/TicketHistorial";
-import TicketClienteHistorial, { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
+import { TicketHistorialEntryUI } from "@/components/TicketHistorial";
+import { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
+import TicketCustomerPanel from "@/components/TicketCustomerPanel";
 import { labelCategoria, labelSubcategoria1, labelSubcategoria2 } from "@/lib/ticketCategorias";
-import ContactoRow, { whatsappHref, instagramHref } from "@/components/ContactoRow";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ const TIPOS_COSTO_LABELS: Record<string, string> = {
 interface ProductoPedido { sku: string | null; nombre: string; cantidad: number; precio: number | null; }
 
 interface TicketCosto { id: number; tipo: string; descripcion: string | null; monto: string; sku: string | null; created_by: string; created_at: string; }
-interface TicketAdjunto { id: number; url: string; resource_type: string; nombre_archivo: string | null; created_by: string; created_at: string; }
+interface TicketAdjunto { id: number; url: string; resource_type: string; nombre_archivo: string | null; created_by: string; created_at: string; cambio_id: number | null; }
 interface TicketComentario { id: number; texto: string; created_by: string; created_at: string; }
 
 interface TicketDetalle {
@@ -133,7 +133,6 @@ export default function TicketDetallePage() {
   const [direccionDraft, setDireccionDraft] = useState("");
 
   const [mostrarFormCosto, setMostrarFormCosto] = useState(false);
-  const [historialAbierto, setHistorialAbierto] = useState(false);
 
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -234,7 +233,7 @@ export default function TicketDetallePage() {
     else alert((await res.json().catch(() => null))?.error ?? "No se pudo eliminar");
   }
 
-  async function subirArchivo(file: File) {
+  async function subirArchivo(file: File, cambioId?: number) {
     setSubiendo(true);
     try {
       const firmaRes = await fetch("/api/tickets/upload-signature", { method: "POST" });
@@ -250,14 +249,17 @@ export default function TicketDetallePage() {
       if (!uploadRes.ok) throw new Error();
       const data = await uploadRes.json();
       const resourceType = data.resource_type === "video" ? "video" : data.resource_type === "raw" ? "raw" : "image";
-      await fetch(`/api/tickets/${id}/attachments`, {
+      const res = await fetch(`/api/tickets/${id}/attachments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: data.secure_url, publicId: data.public_id, resourceType, nombreArchivo: file.name }),
+        body: JSON.stringify({ url: data.secure_url, publicId: data.public_id, resourceType, nombreArchivo: file.name, cambioId }),
       });
+      if (!res.ok) throw new Error();
       await fetchDetalle(true);
+      return true;
     } catch {
       alert("No se pudo subir el archivo. Probá de nuevo.");
+      return false;
     } finally {
       setSubiendo(false);
     }
@@ -397,36 +399,6 @@ export default function TicketDetallePage() {
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "0.85rem" }}>
-                    <ContactoRow
-                      icon="fab fa-whatsapp" iconColor="#25D366" label="Teléfono"
-                      value={detalle.cliente_telefono} href={detalle.cliente_telefono ? whatsappHref(detalle.cliente_telefono) : undefined}
-                      editing={editingTelefono} draft={telefonoDraft} setDraft={setTelefonoDraft} saving={savingCampo}
-                      placeholder="ej. 5491122334455"
-                      onStart={() => { setTelefonoDraft(detalle.cliente_telefono || ""); setEditingTelefono(true); }}
-                      onCancel={() => setEditingTelefono(false)}
-                      onSave={() => patchTicket({ clienteTelefono: telefonoDraft.trim() || null }).then(() => setEditingTelefono(false))}
-                    />
-                    <ContactoRow
-                      icon="fab fa-instagram" iconColor="#e1306c" label="Instagram"
-                      value={detalle.cliente_instagram} href={detalle.cliente_instagram ? instagramHref(detalle.cliente_instagram) : undefined}
-                      editing={editingInstagram} draft={instagramDraft} setDraft={setInstagramDraft} saving={savingCampo}
-                      placeholder="ej. @usuario"
-                      onStart={() => { setInstagramDraft(detalle.cliente_instagram || ""); setEditingInstagram(true); }}
-                      onCancel={() => setEditingInstagram(false)}
-                      onSave={() => patchTicket({ clienteInstagram: instagramDraft.trim() || null }).then(() => setEditingInstagram(false))}
-                    />
-                    <ContactoRow
-                      icon="fas fa-envelope" iconColor="#60a5fa" label="Email"
-                      value={detalle.cliente_email} href={detalle.cliente_email ? `mailto:${detalle.cliente_email}` : undefined}
-                      editing={editingEmail} draft={emailDraft} setDraft={setEmailDraft} saving={savingCampo}
-                      placeholder="ej. cliente@mail.com"
-                      onStart={() => { setEmailDraft(detalle.cliente_email || ""); setEditingEmail(true); }}
-                      onCancel={() => setEditingEmail(false)}
-                      onSave={() => patchTicket({ clienteEmail: emailDraft.trim() || null }).then(() => setEditingEmail(false))}
-                    />
-                  </div>
-
                   <div className="sf-info-block">
                     <div className="sf-info-block-grid">
                       <div><strong>Cliente:</strong> {detalle.cliente_nombre || "—"}</div>
@@ -483,7 +455,7 @@ export default function TicketDetallePage() {
                   )}
 
                   <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
-                    {detalle.adjuntos.map(a => (
+                    {detalle.adjuntos.filter(a => a.cambio_id == null).map(a => (
                       <div key={a.id} style={{ position: "relative" }}>
                         {a.resource_type === "image" ? (
                           <button type="button" onClick={() => setPreviewImage(a.url)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
@@ -536,6 +508,10 @@ export default function TicketDetallePage() {
                     ticketCanalPedido={detalle.canal_pedido}
                     cambiosGenerados={cambiosGenerados}
                     envioOverride={envioOverride}
+                    comprobantes={detalle.adjuntos.filter(a => a.cambio_id != null)}
+                    subiendoComprobante={subiendo}
+                    onSubirComprobante={(file, cambioId) => subirArchivo(file, cambioId)}
+                    onBorrarComprobante={borrarAdjunto}
                   />
                 </div>
 
@@ -656,32 +632,37 @@ export default function TicketDetallePage() {
                   </div>
                 </div>
 
-                {/* Historial */}
-                <div className="ticket-card">
-                  <button
-                    onClick={() => setHistorialAbierto(a => !a)}
-                    style={{
-                      display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
-                      background: "none", border: "none", cursor: "pointer", padding: 0, color: "inherit", font: "inherit",
-                    }}
-                  >
-                    <div className="sf-section-title" style={{ marginBottom: 0 }}>
-                      <div className="sf-step-badge"><i className="fas fa-clock-rotate-left" style={{ fontSize: "0.65rem" }} /></div>
-                      <div><h2>Historial</h2><p>{detalle.historial.length} evento{detalle.historial.length !== 1 ? "s" : ""}</p></div>
-                    </div>
-                    <i className={`fas fa-chevron-${historialAbierto ? "up" : "down"}`} style={{ color: "var(--text-muted)", fontSize: "0.8rem" }} />
-                  </button>
-                  {historialAbierto && (
-                    <div style={{ marginTop: "0.75rem" }}>
-                      <TicketHistorial historial={detalle.historial} />
-                    </div>
-                  )}
-                </div>
               </div>
 
-              {/* ── Columna lateral ── */}
+              {/* ── Columna lateral: identidad, contactos e historial ── */}
               <div className="ticket-card">
-                <TicketClienteHistorial otrosTickets={otrosTickets} accionesResumen={accionesResumen} />
+                <TicketCustomerPanel
+                  clienteNombre={detalle.cliente_nombre}
+                  saving={savingCampo}
+                  telefono={{
+                    value: detalle.cliente_telefono, editing: editingTelefono, draft: telefonoDraft, setDraft: setTelefonoDraft,
+                    onStart: () => { setTelefonoDraft(detalle.cliente_telefono || ""); setEditingTelefono(true); },
+                    onCancel: () => setEditingTelefono(false),
+                    onSave: () => patchTicket({ clienteTelefono: telefonoDraft.trim() || null }).then(() => setEditingTelefono(false)),
+                  }}
+                  instagram={{
+                    value: detalle.cliente_instagram, editing: editingInstagram, draft: instagramDraft, setDraft: setInstagramDraft,
+                    onStart: () => { setInstagramDraft(detalle.cliente_instagram || ""); setEditingInstagram(true); },
+                    onCancel: () => setEditingInstagram(false),
+                    onSave: () => patchTicket({ clienteInstagram: instagramDraft.trim() || null }).then(() => setEditingInstagram(false)),
+                  }}
+                  email={{
+                    value: detalle.cliente_email, editing: editingEmail, draft: emailDraft, setDraft: setEmailDraft,
+                    onStart: () => { setEmailDraft(detalle.cliente_email || ""); setEditingEmail(true); },
+                    onCancel: () => setEditingEmail(false),
+                    onSave: () => patchTicket({ clienteEmail: emailDraft.trim() || null }).then(() => setEditingEmail(false)),
+                  }}
+                  otrosTickets={otrosTickets}
+                  accionesResumen={accionesResumen}
+                  historial={detalle.historial}
+                  creadoEn={detalle.created_at}
+                  numeroPedido={detalle.numero_pedido}
+                />
               </div>
             </div>
           )}

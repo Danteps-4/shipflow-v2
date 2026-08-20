@@ -1,7 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ANDREANI_SUCURSALES } from "@/lib/andreaniData";
+
+export interface ComprobanteUI {
+  id: number;
+  cambio_id: number | null;
+  url: string;
+  resource_type: string;
+  nombre_archivo: string | null;
+}
 
 export interface TicketAccionUI {
   id: number;
@@ -185,6 +193,7 @@ function labelDestino(d: { tipo: string; sucursal: string; direccion: string; nu
 
 export default function TicketResolverSection({
   ticketId, acciones, onRegistrada, puedeSupervisar, ticketCliente, ticketNumeroPedido, ticketCanalPedido, cambiosGenerados, envioOverride,
+  comprobantes, subiendoComprobante, onSubirComprobante, onBorrarComprobante,
 }: {
   ticketId: number;
   acciones: TicketAccionUI[];
@@ -195,7 +204,25 @@ export default function TicketResolverSection({
   ticketCanalPedido: string;
   cambiosGenerados: CambioGeneradoUI[];
   envioOverride: EnvioOverrideUI | null;
+  comprobantes: ComprobanteUI[];
+  subiendoComprobante: boolean;
+  onSubirComprobante: (file: File, cambioId: number) => void;
+  onBorrarComprobante: (adjuntoId: number) => void;
 }) {
+  const comprobanteInputRef = useRef<HTMLInputElement>(null);
+  const [subiendoParaCambioId, setSubiendoParaCambioId] = useState<number | null>(null);
+
+  function abrirSelectorComprobante(cambioId: number) {
+    setSubiendoParaCambioId(cambioId);
+    comprobanteInputRef.current?.click();
+  }
+
+  function onComprobanteSeleccionado(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || subiendoParaCambioId == null) return;
+    onSubirComprobante(file, subiendoParaCambioId);
+  }
   const esTiendaNube = ticketCanalPedido === "tiendanube";
 
   const [formTipo, setFormTipo] = useState<string | null>(null);
@@ -494,39 +521,79 @@ export default function TicketResolverSection({
           <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "0.4rem" }}>
             Envíos generados para Andreani
           </div>
+          <input ref={comprobanteInputRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={onComprobanteSeleccionado} />
           <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-            {cambiosGenerados.map(c => (
-              <div
-                key={c.id}
-                style={{
-                  display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem",
-                  border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "0.45rem 0.7rem", fontSize: "0.8rem",
-                }}
-              >
-                <a href="/cambios" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-color)", textDecoration: "none", flex: 1, minWidth: 0 }}>
-                  <i className={c.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
-                  {labelDestino(c)}
-                </a>
-                <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
-                  <span className={`sf-badge ${c.procesado ? "" : "sf-badge-warning"}`}>{c.procesado ? "Procesado" : "Pendiente"}</span>
-                  {!c.procesado && (
-                    <>
-                      <button className="sf-icon-btn" title="Editar destino" onClick={() => abrirEdicionCambio(c)} style={{ width: 24, height: 24, fontSize: "0.68rem" }}>
-                        <i className="fas fa-pen" />
-                      </button>
-                      {puedeSupervisar && (
-                        <button
-                          className="sf-icon-btn" title="Eliminar envío" onClick={() => eliminarCambio(c.id)}
-                          disabled={deletingCambioId === c.id} style={{ width: 24, height: 24, fontSize: "0.68rem", color: "var(--danger-color, #ef4444)" }}
-                        >
-                          {deletingCambioId === c.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
-                        </button>
+            {cambiosGenerados.map(c => {
+              const comprobantesDelCambio = comprobantes.filter(a => a.cambio_id === c.id);
+              const subiendoEste = subiendoComprobante && subiendoParaCambioId === c.id;
+              return (
+                <div
+                  key={c.id}
+                  style={{
+                    display: "flex", flexDirection: "column", gap: "0.4rem",
+                    border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "0.45rem 0.7rem", fontSize: "0.8rem",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                    <a href="/cambios" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-color)", textDecoration: "none", flex: 1, minWidth: 0 }}>
+                      <i className={c.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
+                      {labelDestino(c)}
+                    </a>
+                    <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+                      <span className={`sf-badge ${c.procesado ? "" : "sf-badge-warning"}`}>{c.procesado ? "Procesado" : "Pendiente"}</span>
+                      {!c.procesado && (
+                        <>
+                          <button className="sf-icon-btn" title="Editar destino" onClick={() => abrirEdicionCambio(c)} style={{ width: 24, height: 24, fontSize: "0.68rem" }}>
+                            <i className="fas fa-pen" />
+                          </button>
+                          {puedeSupervisar && (
+                            <button
+                              className="sf-icon-btn" title="Eliminar envío" onClick={() => eliminarCambio(c.id)}
+                              disabled={deletingCambioId === c.id} style={{ width: 24, height: 24, fontSize: "0.68rem", color: "var(--danger-color, #ef4444)" }}
+                            >
+                              {deletingCambioId === c.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+                            </button>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
-                </span>
-              </div>
-            ))}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+                    {comprobantesDelCambio.map(a => (
+                      <div key={a.id} style={{ position: "relative" }}>
+                        {a.resource_type === "image" ? (
+                          <a href={a.url} target="_blank" rel="noopener noreferrer">
+                            <img src={a.url} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                          </a>
+                        ) : (
+                          <a href={a.url} target="_blank" rel="noopener noreferrer" title={a.nombre_archivo ?? ""} style={{
+                            width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center",
+                            border: "1px solid var(--border-color)", borderRadius: "var(--radius)", fontSize: "1rem", color: "var(--text-muted)",
+                          }}>
+                            <i className="fas fa-file-pdf" />
+                          </a>
+                        )}
+                        {puedeSupervisar && (
+                          <button type="button" onClick={() => onBorrarComprobante(a.id)} title="Eliminar" style={{
+                            position: "absolute", top: -5, right: -5, width: 16, height: 16, borderRadius: "50%",
+                            background: "var(--error-color)", color: "#fff", border: "none", cursor: "pointer", fontSize: "0.55rem", lineHeight: 1,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                          }}>
+                            <i className="fas fa-times" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      className="sf-btn sf-btn-secondary" onClick={() => abrirSelectorComprobante(c.id)} disabled={subiendoComprobante}
+                      style={{ fontSize: "0.7rem", padding: "0.3rem 0.55rem" }}
+                    >
+                      {subiendoEste ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-paperclip" /> Adjuntar comprobante</>}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
