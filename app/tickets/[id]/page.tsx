@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
-import TicketResolverSection, { TicketAccionUI, CambioGeneradoUI } from "@/components/TicketResolverSection";
+import TicketResolverSection, { TicketAccionUI, CambioGeneradoUI, EnvioOverrideUI } from "@/components/TicketResolverSection";
 import TicketHistorial, { TicketHistorialEntryUI } from "@/components/TicketHistorial";
 import TicketClienteHistorial, { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
 import { labelCategoria, labelSubcategoria1, labelSubcategoria2 } from "@/lib/ticketCategorias";
@@ -109,6 +109,7 @@ export default function TicketDetallePage() {
   const [otrosTickets, setOtrosTickets] = useState<TicketResumenClienteUI[]>([]);
   const [accionesResumen, setAccionesResumen] = useState<Record<string, number>>({});
   const [cambiosGenerados, setCambiosGenerados] = useState<CambioGeneradoUI[]>([]);
+  const [envioOverride, setEnvioOverride] = useState<EnvioOverrideUI | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [savingCampo, setSavingCampo] = useState(false);
@@ -141,8 +142,12 @@ export default function TicketDetallePage() {
     fetch("/api/user/me").then(r => r.json()).then(d => setMe(d.user ?? null)).catch(() => {});
   }, []);
 
-  const fetchDetalle = useCallback(async () => {
-    setLoading(true);
+  // `silent` evita el spinner de página completa en los refetch que se
+  // disparan después de una edición (comentario, costo, acción, etc): esos
+  // solo deben actualizar los datos en el lugar, no tapar todo con el
+  // loader como si fuera la primera carga.
+  const fetchDetalle = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const r = await fetch(`/api/tickets/${id}`);
       if (r.status === 404) { setNotFound(true); return; }
@@ -152,9 +157,10 @@ export default function TicketDetallePage() {
         setOtrosTickets(d.otrosTickets ?? []);
         setAccionesResumen(d.accionesResumen ?? {});
         setCambiosGenerados(d.cambiosGenerados ?? []);
+        setEnvioOverride(d.envioOverride ?? null);
       }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [id]);
 
@@ -169,7 +175,7 @@ export default function TicketDetallePage() {
         body: JSON.stringify(body),
       });
       if (res.ok) {
-        await fetchDetalle();
+        await fetchDetalle(true);
       } else {
         const d = await res.json().catch(() => null);
         alert(d?.error ?? "No se pudo guardar");
@@ -188,7 +194,7 @@ export default function TicketDetallePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ texto: comentario.trim() }),
       });
-      if (res.ok) { setComentario(""); await fetchDetalle(); }
+      if (res.ok) { setComentario(""); await fetchDetalle(true); }
     } finally {
       setEnviandoComentario(false);
     }
@@ -206,7 +212,7 @@ export default function TicketDetallePage() {
       });
       if (res.ok) {
         setCostoForm({ tipo: "producto_enviado", descripcion: "", monto: "", sku: "" });
-        await fetchDetalle();
+        await fetchDetalle(true);
       }
     } finally {
       setGuardandoCosto(false);
@@ -220,7 +226,7 @@ export default function TicketDetallePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ costoId }),
     });
-    if (res.ok) await fetchDetalle();
+    if (res.ok) await fetchDetalle(true);
     else alert((await res.json().catch(() => null))?.error ?? "No se pudo eliminar");
   }
 
@@ -245,7 +251,7 @@ export default function TicketDetallePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: data.secure_url, publicId: data.public_id, resourceType, nombreArchivo: file.name }),
       });
-      await fetchDetalle();
+      await fetchDetalle(true);
     } catch {
       alert("No se pudo subir el archivo. Probá de nuevo.");
     } finally {
@@ -272,7 +278,7 @@ export default function TicketDetallePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ adjuntoId }),
     });
-    if (res.ok) await fetchDetalle();
+    if (res.ok) await fetchDetalle(true);
     else alert((await res.json().catch(() => null))?.error ?? "No se pudo eliminar");
   }
 
@@ -517,13 +523,15 @@ export default function TicketDetallePage() {
                 {/* Resolver ticket */}
                 <div className="ticket-card">
                   <TicketResolverSection
-                    ticketId={detalle.id} acciones={detalle.acciones} onRegistrada={fetchDetalle} puedeSupervisar={puedeSupervisar}
+                    ticketId={detalle.id} acciones={detalle.acciones} onRegistrada={() => fetchDetalle(true)} puedeSupervisar={puedeSupervisar}
                     ticketCliente={{
                       nombre: detalle.cliente_nombre, telefono: detalle.cliente_telefono,
                       email: detalle.cliente_email, dni: detalle.cliente_dni, direccion: detalle.cliente_direccion,
                     }}
                     ticketNumeroPedido={detalle.numero_pedido}
+                    ticketCanalPedido={detalle.canal_pedido}
                     cambiosGenerados={cambiosGenerados}
+                    envioOverride={envioOverride}
                   />
                 </div>
 

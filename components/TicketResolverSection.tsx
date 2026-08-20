@@ -17,12 +17,32 @@ export interface TicketAccionUI {
 export interface CambioGeneradoUI {
   id: number;
   tipo: string;
+  nombre: string;
+  telefono: string;
+  email: string | null;
+  dni: string | null;
+  motivo: string | null;
+  numero_pedido_original: string | null;
   sucursal: string;
   direccion: string;
   numero_direccion: string;
+  piso: string;
   localidad: string;
+  provincia: string;
+  codigo_postal: string;
   procesado: boolean;
   created_at: string;
+}
+
+export interface EnvioOverrideUI {
+  tipo: string | null;
+  direccion: string | null;
+  numeroDireccion: string | null;
+  piso: string | null;
+  localidad: string | null;
+  provincia: string | null;
+  codigoPostal: string | null;
+  sucursal: string | null;
 }
 
 const TIPOS_ACCION_LABELS: Record<string, { label: string; icon: string }> = {
@@ -62,13 +82,6 @@ const TIPOS_COSTO_LABELS: Record<string, string> = {
   otro: "Otro",
 };
 
-// Acciones que implican generar o corregir un envío físico al cliente —
-// para estas se ofrece crear/actualizar directamente un Cambio real (módulo
-// Cambios), que después se procesa y se paga con Andreani como cualquier
-// otro envío. "cambiar_direccion" usa el mismo formulario para registrar el
-// destino corregido (domicilio o sucursal).
-const REQUIERE_ENVIO = ["generar_envio", "cambiar_direccion"];
-
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
@@ -81,8 +94,97 @@ interface TicketCliente {
   direccion: string | null;
 }
 
+interface DestinoState {
+  tipo: "domicilio" | "sucursal";
+  direccion: string; numeroDireccion: string; piso: string; localidad: string; provincia: string; codigoPostal: string;
+  sucursal: string;
+}
+
+const DESTINO_VACIO: DestinoState = {
+  tipo: "domicilio", direccion: "", numeroDireccion: "", piso: "", localidad: "", provincia: "", codigoPostal: "", sucursal: "",
+};
+
+// Toggle domicilio/sucursal + los campos correspondientes — se reusa tanto
+// para generar un Cambio nuevo como para corregir el destino de un pedido
+// real de Tienda Nube o editar el destino de un Cambio ya generado.
+function DestinoToggleFields({ value, onChange }: { value: DestinoState; onChange: (v: DestinoState) => void }) {
+  return (
+    <>
+      <div style={{ display: "flex", gap: "0.5rem" }}>
+        {(["domicilio", "sucursal"] as const).map(t => (
+          <button
+            key={t} type="button" onClick={() => onChange({ ...value, tipo: t })}
+            style={{
+              flex: 1, padding: "0.4rem", borderRadius: "var(--radius)", cursor: "pointer", fontWeight: 700, fontSize: "0.8rem",
+              border: `1px solid ${value.tipo === t ? "var(--primary-color)" : "var(--border-color)"}`,
+              background: value.tipo === t ? "var(--primary-color)" : "transparent",
+              color: value.tipo === t ? "#fff" : "var(--text-muted)",
+            }}
+          >
+            {t === "sucursal" ? "A sucursal" : "A domicilio"}
+          </button>
+        ))}
+      </div>
+
+      {value.tipo === "sucursal" ? (
+        <label className="sf-label">
+          Sucursal
+          <input
+            className="sf-input" value={value.sucursal} onChange={e => onChange({ ...value, sucursal: e.target.value })}
+            list="sucursales-list-ticket" placeholder="Ej: PALERMO (AV SCALABRINI ORTIZ)"
+          />
+          <datalist id="sucursales-list-ticket">
+            {ANDREANI_SUCURSALES.map(s => <option key={s} value={s} />)}
+          </datalist>
+        </label>
+      ) : (
+        <>
+          <div className="ticket-field-grid">
+            <label className="sf-label">
+              Calle
+              <input className="sf-input" value={value.direccion} onChange={e => onChange({ ...value, direccion: e.target.value })} />
+            </label>
+            <label className="sf-label">
+              Número
+              <input className="sf-input" value={value.numeroDireccion} onChange={e => onChange({ ...value, numeroDireccion: e.target.value })} />
+            </label>
+          </div>
+          <div className="ticket-field-grid">
+            <label className="sf-label">
+              Piso (opcional)
+              <input className="sf-input" value={value.piso} onChange={e => onChange({ ...value, piso: e.target.value })} />
+            </label>
+            <label className="sf-label">
+              Localidad
+              <input className="sf-input" value={value.localidad} onChange={e => onChange({ ...value, localidad: e.target.value })} />
+            </label>
+            <label className="sf-label">
+              CP
+              <input className="sf-input" value={value.codigoPostal} onChange={e => onChange({ ...value, codigoPostal: e.target.value })} />
+            </label>
+          </div>
+          <label className="sf-label">
+            Provincia
+            <input className="sf-input" value={value.provincia} onChange={e => onChange({ ...value, provincia: e.target.value })} />
+          </label>
+        </>
+      )}
+    </>
+  );
+}
+
+function destinoValido(d: DestinoState): string | null {
+  if (d.tipo === "sucursal" && !d.sucursal.trim()) return "Falta la sucursal";
+  if (d.tipo === "domicilio" && (!d.direccion.trim() || !d.numeroDireccion.trim())) return "Falta calle y número";
+  return null;
+}
+
+function labelDestino(d: { tipo: string; sucursal: string; direccion: string; numero_direccion: string; localidad: string }) {
+  return d.tipo === "sucursal" ? d.sucursal : `${d.direccion} ${d.numero_direccion}, ${d.localidad}`;
+}
+
 export default function TicketResolverSection({
-  ticketId, acciones, onRegistrada, puedeSupervisar, ticketCliente, ticketNumeroPedido, cambiosGenerados,
+  ticketId, acciones, onRegistrada, puedeSupervisar, ticketCliente, ticketNumeroPedido, ticketCanalPedido, cambiosGenerados, envioOverride,
 }: {
   ticketId: number;
   acciones: TicketAccionUI[];
@@ -90,8 +192,12 @@ export default function TicketResolverSection({
   puedeSupervisar: boolean;
   ticketCliente: TicketCliente;
   ticketNumeroPedido: string;
+  ticketCanalPedido: string;
   cambiosGenerados: CambioGeneradoUI[];
+  envioOverride: EnvioOverrideUI | null;
 }) {
+  const esTiendaNube = ticketCanalPedido === "tiendanube";
+
   const [formTipo, setFormTipo] = useState<string | null>(null);
   const [editingAccionId, setEditingAccionId] = useState<number | null>(null);
   const [detalle, setDetalle] = useState("");
@@ -103,18 +209,17 @@ export default function TicketResolverSection({
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const [generarEnvio, setGenerarEnvio] = useState(false);
-  const [envioTipo, setEnvioTipo] = useState<"domicilio" | "sucursal">("domicilio");
   const [envioNombre, setEnvioNombre] = useState("");
   const [envioTelefono, setEnvioTelefono] = useState("");
   const [envioEmail, setEnvioEmail] = useState("");
   const [envioDni, setEnvioDni] = useState("");
-  const [envioDireccion, setEnvioDireccion] = useState("");
-  const [envioNumeroDireccion, setEnvioNumeroDireccion] = useState("");
-  const [envioPiso, setEnvioPiso] = useState("");
-  const [envioLocalidad, setEnvioLocalidad] = useState("");
-  const [envioProvincia, setEnvioProvincia] = useState("");
-  const [envioCodigoPostal, setEnvioCodigoPostal] = useState("");
-  const [envioSucursal, setEnvioSucursal] = useState("");
+  const [destino, setDestino] = useState<DestinoState>(DESTINO_VACIO);
+
+  const [editingCambio, setEditingCambio] = useState<CambioGeneradoUI | null>(null);
+  const [destinoCambio, setDestinoCambio] = useState<DestinoState>(DESTINO_VACIO);
+  const [savingCambio, setSavingCambio] = useState(false);
+  const [deletingCambioId, setDeletingCambioId] = useState<number | null>(null);
+  const [savingOverride, setSavingOverride] = useState(false);
 
   function abrirForm(tipo: string) {
     setFormTipo(tipo);
@@ -126,19 +231,22 @@ export default function TicketResolverSection({
     setAgregarComoCosto(sugerido?.checked ?? false);
     setCostoTipo(sugerido?.tipo ?? "otro");
 
-    setGenerarEnvio(REQUIERE_ENVIO.includes(tipo));
-    setEnvioTipo("domicilio");
+    setGenerarEnvio(tipo === "generar_envio");
     setEnvioNombre(ticketCliente.nombre || "");
     setEnvioTelefono(ticketCliente.telefono || "");
     setEnvioEmail(ticketCliente.email || "");
     setEnvioDni(ticketCliente.dni || "");
-    setEnvioDireccion(ticketCliente.direccion || "");
-    setEnvioNumeroDireccion("");
-    setEnvioPiso("");
-    setEnvioLocalidad("");
-    setEnvioProvincia("");
-    setEnvioCodigoPostal("");
-    setEnvioSucursal("");
+
+    if (tipo === "cambiar_direccion" && envioOverride?.tipo) {
+      setDestino({
+        tipo: (envioOverride.tipo as "domicilio" | "sucursal") ?? "domicilio",
+        direccion: envioOverride.direccion ?? "", numeroDireccion: envioOverride.numeroDireccion ?? "",
+        piso: envioOverride.piso ?? "", localidad: envioOverride.localidad ?? "", provincia: envioOverride.provincia ?? "",
+        codigoPostal: envioOverride.codigoPostal ?? "", sucursal: envioOverride.sucursal ?? "",
+      });
+    } else {
+      setDestino({ ...DESTINO_VACIO, direccion: ticketCliente.direccion || "" });
+    }
   }
 
   function abrirEdicion(a: TicketAccionUI) {
@@ -158,10 +266,14 @@ export default function TicketResolverSection({
 
   async function guardar() {
     if (!formTipo) return;
-    if (!editingAccionId && REQUIERE_ENVIO.includes(formTipo) && generarEnvio) {
+    if (!editingAccionId && formTipo === "generar_envio" && generarEnvio) {
       if (!envioNombre.trim() || !envioTelefono.trim()) { alert("Faltan nombre y teléfono del envío"); return; }
-      if (envioTipo === "sucursal" && !envioSucursal.trim()) { alert("Falta la sucursal"); return; }
-      if (envioTipo === "domicilio" && (!envioDireccion.trim() || !envioNumeroDireccion.trim())) { alert("Falta calle y número"); return; }
+      const err = destinoValido(destino);
+      if (err) { alert(err); return; }
+    }
+    if (!editingAccionId && formTipo === "cambiar_direccion" && esTiendaNube) {
+      const err = destinoValido(destino);
+      if (err) { alert(err); return; }
     }
     setSaving(true);
     try {
@@ -178,7 +290,7 @@ export default function TicketResolverSection({
         });
         if (res.ok) { cerrarForm(); onRegistrada(); }
       } else {
-        const envioAplica = REQUIERE_ENVIO.includes(formTipo) && generarEnvio;
+        const generaCambio = formTipo === "generar_envio" && generarEnvio;
         const res = await fetch(`/api/tickets/${ticketId}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -189,21 +301,35 @@ export default function TicketResolverSection({
             referencia: referencia.trim() || null,
             agregarComoCosto: !!COSTO_SUGERIDO[formTipo] && agregarComoCosto && !!monto.trim(),
             costoTipo,
-            ...(envioAplica ? {
+            ...(generaCambio ? {
               generarEnvio: true,
-              envioTipo,
+              envioTipo: destino.tipo,
               envioNombre: envioNombre.trim(),
               envioTelefono: envioTelefono.trim(),
               envioEmail: envioEmail.trim() || undefined,
               envioDni: envioDni.trim() || undefined,
-              envioDireccion, envioNumeroDireccion, envioPiso, envioLocalidad, envioProvincia, envioCodigoPostal,
-              envioSucursal,
+              envioDireccion: destino.direccion, envioNumeroDireccion: destino.numeroDireccion, envioPiso: destino.piso,
+              envioLocalidad: destino.localidad, envioProvincia: destino.provincia, envioCodigoPostal: destino.codigoPostal,
+              envioSucursal: destino.sucursal,
               numeroPedidoOriginal: ticketNumeroPedido,
             } : {}),
           }),
         });
-        if (res.ok) { cerrarForm(); onRegistrada(); }
-        else { const d = await res.json().catch(() => null); alert(d?.error ?? "No se pudo registrar"); }
+        if (!res.ok) { const d = await res.json().catch(() => null); alert(d?.error ?? "No se pudo registrar"); return; }
+
+        if (formTipo === "cambiar_direccion" && esTiendaNube) {
+          const ovRes = await fetch(`/api/tickets/${ticketId}/envio-override`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tipo: destino.tipo, direccion: destino.direccion, numeroDireccion: destino.numeroDireccion, piso: destino.piso,
+              localidad: destino.localidad, provincia: destino.provincia, codigoPostal: destino.codigoPostal, sucursal: destino.sucursal,
+            }),
+          });
+          if (!ovRes.ok) { const d = await ovRes.json().catch(() => null); alert(d?.error ?? "La acción se registró, pero no se pudo guardar la corrección de destino"); }
+        }
+        cerrarForm();
+        onRegistrada();
       }
     } finally {
       setSaving(false);
@@ -225,8 +351,68 @@ export default function TicketResolverSection({
     }
   }
 
+  function abrirEdicionCambio(c: CambioGeneradoUI) {
+    setEditingCambio(c);
+    setDestinoCambio({
+      tipo: (c.tipo as "domicilio" | "sucursal") ?? "domicilio",
+      direccion: c.direccion, numeroDireccion: c.numero_direccion, piso: c.piso, localidad: c.localidad,
+      provincia: c.provincia, codigoPostal: c.codigo_postal, sucursal: c.sucursal,
+    });
+  }
+
+  async function guardarCambio() {
+    if (!editingCambio) return;
+    const err = destinoValido(destinoCambio);
+    if (err) { alert(err); return; }
+    setSavingCambio(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticketId}/cambios`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cambioId: editingCambio.id, tipo: destinoCambio.tipo,
+          direccion: destinoCambio.direccion, numeroDireccion: destinoCambio.numeroDireccion, piso: destinoCambio.piso,
+          localidad: destinoCambio.localidad, provincia: destinoCambio.provincia, codigoPostal: destinoCambio.codigoPostal,
+          sucursal: destinoCambio.sucursal,
+        }),
+      });
+      if (res.ok) { setEditingCambio(null); onRegistrada(); }
+      else { const d = await res.json().catch(() => null); alert(d?.error ?? "No se pudo guardar"); }
+    } finally {
+      setSavingCambio(false);
+    }
+  }
+
+  async function eliminarCambio(cambioId: number) {
+    if (!confirm("¿Eliminar este envío generado? Ya no va a figurar en Cambios para procesar.")) return;
+    setDeletingCambioId(cambioId);
+    try {
+      const res = await fetch(`/api/tickets/${ticketId}/cambios`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cambioId }),
+      });
+      if (res.ok) onRegistrada();
+      else { const d = await res.json().catch(() => null); alert(d?.error ?? "No se pudo eliminar"); }
+    } finally {
+      setDeletingCambioId(null);
+    }
+  }
+
+  async function quitarOverride() {
+    if (!confirm("¿Quitar la corrección de destino? El pedido vuelve a usar lo que vino de Tienda Nube.")) return;
+    setSavingOverride(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticketId}/envio-override`, { method: "DELETE" });
+      if (res.ok) onRegistrada();
+    } finally {
+      setSavingOverride(false);
+    }
+  }
+
   const mostrarCheckboxCosto = !editingAccionId && formTipo && COSTO_SUGERIDO[formTipo] && monto.trim();
-  const mostrarEnvio = !editingAccionId && formTipo && REQUIERE_ENVIO.includes(formTipo);
+  const mostrarEnvioCambio = !editingAccionId && formTipo === "generar_envio";
+  const overrideActivo = !!envioOverride && (envioOverride.tipo != null);
 
   return (
     <div>
@@ -277,6 +463,32 @@ export default function TicketResolverSection({
         </div>
       )}
 
+      {esTiendaNube && overrideActivo && (
+        <div style={{ marginBottom: "1rem" }}>
+          <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "0.4rem" }}>
+            Destino corregido del pedido
+          </div>
+          <div style={{
+            display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem",
+            border: "1px solid rgba(99,102,241,0.4)", background: "rgba(99,102,241,0.08)", borderRadius: "var(--radius)", padding: "0.45rem 0.7rem", fontSize: "0.8rem",
+          }}>
+            <span>
+              <i className={envioOverride!.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
+              {envioOverride!.tipo === "sucursal" ? envioOverride!.sucursal : `${envioOverride!.direccion} ${envioOverride!.numeroDireccion}, ${envioOverride!.localidad}`}
+              <span style={{ color: "var(--text-muted)" }}> · se aplica al procesar este pedido</span>
+            </span>
+            <span style={{ display: "flex", gap: "0.4rem" }}>
+              <button className="sf-icon-btn" title="Editar destino" onClick={() => abrirForm("cambiar_direccion")} style={{ width: 24, height: 24, fontSize: "0.68rem" }}>
+                <i className="fas fa-pen" />
+              </button>
+              <button className="sf-icon-btn" title="Quitar corrección" onClick={quitarOverride} disabled={savingOverride} style={{ width: 24, height: 24, fontSize: "0.68rem", color: "var(--danger-color, #ef4444)" }}>
+                {savingOverride ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-times" />}
+              </button>
+            </span>
+          </div>
+        </div>
+      )}
+
       {cambiosGenerados.length > 0 && (
         <div style={{ marginBottom: "1rem" }}>
           <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: "0.4rem" }}>
@@ -284,20 +496,36 @@ export default function TicketResolverSection({
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
             {cambiosGenerados.map(c => (
-              <a
-                key={c.id} href="/cambios" target="_blank" rel="noopener noreferrer"
+              <div
+                key={c.id}
                 style={{
                   display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem",
-                  border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "0.45rem 0.7rem",
-                  fontSize: "0.8rem", color: "var(--text-color)", textDecoration: "none",
+                  border: "1px solid var(--border-color)", borderRadius: "var(--radius)", padding: "0.45rem 0.7rem", fontSize: "0.8rem",
                 }}
               >
-                <span>
+                <a href="/cambios" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-color)", textDecoration: "none", flex: 1, minWidth: 0 }}>
                   <i className={c.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
-                  {c.tipo === "sucursal" ? c.sucursal : `${c.direccion} ${c.numero_direccion}, ${c.localidad}`}
+                  {labelDestino(c)}
+                </a>
+                <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+                  <span className={`sf-badge ${c.procesado ? "" : "sf-badge-warning"}`}>{c.procesado ? "Procesado" : "Pendiente"}</span>
+                  {!c.procesado && (
+                    <>
+                      <button className="sf-icon-btn" title="Editar destino" onClick={() => abrirEdicionCambio(c)} style={{ width: 24, height: 24, fontSize: "0.68rem" }}>
+                        <i className="fas fa-pen" />
+                      </button>
+                      {puedeSupervisar && (
+                        <button
+                          className="sf-icon-btn" title="Eliminar envío" onClick={() => eliminarCambio(c.id)}
+                          disabled={deletingCambioId === c.id} style={{ width: 24, height: 24, fontSize: "0.68rem", color: "var(--danger-color, #ef4444)" }}
+                        >
+                          {deletingCambioId === c.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+                        </button>
+                      )}
+                    </>
+                  )}
                 </span>
-                <span className={`sf-badge ${c.procesado ? "" : "sf-badge-warning"}`}>{c.procesado ? "Procesado" : "Pendiente"}</span>
-              </a>
+              </div>
             ))}
           </div>
         </div>
@@ -348,7 +576,7 @@ export default function TicketResolverSection({
                 </div>
               )}
 
-              {mostrarEnvio && (
+              {mostrarEnvioCambio && (
                 <div style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.6rem 0.7rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.82rem", cursor: "pointer" }}>
                     <input type="checkbox" checked={generarEnvio} onChange={e => setGenerarEnvio(e.target.checked)} />
@@ -376,75 +604,57 @@ export default function TicketResolverSection({
                           <input className="sf-input" value={envioDni} onChange={e => setEnvioDni(e.target.value)} />
                         </label>
                       </div>
-
-                      <div style={{ display: "flex", gap: "0.5rem" }}>
-                        {(["domicilio", "sucursal"] as const).map(t => (
-                          <button
-                            key={t} type="button" onClick={() => setEnvioTipo(t)}
-                            style={{
-                              flex: 1, padding: "0.4rem", borderRadius: "var(--radius)", cursor: "pointer", fontWeight: 700, fontSize: "0.8rem",
-                              border: `1px solid ${envioTipo === t ? "var(--primary-color)" : "var(--border-color)"}`,
-                              background: envioTipo === t ? "var(--primary-color)" : "transparent",
-                              color: envioTipo === t ? "#fff" : "var(--text-muted)",
-                            }}
-                          >
-                            {t === "sucursal" ? "A sucursal" : "A domicilio"}
-                          </button>
-                        ))}
-                      </div>
-
-                      {envioTipo === "sucursal" ? (
-                        <label className="sf-label">
-                          Sucursal
-                          <input
-                            className="sf-input" value={envioSucursal} onChange={e => setEnvioSucursal(e.target.value)}
-                            list="sucursales-list-ticket" placeholder="Ej: PALERMO (AV SCALABRINI ORTIZ)"
-                          />
-                          <datalist id="sucursales-list-ticket">
-                            {ANDREANI_SUCURSALES.map(s => <option key={s} value={s} />)}
-                          </datalist>
-                        </label>
-                      ) : (
-                        <>
-                          <div className="ticket-field-grid">
-                            <label className="sf-label">
-                              Calle
-                              <input className="sf-input" value={envioDireccion} onChange={e => setEnvioDireccion(e.target.value)} />
-                            </label>
-                            <label className="sf-label">
-                              Número
-                              <input className="sf-input" value={envioNumeroDireccion} onChange={e => setEnvioNumeroDireccion(e.target.value)} />
-                            </label>
-                          </div>
-                          <div className="ticket-field-grid">
-                            <label className="sf-label">
-                              Piso (opcional)
-                              <input className="sf-input" value={envioPiso} onChange={e => setEnvioPiso(e.target.value)} />
-                            </label>
-                            <label className="sf-label">
-                              Localidad
-                              <input className="sf-input" value={envioLocalidad} onChange={e => setEnvioLocalidad(e.target.value)} />
-                            </label>
-                            <label className="sf-label">
-                              CP
-                              <input className="sf-input" value={envioCodigoPostal} onChange={e => setEnvioCodigoPostal(e.target.value)} />
-                            </label>
-                          </div>
-                          <label className="sf-label">
-                            Provincia
-                            <input className="sf-input" value={envioProvincia} onChange={e => setEnvioProvincia(e.target.value)} />
-                          </label>
-                        </>
-                      )}
+                      <DestinoToggleFields value={destino} onChange={setDestino} />
                     </>
                   )}
                 </div>
+              )}
+
+              {formTipo === "cambiar_direccion" && !editingAccionId && (
+                esTiendaNube ? (
+                  <div style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.6rem 0.7rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                    <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0 }}>
+                      <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
+                      Este destino se guarda como corrección del pedido de Tienda Nube — ya va a figurar así en Pedidos/Procesar.
+                    </p>
+                    <DestinoToggleFields value={destino} onChange={setDestino} />
+                  </div>
+                ) : (
+                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                    <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
+                    Este pedido no es de Tienda Nube, así que no se puede corregir el destino automáticamente — registrá el detalle arriba.
+                  </p>
+                )
               )}
             </div>
             <div className="sf-modal-footer">
               <button className="sf-btn sf-btn-secondary" onClick={cerrarForm} disabled={saving}>Cancelar</button>
               <button className="sf-btn" onClick={guardar} disabled={saving}>
                 {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-check" /> {editingAccionId ? "Guardar cambios" : "Registrar"}</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {editingCambio && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => !savingCambio && setEditingCambio(null)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(420px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-map-pin" style={{ color: "var(--primary-color)" }} />
+                Editar destino del envío
+              </h3>
+              <button className="sf-close-btn" onClick={() => setEditingCambio(null)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              <DestinoToggleFields value={destinoCambio} onChange={setDestinoCambio} />
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setEditingCambio(null)} disabled={savingCambio}>Cancelar</button>
+              <button className="sf-btn" onClick={guardarCambio} disabled={savingCambio}>
+                {savingCambio ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-check" /> Guardar cambios</>}
               </button>
             </div>
           </div>

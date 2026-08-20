@@ -4,6 +4,7 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireTicketsSupervisor } from "@/lib/permissions";
 import { initTicketsTables, getTicketById, getTicketsByContact, getAccionCountsForTickets, updateTicket, deleteTicket, ESTADOS_TICKET, UpdateTicketData } from "@/lib/ticketsDb";
 import { initCambiosTables, getCambiosByTicketCasoId } from "@/lib/cambiosDb";
+import { initPedidoEnvioTables, getEnvioOverridesPorOrdenes } from "@/lib/pedidoEnvioDb";
 import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -36,7 +37,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   await initCambiosTables();
   const cambiosGenerados = await getCambiosByTicketCasoId(storeId, ticket.id);
 
-  return NextResponse.json({ ticket, otrosTickets, accionesResumen, cambiosGenerados });
+  let envioOverride = null;
+  if (ticket.canal_pedido === "tiendanube") {
+    await initPedidoEnvioTables();
+    const overrides = await getEnvioOverridesPorOrdenes(storeId, [ticket.numero_pedido]);
+    envioOverride = overrides[ticket.numero_pedido] ?? null;
+  }
+
+  return NextResponse.json({ ticket, otrosTickets, accionesResumen, cambiosGenerados, envioOverride });
 }
 
 interface PatchBody {
