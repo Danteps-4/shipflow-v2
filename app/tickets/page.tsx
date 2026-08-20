@@ -7,7 +7,7 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import TicketStatCards from "@/components/TicketStatCards";
 import TicketOrderPicker, { PedidoSeleccionado } from "@/components/TicketOrderPicker";
-import { CATEGORIAS_TICKET, labelCategoria, labelSubcategoria1 } from "@/lib/ticketCategorias";
+import { CATEGORIAS_TICKET, labelCategoria } from "@/lib/ticketCategorias";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -39,6 +39,18 @@ const ESTADO_COLORS: Record<string, string> = {
 const PRIORIDADES = ["normal", "alta", "urgente"];
 const PRIORIDAD_LABELS: Record<string, string> = { normal: "Normal", alta: "Alta", urgente: "Urgente" };
 const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"];
+
+// Tablero estilo Trello: los 10 estados reales se agrupan en 3 columnas fijas
+// (mismo esquema visual que ya usa /soporte). Arrastrar una tarjeta a otra
+// columna aplica el estado "default" de esa columna — si ya está en alguno
+// de los estados de la columna (ej. "esperando_pago" dentro de "En
+// proceso"), soltarla ahí adentro no la toca. Para elegir un estado más
+// específico dentro de la columna, se sigue pudiendo hacer desde el detalle.
+const COLUMNAS: { key: string; label: string; icon: string; color: string; estados: string[]; estadoDefault: string }[] = [
+  { key: "pendiente", label: "Pendiente", icon: "fas fa-inbox", color: "#f59e0b", estados: ["nuevo", "pendiente_supervision"], estadoDefault: "nuevo" },
+  { key: "en_proceso", label: "En proceso", icon: "fas fa-spinner", color: "#3b82f6", estados: ["en_gestion", "esperando_cliente", "esperando_pago", "esperando_devolucion", "esperando_logistica"], estadoDefault: "en_gestion" },
+  { key: "resuelto", label: "Resuelto", icon: "fas fa-circle-check", color: "#10b981", estados: ["resuelto", "cerrado", "cancelado"], estadoDefault: "resuelto" },
+];
 
 interface Ticket {
   id: number;
@@ -97,6 +109,10 @@ export default function TicketsPage() {
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
 
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [movingId, setMovingId] = useState<number | null>(null);
+
   const [showOrderPicker, setShowOrderPicker] = useState(false);
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState<PedidoSeleccionado | null>(null);
   const [crearForm, setCrearForm] = useState(EMPTY_CREAR_FORM);
@@ -137,6 +153,61 @@ export default function TicketsPage() {
 
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
   useEffect(() => { fetchTickets(); }, [fetchTickets]);
+
+  // ── Tablero (drag & drop) ────────────────────────────────────────────────
+
+  async function moveTicket(ticket: Ticket, nuevoEstado: string) {
+    setMovingId(ticket.id);
+    try {
+      const r = await fetch(`/api/tickets/${ticket.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estado: nuevoEstado }),
+      });
+      if (r.ok) {
+        const { ticket: updated } = await r.json();
+        setTickets(prev => prev.map(t => (t.id === updated.id ? { ...t, estado: updated.estado } : t)));
+        fetchCounts();
+      } else {
+        const d = await r.json().catch(() => null);
+        alert(d?.error ?? "No se pudo mover el ticket");
+      }
+    } finally {
+      setMovingId(null);
+    }
+  }
+
+  function handleDragStart(e: React.DragEvent, ticketId: number) {
+    setDraggingId(ticketId);
+    e.dataTransfer.setData("text/plain", String(ticketId));
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleDragEnd() {
+    setDraggingId(null);
+    setDragOverKey(null);
+  }
+
+  function handleColDragOver(e: React.DragEvent, key: string) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverKey !== key) setDragOverKey(key);
+  }
+
+  function handleColDragLeave(key: string) {
+    setDragOverKey(prev => (prev === key ? null : prev));
+  }
+
+  function handleDrop(e: React.DragEvent, col: typeof COLUMNAS[number]) {
+    e.preventDefault();
+    setDragOverKey(null);
+    setDraggingId(null);
+    const ticketId = Number(e.dataTransfer.getData("text/plain"));
+    const ticket = tickets.find(t => t.id === ticketId);
+    if (!ticket) return;
+    if (col.estados.includes(ticket.estado)) return;
+    moveTicket(ticket, col.estadoDefault);
+  }
 
   // ── Crear ticket ──────────────────────────────────────────────────────────
 
@@ -251,7 +322,7 @@ export default function TicketsPage() {
             <div>
               <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Tickets de Soporte</h1>
               <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>
-                Casos vinculados a pedidos reales, con acciones, costos e historial.
+                Arrastrá las tarjetas entre columnas para cambiar el estado del ticket.
               </p>
             </div>
             <button className="sf-btn" onClick={() => setShowOrderPicker(true)}>
@@ -306,63 +377,56 @@ export default function TicketsPage() {
               <i className="fas fa-ticket sf-empty-icon" />
               <p style={{ fontWeight: 600, color: "var(--text-muted)" }}>No hay tickets para este filtro</p>
             </div>
-          ) : (
-            <div className="sf-table-wrap">
-              <table className="sf-table">
-                <thead>
-                  <tr>
-                    <th>N° Ticket</th>
-                    <th>Pedido</th>
-                    <th>Cliente</th>
-                    <th>Canal</th>
-                    <th>Categoría</th>
-                    <th>Subcategoría</th>
-                    <th>Estado</th>
-                    <th>Prioridad</th>
-                    <th>Responsable</th>
-                    <th>Abierto</th>
-                    <th>SLA</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tickets.map((t, i) => {
-                    const vencido = isVencido(t.sla_vencimiento, t.estado);
-                    return (
-                      <tr key={t.id} className={i % 2 === 0 ? "row-even" : "row-odd"} style={{ cursor: "pointer" }} onClick={() => router.push(`/tickets/${t.id}`)}>
-                        <td style={{ fontFamily: "monospace", fontWeight: 700, color: "var(--primary-color)" }}>#{t.id}</td>
-                        <td style={{ fontFamily: "monospace" }}>#{t.numero_pedido}</td>
-                        <td>{t.cliente_nombre || "—"}</td>
-                        <td>{t.canal_contacto || "—"}</td>
-                        <td style={{ fontSize: "0.82rem" }}>{labelCategoria(t.categoria)}</td>
-                        <td style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{t.subcategoria_1 ? labelSubcategoria1(t.categoria, t.subcategoria_1) : "—"}</td>
-                        <td>
-                          <span
-                            className="sf-badge"
-                            style={{ background: (ESTADO_COLORS[t.estado] ?? "#94a3b8") + "22", color: ESTADO_COLORS[t.estado] ?? "#94a3b8", border: `1px solid ${ESTADO_COLORS[t.estado] ?? "#94a3b8"}44` }}
-                          >
-                            {ESTADOS_LABELS[t.estado] ?? t.estado}
-                          </span>
-                        </td>
-                        <td>
-                          <span className={`sf-badge ${t.prioridad === "urgente" ? "sf-badge-error" : t.prioridad === "alta" ? "sf-badge-warning" : ""}`}>
-                            {PRIORIDAD_LABELS[t.prioridad] ?? t.prioridad}
-                          </span>
-                        </td>
-                        <td>{t.responsable_nombre || "—"}</td>
-                        <td>{fmtTiempoAbierto(t.created_at)}</td>
-                        <td>
-                          {vencido
-                            ? <span className="sf-badge sf-badge-error"><i className="fas fa-triangle-exclamation" /> Vencido</span>
-                            : <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>OK</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+          ) : null}
         </div>
+
+        {!loading && tickets.length > 0 && (
+          <div style={{ display: "flex", gap: "1rem", padding: "0 2rem 1.5rem", overflowX: "auto", alignItems: "flex-start" }}>
+            {COLUMNAS.map(col => {
+              const items = tickets.filter(t => col.estados.includes(t.estado));
+              const isDragOver = dragOverKey === col.key;
+              return (
+                <div
+                  key={col.key}
+                  onDragOver={e => handleColDragOver(e, col.key)}
+                  onDragLeave={() => handleColDragLeave(col.key)}
+                  onDrop={e => handleDrop(e, col)}
+                  style={{
+                    flex: "0 0 300px", minWidth: 280, borderRadius: "var(--radius)",
+                    outline: isDragOver ? "2px dashed var(--primary-color)" : "2px dashed transparent",
+                    outlineOffset: 4, transition: "outline-color 0.15s",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", padding: "0 0.25rem" }}>
+                    <i className={col.icon} style={{ color: col.color }} />
+                    <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{col.label}</span>
+                    <span className="sf-tab-badge" style={{ marginLeft: "auto" }}>{items.length}</span>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", minHeight: 40 }}>
+                    {items.length === 0 ? (
+                      <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)", fontSize: "0.8rem", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)" }}>
+                        Sin tickets
+                      </div>
+                    ) : (
+                      items.map(t => (
+                        <TicketCardKanban
+                          key={t.id}
+                          t={t}
+                          vencido={isVencido(t.sla_vencimiento, t.estado)}
+                          isDragging={draggingId === t.id}
+                          isMoving={movingId === t.id}
+                          onClick={() => router.push(`/tickets/${t.id}`)}
+                          onDragStart={e => handleDragStart(e, t.id)}
+                          onDragEnd={handleDragEnd}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </main>
 
       <footer className="sf-footer">
@@ -512,6 +576,73 @@ export default function TicketsPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+function TicketCardKanban({
+  t, vencido, isDragging, isMoving, onClick, onDragStart, onDragEnd,
+}: {
+  t: Ticket;
+  vencido: boolean;
+  isDragging: boolean;
+  isMoving: boolean;
+  onClick: () => void;
+  onDragStart: (e: React.DragEvent) => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onClick={onClick}
+      onKeyDown={e => { if (e.key === "Enter") onClick(); }}
+      style={{
+        textAlign: "left", background: "rgba(15,23,42,0.5)", border: "1px solid var(--border-color)",
+        borderRadius: "var(--radius)", padding: "0.85rem", cursor: "grab", display: "flex", flexDirection: "column", gap: "0.5rem",
+        color: "var(--text-color)", font: "inherit", opacity: isDragging ? 0.4 : 1, position: "relative",
+      }}
+    >
+      {isMoving && (
+        <div style={{ position: "absolute", inset: 0, borderRadius: "var(--radius)", background: "rgba(15,23,42,0.6)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <i className="fas fa-spinner fa-spin" style={{ color: "var(--primary-color)" }} />
+        </div>
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+        <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--primary-color)" }}>#{t.id}</span>
+        {vencido && (
+          <span className="sf-badge sf-badge-error" style={{ fontSize: "0.65rem" }}>
+            <i className="fas fa-triangle-exclamation" /> SLA vencido
+          </span>
+        )}
+      </div>
+      <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{t.cliente_nombre || "—"}</span>
+      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "monospace" }}>Pedido #{t.numero_pedido}</span>
+      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
+        <span className="sf-badge" style={{ fontSize: "0.7rem" }}>{labelCategoria(t.categoria)}</span>
+        <span
+          className="sf-badge"
+          style={{
+            fontSize: "0.7rem",
+            background: (ESTADO_COLORS[t.estado] ?? "#94a3b8") + "22", color: ESTADO_COLORS[t.estado] ?? "#94a3b8",
+            border: `1px solid ${ESTADO_COLORS[t.estado] ?? "#94a3b8"}44`,
+          }}
+        >
+          {ESTADOS_LABELS[t.estado] ?? t.estado}
+        </span>
+        {t.prioridad !== "normal" && (
+          <span className={`sf-badge ${t.prioridad === "urgente" ? "sf-badge-error" : "sf-badge-warning"}`} style={{ fontSize: "0.7rem" }}>
+            {PRIORIDAD_LABELS[t.prioridad] ?? t.prioridad}
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.72rem", color: "var(--text-muted)" }}>
+        <span>{t.responsable_nombre ? <><i className="fas fa-user" /> {t.responsable_nombre}</> : "Sin asignar"}</span>
+        <span>{fmtTiempoAbierto(t.created_at)}</span>
+      </div>
     </div>
   );
 }

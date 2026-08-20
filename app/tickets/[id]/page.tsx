@@ -132,6 +132,9 @@ export default function TicketDetallePage() {
   const [editingDireccion, setEditingDireccion] = useState(false);
   const [direccionDraft, setDireccionDraft] = useState("");
 
+  const [mostrarFormCosto, setMostrarFormCosto] = useState(false);
+  const [historialAbierto, setHistorialAbierto] = useState(false);
+
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -212,6 +215,7 @@ export default function TicketDetallePage() {
       });
       if (res.ok) {
         setCostoForm({ tipo: "producto_enviado", descripcion: "", monto: "", sku: "" });
+        setMostrarFormCosto(false);
         await fetchDetalle(true);
       }
     } finally {
@@ -589,31 +593,40 @@ export default function TicketDetallePage() {
                     </div>
                   )}
 
-                  <div style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
-                    <div className="ticket-field-grid" style={{ marginBottom: "0.6rem" }}>
-                      <label className="sf-label">
-                        Tipo
-                        <select className="sf-input" value={costoForm.tipo} onChange={e => setCostoForm(f => ({ ...f, tipo: e.target.value }))}>
-                          {Object.entries(TIPOS_COSTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
+                  {mostrarFormCosto ? (
+                    <div style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
+                      <div className="ticket-field-grid" style={{ marginBottom: "0.6rem" }}>
+                        <label className="sf-label">
+                          Tipo
+                          <select className="sf-input" value={costoForm.tipo} onChange={e => setCostoForm(f => ({ ...f, tipo: e.target.value }))}>
+                            {Object.entries(TIPOS_COSTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                          </select>
+                        </label>
+                        <label className="sf-label">
+                          Monto
+                          <input className="sf-input" type="number" min="0" step="0.01" value={costoForm.monto} onChange={e => setCostoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0.00" />
+                        </label>
+                        <label className="sf-label">
+                          SKU (opcional)
+                          <input className="sf-input" value={costoForm.sku} onChange={e => setCostoForm(f => ({ ...f, sku: e.target.value }))} placeholder="Opcional" />
+                        </label>
+                      </div>
+                      <label className="sf-label" style={{ marginBottom: "0.6rem" }}>
+                        Descripción
+                        <input className="sf-input" value={costoForm.descripcion} onChange={e => setCostoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Opcional" />
                       </label>
-                      <label className="sf-label">
-                        Monto
-                        <input className="sf-input" type="number" min="0" step="0.01" value={costoForm.monto} onChange={e => setCostoForm(f => ({ ...f, monto: e.target.value }))} placeholder="0.00" />
-                      </label>
-                      <label className="sf-label">
-                        SKU (opcional)
-                        <input className="sf-input" value={costoForm.sku} onChange={e => setCostoForm(f => ({ ...f, sku: e.target.value }))} placeholder="Opcional" />
-                      </label>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <button className="sf-btn sf-btn-secondary" onClick={() => setMostrarFormCosto(false)} disabled={guardandoCosto}>Cancelar</button>
+                        <button className="sf-btn" onClick={agregarCosto} disabled={guardandoCosto || !costoForm.monto.trim()}>
+                          {guardandoCosto ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-plus" /> Agregar costo</>}
+                        </button>
+                      </div>
                     </div>
-                    <label className="sf-label" style={{ marginBottom: "0.6rem" }}>
-                      Descripción
-                      <input className="sf-input" value={costoForm.descripcion} onChange={e => setCostoForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Opcional" />
-                    </label>
-                    <button className="sf-btn" onClick={agregarCosto} disabled={guardandoCosto || !costoForm.monto.trim()}>
-                      {guardandoCosto ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-plus" /> Agregar costo</>}
+                  ) : (
+                    <button className="sf-btn sf-btn-secondary" onClick={() => setMostrarFormCosto(true)}>
+                      <i className="fas fa-plus" /> Agregar costo
                     </button>
-                  </div>
+                  )}
                 </div>
 
                 {/* Comentarios internos */}
@@ -645,11 +658,24 @@ export default function TicketDetallePage() {
 
                 {/* Historial */}
                 <div className="ticket-card">
-                  <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
-                    <div className="sf-step-badge"><i className="fas fa-clock-rotate-left" style={{ fontSize: "0.65rem" }} /></div>
-                    <div><h2>Historial</h2></div>
-                  </div>
-                  <TicketHistorial historial={detalle.historial} />
+                  <button
+                    onClick={() => setHistorialAbierto(a => !a)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%",
+                      background: "none", border: "none", cursor: "pointer", padding: 0, color: "inherit", font: "inherit",
+                    }}
+                  >
+                    <div className="sf-section-title" style={{ marginBottom: 0 }}>
+                      <div className="sf-step-badge"><i className="fas fa-clock-rotate-left" style={{ fontSize: "0.65rem" }} /></div>
+                      <div><h2>Historial</h2><p>{detalle.historial.length} evento{detalle.historial.length !== 1 ? "s" : ""}</p></div>
+                    </div>
+                    <i className={`fas fa-chevron-${historialAbierto ? "up" : "down"}`} style={{ color: "var(--text-muted)", fontSize: "0.8rem" }} />
+                  </button>
+                  {historialAbierto && (
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <TicketHistorial historial={detalle.historial} />
+                    </div>
+                  )}
                 </div>
               </div>
 
