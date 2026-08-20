@@ -377,56 +377,55 @@ export default function TicketsPage() {
               <i className="fas fa-ticket sf-empty-icon" />
               <p style={{ fontWeight: 600, color: "var(--text-muted)" }}>No hay tickets para este filtro</p>
             </div>
-          ) : null}
+          ) : (
+            <div style={{ display: "flex", gap: "1rem", overflowX: "auto", alignItems: "flex-start" }}>
+              {COLUMNAS.map(col => {
+                const items = tickets.filter(t => col.estados.includes(t.estado));
+                const isDragOver = dragOverKey === col.key;
+                return (
+                  <div
+                    key={col.key}
+                    onDragOver={e => handleColDragOver(e, col.key)}
+                    onDragLeave={() => handleColDragLeave(col.key)}
+                    onDrop={e => handleDrop(e, col)}
+                    style={{
+                      flex: "1 1 0", minWidth: 280, borderRadius: "var(--radius)",
+                      background: "rgba(15,23,42,0.35)", border: "1px solid var(--border-color)", padding: "0.85rem",
+                      outline: isDragOver ? "2px dashed var(--primary-color)" : "2px dashed transparent",
+                      outlineOffset: 2, transition: "outline-color 0.15s",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+                      <i className={col.icon} style={{ color: col.color }} />
+                      <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{col.label}</span>
+                      <span className="sf-tab-badge" style={{ marginLeft: "auto" }}>{items.length}</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", minHeight: 40 }}>
+                      {items.length === 0 ? (
+                        <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)", fontSize: "0.8rem", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)" }}>
+                          Sin tickets
+                        </div>
+                      ) : (
+                        items.map(t => (
+                          <TicketCardKanban
+                            key={t.id}
+                            t={t}
+                            vencido={isVencido(t.sla_vencimiento, t.estado)}
+                            isDragging={draggingId === t.id}
+                            isMoving={movingId === t.id}
+                            onClick={() => router.push(`/tickets/${t.id}`)}
+                            onDragStart={e => handleDragStart(e, t.id)}
+                            onDragEnd={handleDragEnd}
+                          />
+                        ))
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-
-        {!loading && tickets.length > 0 && (
-          <div style={{ display: "flex", gap: "1rem", padding: "0 2rem 1.5rem", overflowX: "auto", alignItems: "flex-start" }}>
-            {COLUMNAS.map(col => {
-              const items = tickets.filter(t => col.estados.includes(t.estado));
-              const isDragOver = dragOverKey === col.key;
-              return (
-                <div
-                  key={col.key}
-                  onDragOver={e => handleColDragOver(e, col.key)}
-                  onDragLeave={() => handleColDragLeave(col.key)}
-                  onDrop={e => handleDrop(e, col)}
-                  style={{
-                    flex: "0 0 300px", minWidth: 280, borderRadius: "var(--radius)",
-                    outline: isDragOver ? "2px dashed var(--primary-color)" : "2px dashed transparent",
-                    outlineOffset: 4, transition: "outline-color 0.15s",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem", padding: "0 0.25rem" }}>
-                    <i className={col.icon} style={{ color: col.color }} />
-                    <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>{col.label}</span>
-                    <span className="sf-tab-badge" style={{ marginLeft: "auto" }}>{items.length}</span>
-                  </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem", minHeight: 40 }}>
-                    {items.length === 0 ? (
-                      <div style={{ textAlign: "center", padding: "1.5rem", color: "var(--text-muted)", fontSize: "0.8rem", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)" }}>
-                        Sin tickets
-                      </div>
-                    ) : (
-                      items.map(t => (
-                        <TicketCardKanban
-                          key={t.id}
-                          t={t}
-                          vencido={isVencido(t.sla_vencimiento, t.estado)}
-                          isDragging={draggingId === t.id}
-                          isMoving={movingId === t.id}
-                          onClick={() => router.push(`/tickets/${t.id}`)}
-                          onDragStart={e => handleDragStart(e, t.id)}
-                          onDragEnd={handleDragEnd}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </main>
 
       <footer className="sf-footer">
