@@ -86,3 +86,25 @@ export async function deleteExtra(storeId: string, id: number): Promise<void> {
   const sql = getDb();
   await sql`DELETE FROM pedido_extras WHERE store_id = ${storeId} AND id = ${id}`;
 }
+
+// Sincroniza el SKU de un Cambio (módulo Cambios, ver lib/cambiosDb.ts) con
+// su línea de pedido_extras, clave "CAMBIO-{id}" — el mismo formato que
+// Andreani imprime como "Interno" en la etiqueta y que /api/etiquetas/extract
+// ya normaliza al leer el PDF. Así, cuando se genera o corrige el SKU de un
+// envío desde un Ticket, la próxima vez que se suba ese PDF de etiquetas en
+// /etiquetas ya aparece precargado, sin tener que volver a tipearlo.
+// Reemplaza siempre la fila anterior (borra + inserta) en vez de un UPDATE
+// parcial: cada Cambio tiene a lo sumo un SKU, no una lista.
+export async function setExtraDeCambio(
+  storeId: string, cambioId: number, sku: string | null, nota: string,
+): Promise<void> {
+  const sql = getDb();
+  const numeroOrden = `CAMBIO-${cambioId}`;
+  await sql`DELETE FROM pedido_extras WHERE store_id = ${storeId} AND numero_orden = ${numeroOrden}`;
+  if (sku?.trim()) {
+    await sql`
+      INSERT INTO pedido_extras (store_id, numero_orden, sku, cantidad, nota, created_at)
+      VALUES (${storeId}, ${numeroOrden}, ${sku.trim().toUpperCase()}, 1, ${nota}, NOW())
+    `;
+  }
+}

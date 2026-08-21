@@ -28,6 +28,7 @@ interface Cambio {
   provincia: string;
   codigo_postal: string;
   sucursal: string;
+  sku: string | null;
   procesado: boolean;
   created_by: string;
   created_at: string;
@@ -742,6 +743,7 @@ function CambiosList({
             <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
               {c.tipo === "sucursal" ? c.sucursal : `${c.direccion} ${c.numero_direccion}, ${c.localidad}`}
               {c.numero_pedido_original && <> · Pedido #{c.numero_pedido_original}</>}
+              {c.sku && <> · SKU: {c.sku}</>}
               {c.motivo && <> · {c.motivo}</>}
             </div>
           </div>

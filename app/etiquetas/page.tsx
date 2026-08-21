@@ -171,6 +171,28 @@ export default function EtiquetasPage() {
         }
         return merged;
       });
+
+      // Los pedidos sin SKU todavía (típicamente etiquetas "CAMBIO-N" de un
+      // envío generado desde un Ticket) pueden ya tener uno cargado a mano
+      // vía pedido_extras — se precarga acá para no tener que tipearlo de
+      // nuevo en el editor.
+      try {
+        const extrasRes = await fetch(`/api/pedidos/extras?numeros=${orderNumbers.map(encodeURIComponent).join(",")}`);
+        if (extrasRes.ok) {
+          const { extras } = await extrasRes.json() as { extras: Record<string, { sku: string; cantidad: number }[]> };
+          setParsedOrders(prev => {
+            if (!prev) return prev;
+            const merged: ParsedOrders = { ...prev };
+            for (const [num, items] of Object.entries(extras)) {
+              const actual = merged[num];
+              if (actual && actual.skus.length === 0 && items.length > 0) {
+                merged[num] = { ...actual, skus: items.map(e => ({ sku: e.sku, cantidad: e.cantidad })) };
+              }
+            }
+            return merged;
+          });
+        }
+      } catch { /* no bloquea el flujo principal */ }
     } catch {
       setError("No se pudo leer el PDF para detectar etiquetas de cambios/envíos sin venta. Podés seguir con el CSV, o agregar esos pedidos a mano con \"Agregar pedido manual\".");
     }

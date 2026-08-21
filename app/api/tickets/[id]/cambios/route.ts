@@ -4,6 +4,7 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireTicketsSupervisor } from "@/lib/permissions";
 import { addHistorial } from "@/lib/ticketsDb";
 import { initCambiosTables, getCambioById, updateCambio, deleteCambio, TipoCambio } from "@/lib/cambiosDb";
+import { initPedidoExtrasTables, setExtraDeCambio } from "@/lib/pedidoExtrasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ interface DestinoBody {
   tipo?: TipoCambio;
   direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
   provincia?: string; codigoPostal?: string; sucursal?: string;
+  sku?: string | null;
 }
 
 function validarDestino(body: DestinoBody): string | null {
@@ -56,12 +58,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     tipo: body.tipo!,
     direccion: body.direccion, numeroDireccion: body.numeroDireccion, piso: body.piso,
     localidad: body.localidad, provincia: body.provincia, codigoPostal: body.codigoPostal, sucursal: body.sucursal,
+    sku: body.sku !== undefined ? (body.sku?.trim() || null) : undefined,
   });
   await addHistorial(
     casoId, "otro",
     `${guard.user.name} editó el destino del envío generado (Cambio #${body.cambioId}, ${body.tipo === "sucursal" ? "a sucursal" : "a domicilio"})`,
     guard.user.name, { cambioId: body.cambioId, tipo: body.tipo },
   );
+
+  if (cambio) {
+    await initPedidoExtrasTables();
+    await setExtraDeCambio(storeId, cambio.id, cambio.sku, cambio.motivo ?? `Ticket #${casoId}`);
+  }
   return NextResponse.json({ cambio });
 }
 
@@ -83,6 +91,8 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   if (!actual || actual.ticket_caso_id !== casoId) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
 
   await deleteCambio(storeId, cambioId);
+  await initPedidoExtrasTables();
+  await setExtraDeCambio(storeId, cambioId, null, "");
   await addHistorial(casoId, "otro", `${guard.user.name} eliminó el envío generado (Cambio #${cambioId})`, guard.user.name);
   return NextResponse.json({ ok: true });
 }

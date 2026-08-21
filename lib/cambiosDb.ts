@@ -28,6 +28,10 @@ export interface Cambio {
   codigo_postal: string;
   // Campo de sucursal (solo si tipo === "sucursal")
   sucursal: string;
+  // SKU del producto que va dentro de este envío (ej. producto faltante o de
+  // reposición) — puramente informativo para uso interno, no forma parte
+  // del Excel de Andreani (esa API no tiene concepto de contenido/producto).
+  sku: string | null;
   // Ticket de Soporte (módulo Tickets, tabla `casos`) del que se generó este
   // envío, si vino de ahí — referencia blanda (sin FK), mismo criterio que
   // numero_pedido_original: Tickets y Cambios son módulos independientes.
@@ -61,6 +65,7 @@ export async function initCambiosTables(): Promise<void> {
       provincia        TEXT NOT NULL DEFAULT '',
       codigo_postal    TEXT NOT NULL DEFAULT '',
       sucursal         TEXT NOT NULL DEFAULT '',
+      sku              TEXT,
       ticket_caso_id   INTEGER,
       procesado        BOOLEAN NOT NULL DEFAULT FALSE,
       created_by       TEXT NOT NULL DEFAULT '',
@@ -77,6 +82,8 @@ export async function initCambiosTables(): Promise<void> {
   // Migración: vínculo opcional al Ticket de Soporte que generó el envío.
   await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS ticket_caso_id INTEGER`;
   await sql`CREATE INDEX IF NOT EXISTS cambios_store_ticket ON cambios (store_id, ticket_caso_id)`;
+  // Migración: SKU del producto que va dentro del envío.
+  await sql`ALTER TABLE cambios ADD COLUMN IF NOT EXISTS sku TEXT`;
   // El costo dejó de cargarse por cambio individual: ahora se carga un
   // costo total al procesar un lote entero (ver marcarCambiosProcesados en
   // app/api/cambios/route.ts), así que estas columnas no se usan más.
@@ -116,6 +123,7 @@ export async function createCambio(
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
+    sku?: string | null;
     ticketCasoId?: number | null;
     createdBy: string;
   },
@@ -125,14 +133,14 @@ export async function createCambio(
     INSERT INTO cambios (
       store_id, nombre, telefono, email, dni, motivo, numero_pedido_original, tipo,
       direccion, numero_direccion, piso, localidad, provincia, codigo_postal, sucursal,
-      ticket_caso_id, created_by
+      sku, ticket_caso_id, created_by
     )
     VALUES (
       ${storeId}, ${data.nombre}, ${data.telefono}, ${data.email ?? null}, ${data.dni ?? null}, ${data.motivo ?? null},
       ${data.numeroPedidoOriginal ?? null}, ${data.tipo},
       ${data.direccion ?? ""}, ${data.numeroDireccion ?? ""}, ${data.piso ?? ""}, ${data.localidad ?? ""},
       ${data.provincia ?? ""}, ${data.codigoPostal ?? ""}, ${data.sucursal ?? ""},
-      ${data.ticketCasoId ?? null}, ${data.createdBy}
+      ${data.sku ?? null}, ${data.ticketCasoId ?? null}, ${data.createdBy}
     )
     RETURNING *
   `;
@@ -155,9 +163,19 @@ export async function updateCambio(
     tipo: TipoCambio;
     direccion?: string; numeroDireccion?: string; piso?: string; localidad?: string;
     provincia?: string; codigoPostal?: string; sucursal?: string;
+    // `undefined` = no tocar el SKU (a diferencia del resto de los campos,
+    // que siempre son un reemplazo completo): la pantalla de /cambios no
+    // conoce este campo, así que editar un cambio desde ahí no debe borrar
+    // el SKU que se haya cargado desde un ticket.
+    sku?: string | null;
   },
 ): Promise<Cambio | null> {
   const sql = getDb();
+  const actual = data.sku === undefined
+    ? await sql`SELECT sku FROM cambios WHERE id = ${id} AND store_id = ${storeId}` as { sku: string | null }[]
+    : null;
+  const sku = data.sku !== undefined ? data.sku : (actual?.[0]?.sku ?? null);
+
   const rows = await sql`
     UPDATE cambios
     SET nombre = ${data.nombre}, telefono = ${data.telefono}, email = ${data.email ?? null},
@@ -166,7 +184,7 @@ export async function updateCambio(
         direccion = ${data.direccion ?? ""}, numero_direccion = ${data.numeroDireccion ?? ""},
         piso = ${data.piso ?? ""}, localidad = ${data.localidad ?? ""},
         provincia = ${data.provincia ?? ""}, codigo_postal = ${data.codigoPostal ?? ""},
-        sucursal = ${data.sucursal ?? ""}
+        sucursal = ${data.sucursal ?? ""}, sku = ${sku}
     WHERE id = ${id} AND store_id = ${storeId}
     RETURNING *
   `;

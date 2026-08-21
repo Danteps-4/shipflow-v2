@@ -4,6 +4,7 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireTicketsSupervisor } from "@/lib/permissions";
 import { initTicketsTables, addAccion, updateAccion, deleteAccion, addCosto, addHistorial, TIPOS_ACCION, TipoAccion, TIPOS_COSTO, TipoCosto } from "@/lib/ticketsDb";
 import { initCambiosTables, createCambio, TipoCambio } from "@/lib/cambiosDb";
+import { initPedidoExtrasTables, setExtraDeCambio } from "@/lib/pedidoExtrasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,7 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
 
 const ACCION_LABELS: Record<TipoAccion, string> = {
   generar_envio: "Generar nuevo envío",
+  producto_faltante: "Producto faltante",
   modificar_pedido: "Modificar pedido",
   cambiar_direccion: "Cambio de dirección/sucursal",
   generar_devolucion: "Generar devolución",
@@ -34,6 +36,7 @@ interface EnvioBody {
   envioNombre?: string; envioTelefono?: string; envioEmail?: string; envioDni?: string;
   envioDireccion?: string; envioNumeroDireccion?: string; envioPiso?: string; envioLocalidad?: string;
   envioProvincia?: string; envioCodigoPostal?: string; envioSucursal?: string;
+  envioSku?: string;
   numeroPedidoOriginal?: string;
 }
 
@@ -107,14 +110,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       direccion: body.envioDireccion, numeroDireccion: body.envioNumeroDireccion, piso: body.envioPiso,
       localidad: body.envioLocalidad, provincia: body.envioProvincia, codigoPostal: body.envioCodigoPostal,
       sucursal: body.envioSucursal,
+      sku: body.envioSku?.trim() || null,
       ticketCasoId: casoId,
       createdBy: guard.user.name,
     });
+    const skuTexto = cambio.sku ? `, SKU ${cambio.sku}` : "";
     await addHistorial(
       casoId, "otro",
-      `${guard.user.name} generó un envío para Andreani (Cambio #${cambio.id}, ${body.envioTipo === "sucursal" ? "a sucursal" : "a domicilio"})`,
-      guard.user.name, { cambioId: cambio.id, tipo: body.envioTipo },
+      `${guard.user.name} generó un envío para Andreani (Cambio #${cambio.id}, ${body.envioTipo === "sucursal" ? "a sucursal" : "a domicilio"}${skuTexto})`,
+      guard.user.name, { cambioId: cambio.id, tipo: body.envioTipo, sku: cambio.sku },
     );
+
+    // Deja el SKU precargado para /etiquetas: cuando se suba el PDF de esta
+    // etiqueta de Andreani (impresa como "Interno: CAMBIO-{id}"), ya va a
+    // aparecer con el SKU cargado en vez de tener que tipearlo de nuevo.
+    await initPedidoExtrasTables();
+    await setExtraDeCambio(storeId, cambio.id, cambio.sku, `Ticket #${casoId} — ${ACCION_LABELS[body.tipo as TipoAccion]}`);
   }
 
   return NextResponse.json({ accion, cambio });

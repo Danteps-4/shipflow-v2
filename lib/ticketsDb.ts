@@ -29,6 +29,7 @@ export const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Ot
 // aclara qué se está mandando exactamente.
 export const TIPOS_ACCION = [
   "generar_envio",
+  "producto_faltante",
   "modificar_pedido",
   "cambiar_direccion",
   "generar_devolucion",

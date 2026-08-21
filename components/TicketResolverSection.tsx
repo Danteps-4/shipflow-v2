@@ -38,6 +38,7 @@ export interface CambioGeneradoUI {
   localidad: string;
   provincia: string;
   codigo_postal: string;
+  sku: string | null;
   procesado: boolean;
   created_at: string;
 }
@@ -55,6 +56,7 @@ export interface EnvioOverrideUI {
 
 const TIPOS_ACCION_LABELS: Record<string, { label: string; icon: string }> = {
   generar_envio: { label: "Generar nuevo envío", icon: "fas fa-box" },
+  producto_faltante: { label: "Producto faltante", icon: "fas fa-box-open" },
   modificar_pedido: { label: "Modificar pedido", icon: "fas fa-pen" },
   cambiar_direccion: { label: "Cambio de dirección/sucursal", icon: "fas fa-map-pin" },
   generar_devolucion: { label: "Generar devolución", icon: "fas fa-truck-ramp-box" },
@@ -72,6 +74,7 @@ const TIPOS_ACCION = Object.keys(TIPOS_ACCION_LABELS);
 // sin costo), no se muestra el checkbox.
 const COSTO_SUGERIDO: Record<string, { tipo: string; checked: boolean } | null> = {
   generar_envio: { tipo: "producto_enviado", checked: true },
+  producto_faltante: { tipo: "producto_enviado", checked: true },
   modificar_pedido: { tipo: "otro", checked: false },
   cambiar_direccion: { tipo: "otro", checked: false },
   generar_devolucion: { tipo: "devolucion", checked: true },
@@ -191,6 +194,11 @@ function labelDestino(d: { tipo: string; sucursal: string; direccion: string; nu
   return d.tipo === "sucursal" ? d.sucursal : `${d.direccion} ${d.numero_direccion}, ${d.localidad}`;
 }
 
+// Acciones que generan un Cambio real (envío nuevo) además de registrarse en
+// el historial — "producto_faltante" usa exactamente el mismo formulario que
+// "generar_envio" (destino + SKU del producto que falta).
+const REQUIERE_ENVIO = ["generar_envio", "producto_faltante"];
+
 export default function TicketResolverSection({
   ticketId, acciones, onRegistrada, puedeSupervisar, ticketCliente, ticketNumeroPedido, ticketCanalPedido, cambiosGenerados, envioOverride,
   comprobantes, subiendoComprobante, onSubirComprobante, onBorrarComprobante,
@@ -240,10 +248,12 @@ export default function TicketResolverSection({
   const [envioTelefono, setEnvioTelefono] = useState("");
   const [envioEmail, setEnvioEmail] = useState("");
   const [envioDni, setEnvioDni] = useState("");
+  const [envioSku, setEnvioSku] = useState("");
   const [destino, setDestino] = useState<DestinoState>(DESTINO_VACIO);
 
   const [editingCambio, setEditingCambio] = useState<CambioGeneradoUI | null>(null);
   const [destinoCambio, setDestinoCambio] = useState<DestinoState>(DESTINO_VACIO);
+  const [skuCambio, setSkuCambio] = useState("");
   const [savingCambio, setSavingCambio] = useState(false);
   const [deletingCambioId, setDeletingCambioId] = useState<number | null>(null);
   const [savingOverride, setSavingOverride] = useState(false);
@@ -258,11 +268,12 @@ export default function TicketResolverSection({
     setAgregarComoCosto(sugerido?.checked ?? false);
     setCostoTipo(sugerido?.tipo ?? "otro");
 
-    setGenerarEnvio(tipo === "generar_envio");
+    setGenerarEnvio(REQUIERE_ENVIO.includes(tipo));
     setEnvioNombre(ticketCliente.nombre || "");
     setEnvioTelefono(ticketCliente.telefono || "");
     setEnvioEmail(ticketCliente.email || "");
     setEnvioDni(ticketCliente.dni || "");
+    setEnvioSku("");
 
     if (tipo === "cambiar_direccion" && envioOverride?.tipo) {
       setDestino({
@@ -293,7 +304,7 @@ export default function TicketResolverSection({
 
   async function guardar() {
     if (!formTipo) return;
-    if (!editingAccionId && formTipo === "generar_envio" && generarEnvio) {
+    if (!editingAccionId && REQUIERE_ENVIO.includes(formTipo) && generarEnvio) {
       if (!envioNombre.trim() || !envioTelefono.trim()) { alert("Faltan nombre y teléfono del envío"); return; }
       const err = destinoValido(destino);
       if (err) { alert(err); return; }
@@ -317,7 +328,7 @@ export default function TicketResolverSection({
         });
         if (res.ok) { cerrarForm(); onRegistrada(); }
       } else {
-        const generaCambio = formTipo === "generar_envio" && generarEnvio;
+        const generaCambio = REQUIERE_ENVIO.includes(formTipo) && generarEnvio;
         const res = await fetch(`/api/tickets/${ticketId}/actions`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -338,6 +349,7 @@ export default function TicketResolverSection({
               envioDireccion: destino.direccion, envioNumeroDireccion: destino.numeroDireccion, envioPiso: destino.piso,
               envioLocalidad: destino.localidad, envioProvincia: destino.provincia, envioCodigoPostal: destino.codigoPostal,
               envioSucursal: destino.sucursal,
+              envioSku: envioSku.trim() || undefined,
               numeroPedidoOriginal: ticketNumeroPedido,
             } : {}),
           }),
@@ -385,6 +397,7 @@ export default function TicketResolverSection({
       direccion: c.direccion, numeroDireccion: c.numero_direccion, piso: c.piso, localidad: c.localidad,
       provincia: c.provincia, codigoPostal: c.codigo_postal, sucursal: c.sucursal,
     });
+    setSkuCambio(c.sku ?? "");
   }
 
   async function guardarCambio() {
@@ -401,6 +414,7 @@ export default function TicketResolverSection({
           direccion: destinoCambio.direccion, numeroDireccion: destinoCambio.numeroDireccion, piso: destinoCambio.piso,
           localidad: destinoCambio.localidad, provincia: destinoCambio.provincia, codigoPostal: destinoCambio.codigoPostal,
           sucursal: destinoCambio.sucursal,
+          sku: skuCambio.trim() || null,
         }),
       });
       if (res.ok) { setEditingCambio(null); onRegistrada(); }
@@ -438,7 +452,7 @@ export default function TicketResolverSection({
   }
 
   const mostrarCheckboxCosto = !editingAccionId && formTipo && COSTO_SUGERIDO[formTipo] && monto.trim();
-  const mostrarEnvioCambio = !editingAccionId && formTipo === "generar_envio";
+  const mostrarEnvioCambio = !editingAccionId && !!formTipo && REQUIERE_ENVIO.includes(formTipo);
   const overrideActivo = !!envioOverride && (envioOverride.tipo != null);
 
   return (
@@ -538,6 +552,7 @@ export default function TicketResolverSection({
                     <a href="/cambios" target="_blank" rel="noopener noreferrer" style={{ color: "var(--text-color)", textDecoration: "none", flex: 1, minWidth: 0 }}>
                       <i className={c.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
                       {labelDestino(c)}
+                      {c.sku && <span style={{ color: "var(--text-muted)" }}> · SKU: {c.sku}</span>}
                     </a>
                     <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
                       <span className={`sf-badge ${c.procesado ? "" : "sf-badge-warning"}`}>{c.procesado ? "Procesado" : "Pendiente"}</span>
@@ -671,6 +686,10 @@ export default function TicketResolverSection({
                           <input className="sf-input" value={envioDni} onChange={e => setEnvioDni(e.target.value)} />
                         </label>
                       </div>
+                      <label className="sf-label">
+                        SKU del producto (opcional)
+                        <input className="sf-input" value={envioSku} onChange={e => setEnvioSku(e.target.value)} placeholder="Ej: CTRL-01" />
+                      </label>
                       <DestinoToggleFields value={destino} onChange={setDestino} />
                     </>
                   )}
@@ -716,6 +735,10 @@ export default function TicketResolverSection({
               <button className="sf-close-btn" onClick={() => setEditingCambio(null)}><i className="fas fa-times" /></button>
             </div>
             <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
+              <label className="sf-label">
+                SKU del producto (opcional)
+                <input className="sf-input" value={skuCambio} onChange={e => setSkuCambio(e.target.value)} placeholder="Ej: CTRL-01" />
+              </label>
               <DestinoToggleFields value={destinoCambio} onChange={setDestinoCambio} />
             </div>
             <div className="sf-modal-footer">
