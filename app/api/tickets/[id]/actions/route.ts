@@ -4,7 +4,7 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireTicketsSupervisor } from "@/lib/permissions";
 import { initTicketsTables, addAccion, updateAccion, deleteAccion, addCosto, addHistorial, TIPOS_ACCION, TipoAccion, TIPOS_COSTO, TipoCosto } from "@/lib/ticketsDb";
 import { initCambiosTables, createCambio, TipoCambio } from "@/lib/cambiosDb";
-import { initPedidoExtrasTables, setExtraDeCambio } from "@/lib/pedidoExtrasDb";
+import { initPedidoExtrasTables, setExtraDeCambio, ensureExtraSkuUnico } from "@/lib/pedidoExtrasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,7 +125,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     // etiqueta de Andreani (impresa como "Interno: CAMBIO-{id}"), ya va a
     // aparecer con el SKU cargado en vez de tener que tipearlo de nuevo.
     await initPedidoExtrasTables();
-    await setExtraDeCambio(storeId, cambio.id, cambio.sku, `Ticket #${casoId} — ${ACCION_LABELS[body.tipo as TipoAccion]}`);
+    const notaExtra = `Ticket #${casoId} — ${ACCION_LABELS[body.tipo as TipoAccion]}`;
+    await setExtraDeCambio(storeId, cambio.id, cambio.sku, notaExtra);
+    // Además, si este envío tiene un pedido real vinculado, dejamos el SKU
+    // precargado también bajo ese número — por si termina cargándose a mano
+    // en Andreani con el número real en vez de "CAMBIO-{id}".
+    if (cambio.sku && cambio.numero_pedido_original) {
+      await ensureExtraSkuUnico(storeId, cambio.numero_pedido_original, cambio.sku, notaExtra);
+    }
   }
 
   return NextResponse.json({ accion, cambio });

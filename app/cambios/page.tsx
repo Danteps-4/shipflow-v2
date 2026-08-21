@@ -29,6 +29,8 @@ interface Cambio {
   codigo_postal: string;
   sucursal: string;
   sku: string | null;
+  error_validacion: string | null;
+  tracking: string | null;
   procesado: boolean;
   created_by: string;
   created_at: string;
@@ -283,6 +285,19 @@ export default function CambiosPage() {
           body: JSON.stringify({ marcarProcesados: idsExitosos }),
         });
       }
+
+      if (procesarPreview.errores.length > 0) {
+        const marcarConError = procesarPreview.errores.map(e => ({
+          id: Number(e.numeroOrden.replace("CAMBIO-", "")),
+          mensaje: `Faltan datos: ${e.campos.join(", ")}`,
+        }));
+        await fetch("/api/cambios", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ marcarConError }),
+        });
+      }
+
       setProcesarPreview(null);
       await fetchCambios();
     } finally {
@@ -729,7 +744,9 @@ function CambiosList({
       {items.map(c => (
         <div key={c.id} style={{
           display: "flex", alignItems: "center", gap: "0.75rem",
-          border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+          border: `1px solid ${c.error_validacion ? "rgba(239,68,68,0.5)" : "var(--border-color)"}`,
+          borderLeft: c.error_validacion ? "3px solid var(--error-color)" : undefined,
+          borderRadius: "var(--radius)",
           padding: "0.65rem 0.9rem", opacity: procesados ? 0.7 : 1,
         }}>
           <span className="sf-badge" style={{
@@ -744,8 +761,15 @@ function CambiosList({
               {c.tipo === "sucursal" ? c.sucursal : `${c.direccion} ${c.numero_direccion}, ${c.localidad}`}
               {c.numero_pedido_original && <> · Pedido #{c.numero_pedido_original}</>}
               {c.sku && <> · SKU: {c.sku}</>}
+              {c.tracking && <> · Tracking: {c.tracking}</>}
               {c.motivo && <> · {c.motivo}</>}
             </div>
+            {c.error_validacion && (
+              <div style={{ fontSize: "0.75rem", color: "var(--error-color)", marginTop: "0.2rem" }}>
+                <i className="fas fa-triangle-exclamation" style={{ marginRight: "0.3rem" }} />
+                {c.error_validacion} — editalo para poder procesarlo
+              </div>
+            )}
           </div>
           <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", flexShrink: 0 }}>
             {c.created_by && <>{c.created_by} · </>}{fmtDate(c.created_at)}

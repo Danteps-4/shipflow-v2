@@ -108,3 +108,27 @@ export async function setExtraDeCambio(
     `;
   }
 }
+
+// Cubre el caso en que un envío generado desde un Ticket termina impreso en
+// Andreani con el número de pedido REAL (no "CAMBIO-{id}") — típicamente
+// porque hubo que cargarlo a mano directo en Andreani (ej. por un dato
+// faltante que impidió exportarlo desde acá). A diferencia de
+// setExtraDeCambio, esta clave (`numero_orden` real) es COMPARTIDA con
+// /orders → "Agregar extra a este pedido", así que nunca se borra nada acá:
+// solo agrega el SKU si todavía no existe exactamente ese mismo SKU para ese
+// pedido, para no duplicar ni pisar extras cargados por otro lado.
+export async function ensureExtraSkuUnico(
+  storeId: string, numeroOrden: string, sku: string, nota: string,
+): Promise<void> {
+  const sql = getDb();
+  const skuNorm = sku.trim().toUpperCase();
+  if (!skuNorm) return;
+  const existente = await sql`
+    SELECT id FROM pedido_extras WHERE store_id = ${storeId} AND numero_orden = ${numeroOrden} AND sku = ${skuNorm}
+  ` as { id: number }[];
+  if (existente.length) return;
+  await sql`
+    INSERT INTO pedido_extras (store_id, numero_orden, sku, cantidad, nota, created_at)
+    VALUES (${storeId}, ${numeroOrden}, ${skuNorm}, 1, ${nota}, NOW())
+  `;
+}

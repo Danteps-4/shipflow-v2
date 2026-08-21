@@ -4,7 +4,7 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireTicketsSupervisor } from "@/lib/permissions";
 import { addHistorial } from "@/lib/ticketsDb";
 import { initCambiosTables, getCambioById, updateCambio, deleteCambio, TipoCambio } from "@/lib/cambiosDb";
-import { initPedidoExtrasTables, setExtraDeCambio } from "@/lib/pedidoExtrasDb";
+import { initPedidoExtrasTables, setExtraDeCambio, ensureExtraSkuUnico } from "@/lib/pedidoExtrasDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,7 +68,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   if (cambio) {
     await initPedidoExtrasTables();
-    await setExtraDeCambio(storeId, cambio.id, cambio.sku, cambio.motivo ?? `Ticket #${casoId}`);
+    const notaExtra = cambio.motivo ?? `Ticket #${casoId}`;
+    await setExtraDeCambio(storeId, cambio.id, cambio.sku, notaExtra);
+    if (cambio.sku && cambio.numero_pedido_original) {
+      await ensureExtraSkuUnico(storeId, cambio.numero_pedido_original, cambio.sku, notaExtra);
+    }
   }
   return NextResponse.json({ cambio });
 }

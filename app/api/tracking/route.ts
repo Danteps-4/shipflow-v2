@@ -5,6 +5,8 @@ import { spawnSync } from "child_process";
 import path from "path";
 import os from "os";
 import fs from "fs";
+import { initCambiosTables, getCambioById, setTrackingCambio } from "@/lib/cambiosDb";
+import { initTicketsTables, getTicketsByNumeroPedido, setPedidoTracking, addHistorial } from "@/lib/ticketsDb";
 
 export const runtime = "nodejs";
 
@@ -139,9 +141,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ entries });
   }
 
-  // ── SEND: entries → Tienda Nube ──────────────────────────────────
+  // ── SEND: entries → Tienda Nube (o al Ticket/Cambio correspondiente) ──
   const { entries }: { entries: TrackingEntry[] } = await req.json();
   const results: TrackingResult[] = [];
+  const storeIdStr = String(tokens.user_id);
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const DELAY_MS = 600; // TN rate limit: ~2 req/s, usamos 600 ms entre pedidos
@@ -149,6 +152,38 @@ export async function POST(req: NextRequest) {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
     if (i > 0) await sleep(DELAY_MS);
+
+    // Un envío generado desde un Ticket ("Generar nuevo envío"/"Producto
+    // faltante") no existe como pedido real en Tienda Nube — el "Interno"
+    // de la etiqueta es "CAMBIO-{id}". En ese caso el tracking se guarda
+    // directo en el Cambio y se deja registrado en el historial del ticket,
+    // en vez de intentar (inútilmente) actualizar Tienda Nube.
+    const cambioMatch = entry.order.match(/^CAMBIO-(\d+)$/i);
+    if (cambioMatch) {
+      try {
+        await initCambiosTables();
+        const cambioId = Number(cambioMatch[1]);
+        const cambio = await getCambioById(storeIdStr, cambioId);
+        if (!cambio) {
+          results.push({ ...entry, status: "error", detail: `Cambio #${cambioId} no encontrado` });
+          continue;
+        }
+        await setTrackingCambio(storeIdStr, cambioId, entry.tracking);
+        if (cambio.ticket_caso_id) {
+          await initTicketsTables();
+          await addHistorial(
+            cambio.ticket_caso_id, "otro",
+            `${guard.user.name} cargó el tracking de Andreani para el envío (Cambio #${cambioId}): ${entry.tracking}`,
+            guard.user.name, { cambioId, tracking: entry.tracking },
+          );
+        }
+        results.push({ ...entry, status: "success" });
+      } catch (err: unknown) {
+        results.push({ ...entry, status: "error", detail: err instanceof Error ? err.message : String(err) });
+      }
+      continue;
+    }
+
     try {
       const realId        = await lookupRealId(tokens.user_id, tokens.access_token, entry.order);
       await sleep(DELAY_MS);
@@ -162,6 +197,26 @@ export async function POST(req: NextRequest) {
         results.push({ ...entry, status: "error", detail: `HTTP ${status}: ${body}` });
       }
     } catch (err: unknown) {
+      // El número no es un CAMBIO-{id} ni un pedido que Tienda Nube
+      // reconozca (ej. se cargó a mano en Andreani con un número real que
+      // igual coincide con el pedido de un ticket) — antes de darlo por
+      // error, se busca si algún ticket tiene ese mismo número de pedido.
+      try {
+        await initTicketsTables();
+        const tickets = await getTicketsByNumeroPedido(storeIdStr, entry.order);
+        if (tickets.length > 0) {
+          for (const t of tickets) {
+            await setPedidoTracking(storeIdStr, t.id, entry.tracking);
+            await addHistorial(
+              t.id, "otro",
+              `${guard.user.name} cargó el tracking de Andreani: ${entry.tracking}`,
+              guard.user.name, { tracking: entry.tracking },
+            );
+          }
+          results.push({ ...entry, status: "success" });
+          continue;
+        }
+      } catch { /* si esto también falla, cae al error original de abajo */ }
       results.push({ ...entry, status: "error", detail: err instanceof Error ? err.message : String(err) });
     }
   }

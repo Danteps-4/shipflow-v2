@@ -39,6 +39,7 @@ export interface CambioGeneradoUI {
   provincia: string;
   codigo_postal: string;
   sku: string | null;
+  tracking: string | null;
   procesado: boolean;
   created_at: string;
 }
@@ -553,6 +554,7 @@ export default function TicketResolverSection({
                       <i className={c.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
                       {labelDestino(c)}
                       {c.sku && <span style={{ color: "var(--text-muted)" }}> · SKU: {c.sku}</span>}
+                      {c.tracking && <span style={{ color: "var(--text-muted)" }}> · Tracking: {c.tracking}</span>}
                     </a>
                     <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
                       <span className={`sf-badge ${c.procesado ? "" : "sf-badge-warning"}`}>{c.procesado ? "Procesado" : "Pendiente"}</span>

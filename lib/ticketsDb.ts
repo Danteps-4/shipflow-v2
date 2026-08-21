@@ -1,4 +1,5 @@
 import { getDb } from "./db";
+import { initFinanzasTables, createGastoNegocio, deleteGastoNegocio } from "./finanzasDb";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,10 @@ export interface TicketCosto {
   descripcion: string | null;
   monto: string;
   sku: string | null;
+  // Vínculo blando (no FK) al gasto que este costo generó en Finanzas
+  // (gastos_negocio, módulo independiente) — null si por algún motivo no
+  // se pudo crear el gasto.
+  gasto_id: number | null;
   created_by: string;
   created_at: string;
 }
@@ -247,11 +252,14 @@ export async function initTicketsTables(): Promise<void> {
       descripcion   TEXT,
       monto         NUMERIC(12,2) NOT NULL,
       sku           TEXT,
+      gasto_id      INTEGER,
       created_by    TEXT NOT NULL DEFAULT '',
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS caso_costos_caso ON caso_costos (caso_id)`;
+  // Migración: vínculo opcional al gasto que este costo generó en Finanzas.
+  await sql`ALTER TABLE caso_costos ADD COLUMN IF NOT EXISTS gasto_id INTEGER`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS caso_adjuntos (
@@ -423,6 +431,28 @@ export async function getTicketById(storeId: string, id: number): Promise<Ticket
   const costoTotal = costos.reduce((sum, c) => sum + Number(c.monto), 0);
 
   return { ...ticket, acciones, costos, costoTotal, adjuntos, comentarios, historial };
+}
+
+// Tickets cuyo pedido original coincide con este número — usado por
+// /api/tracking para vincular un tracking de Andreani a un ticket cuando el
+// número de la etiqueta no es un CAMBIO-{id} pero tampoco es un pedido real
+// reconocido por Tienda Nube (ej. se cargó a mano en Andreani con el número
+// real del pedido).
+export async function getTicketsByNumeroPedido(storeId: string, numeroPedido: string): Promise<{ id: number }[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id FROM casos WHERE store_id = ${storeId} AND numero_pedido = ${numeroPedido}
+  ` as { id: number }[];
+  return rows;
+}
+
+// Actualiza el tracking del pedido original de un ticket (no del envío
+// generado — eso vive en cambios.tracking, ver lib/cambiosDb.ts). Se usa
+// cuando el número que Andreani imprimió coincide con el pedido real del
+// ticket en vez de con un Cambio.
+export async function setPedidoTracking(storeId: string, casoId: number, tracking: string): Promise<void> {
+  const sql = getDb();
+  await sql`UPDATE casos SET pedido_tracking = ${tracking}, updated_at = NOW() WHERE store_id = ${storeId} AND id = ${casoId}`;
 }
 
 // Otros tickets del mismo contacto (por teléfono/email/DNI), para el panel
@@ -714,12 +744,28 @@ export async function addCosto(
   createdBy: string,
 ): Promise<TicketCosto> {
   const sql = getDb();
+
+  // Todo costo cargado en un ticket suma también a Gastos del negocio
+  // (categoría "Envíos", igual que el resto de los costos logísticos) —
+  // se crea el gasto primero para poder guardar su id en caso_costos.
+  await initFinanzasTables();
+  const detalleGasto = `Ticket #${casoId} — ${data.tipo.replace(/_/g, " ")}${data.descripcion ? `: ${data.descripcion}` : ""}`;
+  const gasto = await createGastoNegocio({
+    fecha: new Date().toISOString().slice(0, 10),
+    persona: createdBy,
+    categoria: "Envíos",
+    detalle: detalleGasto,
+    cantidad: 1,
+    monto: data.monto,
+    pagado: false,
+  });
+
   const rows = await sql`
-    INSERT INTO caso_costos (caso_id, tipo, descripcion, monto, sku, created_by)
-    VALUES (${casoId}, ${data.tipo}, ${data.descripcion ?? null}, ${data.monto}, ${data.sku ?? null}, ${createdBy})
+    INSERT INTO caso_costos (caso_id, tipo, descripcion, monto, sku, gasto_id, created_by)
+    VALUES (${casoId}, ${data.tipo}, ${data.descripcion ?? null}, ${data.monto}, ${data.sku ?? null}, ${gasto.id}, ${createdBy})
     RETURNING *
   ` as TicketCosto[];
-  await addHistorial(casoId, "costo", `${createdBy} agregó un costo de $${data.monto} (${data.tipo})`, createdBy);
+  await addHistorial(casoId, "costo", `${createdBy} agregó un costo de $${data.monto} (${data.tipo}) — sumado a Gastos del negocio`, createdBy);
   return rows[0];
 }
 
@@ -739,9 +785,12 @@ export async function deleteTicket(storeId: string, id: number): Promise<{ publi
 export async function deleteCosto(casoId: number, costoId: number, deletedBy: string): Promise<boolean> {
   const sql = getDb();
   const rows = await sql`
-    DELETE FROM caso_costos WHERE id = ${costoId} AND caso_id = ${casoId} RETURNING id
-  ` as { id: number }[];
+    DELETE FROM caso_costos WHERE id = ${costoId} AND caso_id = ${casoId} RETURNING id, gasto_id
+  ` as { id: number; gasto_id: number | null }[];
   if (!rows.length) return false;
-  await addHistorial(casoId, "costo", `${deletedBy} eliminó un costo`, deletedBy);
+  if (rows[0].gasto_id) {
+    await deleteGastoNegocio(rows[0].gasto_id);
+  }
+  await addHistorial(casoId, "costo", `${deletedBy} eliminó un costo (y su gasto en Finanzas)`, deletedBy);
   return true;
 }

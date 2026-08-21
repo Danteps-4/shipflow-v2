@@ -8,6 +8,7 @@ import {
   createCambio,
   updateCambio,
   marcarCambiosProcesados,
+  marcarErroresValidacion,
   deleteCambio,
   TipoCambio,
 } from "@/lib/cambiosDb";
@@ -102,12 +103,19 @@ export async function PUT(req: NextRequest) {
   const body = await req.json() as {
     id?: number;
     marcarProcesados?: number[];
+    marcarConError?: { id: number; mensaje: string }[];
     registrarCosto?: { costoTotal?: number | string; cantidadEnvios?: number | string; fecha?: string };
   } & CambioBody;
 
   if (body.marcarProcesados) {
     await initCambiosTables();
     await marcarCambiosProcesados(storeId, body.marcarProcesados);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (body.marcarConError) {
+    await initCambiosTables();
+    await marcarErroresValidacion(storeId, body.marcarConError);
     return NextResponse.json({ ok: true });
   }
 
@@ -132,7 +140,10 @@ export async function PUT(req: NextRequest) {
       detalle: `Cambios procesados (${cantidadEnvios} envío${cantidadEnvios !== 1 ? "s" : ""})`,
       cantidad: cantidadEnvios,
       monto: costoTotal,
-      pagado: false,
+      // Este gasto se carga recién después de haber pagado el lote en
+      // Andreani, así que ya viene marcado como pagado (a diferencia de
+      // otros gastos, que se cargan antes de pagarlos).
+      pagado: true,
     });
     return NextResponse.json({ ok: true });
   }
