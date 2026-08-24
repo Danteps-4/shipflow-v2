@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import SoporteNotifier from "@/components/SoporteNotifier";
 import TicketsNotifier from "@/components/TicketsNotifier";
 
 export const metadata: Metadata = {
@@ -19,7 +18,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body>
-        <SoporteNotifier />
         <TicketsNotifier />
         {children}
       </body>

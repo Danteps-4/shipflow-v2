@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import NotificationBell from "@/components/NotificationBell";
 import TicketsNotificationBell from "@/components/TicketsNotificationBell";
 
 export default function UserMenu() {
@@ -28,7 +27,6 @@ export default function UserMenu() {
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-      <NotificationBell />
       <TicketsNotificationBell />
       <span style={{
         fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 500,

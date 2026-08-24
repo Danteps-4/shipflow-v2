@@ -84,13 +84,6 @@ export const NAV_GROUPS: Apartado[] = [
     ],
   },
   {
-    label: "Soporte",
-    module: "soporte",
-    subApartados: [
-      { href: "/soporte", icon: "fas fa-headset", label: "Tickets de Soporte" },
-    ],
-  },
-  {
     label: "Tickets de Soporte",
     module: "tickets",
     subApartados: [
