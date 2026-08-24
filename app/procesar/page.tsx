@@ -22,6 +22,7 @@ import Sidebar from "@/components/Sidebar";
 type Tab = "domicilio" | "sucursal" | "errores" | "retiro";
 
 interface CostoEnvio {
+  id: number;
   fecha: string;
   cantidad_envios: number;
   costo_total: number;
@@ -113,8 +114,10 @@ export default function ProcesarPage() {
   // exportación, porque al descargar el Excel todavía no se sabe el costo.
   const [costosEnvio, setCostosEnvio] = useState<CostoEnvio[]>([]);
   const [mesEnvio, setMesEnvio]       = useState(mesActualStr());
-  const [costoModal, setCostoModal]   = useState<{ fecha: string; cantidadEnvios: string; costoTotal: string } | null>(null);
+  const [costoModal, setCostoModal]   = useState<{ id: number | null; fecha: string; cantidadEnvios: string; costoTotal: string } | null>(null);
   const [guardandoCosto, setGuardandoCosto] = useState(false);
+  const [borrandoCostoId, setBorrandoCostoId] = useState<number | null>(null);
+  const [verMovimientosCosto, setVerMovimientosCosto] = useState(false);
 
   async function fetchCostosEnvio() {
     try {
@@ -132,14 +135,29 @@ export default function ProcesarPage() {
     setGuardandoCosto(true);
     try {
       await fetch("/api/costos-envio", {
-        method: "POST",
+        method: costoModal.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ costoTotal, cantidadEnvios, fecha: costoModal.fecha }),
+        body: JSON.stringify({ id: costoModal.id, costoTotal, cantidadEnvios, fecha: costoModal.fecha }),
       });
       setCostoModal(null);
       await fetchCostosEnvio();
     } finally {
       setGuardandoCosto(false);
+    }
+  }
+
+  async function borrarCostoEnvio(id: number) {
+    if (!confirm("¿Eliminar este registro de costo de envío?")) return;
+    setBorrandoCostoId(id);
+    try {
+      await fetch("/api/costos-envio", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      await fetchCostosEnvio();
+    } finally {
+      setBorrandoCostoId(null);
     }
   }
 
@@ -319,14 +337,69 @@ export default function ProcesarPage() {
               <button className="sf-icon-btn" title="Mes siguiente" onClick={() => setMesEnvio(m => sumarMesesEnvio(m, 1))}>
                 <i className="fas fa-chevron-right" />
               </button>
+              {totalEnviosMes > 0 && (
+                <button
+                  className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem", marginLeft: "0.4rem" }}
+                  onClick={() => setVerMovimientosCosto(v => !v)}
+                >
+                  <i className={`fas fa-chevron-${verMovimientosCosto ? "up" : "down"}`} /> Ver movimientos
+                </button>
+              )}
               <button
                 className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.75rem", marginLeft: "0.4rem" }}
-                onClick={() => setCostoModal({ fecha: hoyStr(), cantidadEnvios: "", costoTotal: "" })}
+                onClick={() => setCostoModal({ id: null, fecha: hoyStr(), cantidadEnvios: "", costoTotal: "" })}
               >
                 <i className="fas fa-plus" /> Agregar costo
               </button>
             </div>
           </div>
+
+          {verMovimientosCosto && costosDelMes.length > 0 && (
+            <div style={{
+              border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+              marginTop: "-1.25rem", marginBottom: "2rem", overflow: "hidden",
+            }}>
+              <table className="sf-table" style={{ margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Envíos</th>
+                    <th>Costo total</th>
+                    <th style={{ width: "1px" }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {costosDelMes.map((c, i) => (
+                    <tr key={i} className={i % 2 === 0 ? "row-even" : "row-odd"}>
+                      <td>{c.fecha.slice(0, 10)}</td>
+                      <td>{c.cantidad_envios}</td>
+                      <td>{fmtMoneyEnvio(Number(c.costo_total))}</td>
+                      <td style={{ display: "flex", gap: "0.4rem" }}>
+                        <button
+                          title="Editar"
+                          onClick={() => setCostoModal({
+                            id: c.id, fecha: c.fecha.slice(0, 10),
+                            cantidadEnvios: String(c.cantidad_envios), costoTotal: String(c.costo_total),
+                          })}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "2px 4px" }}
+                        >
+                          <i className="fas fa-pen" />
+                        </button>
+                        <button
+                          title="Eliminar"
+                          disabled={borrandoCostoId === c.id}
+                          onClick={() => borrarCostoEnvio(c.id)}
+                          style={{ background: "none", border: "none", cursor: "pointer", color: "var(--error-color)", padding: "2px 4px" }}
+                        >
+                          <i className={`fas ${borrandoCostoId === c.id ? "fa-spinner fa-spin" : "fa-trash"}`} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="sf-section-title">
             <div className={`sf-step-badge ${result ? "" : "pending"}`}>
@@ -560,7 +633,7 @@ export default function ProcesarPage() {
             <div className="sf-modal-header">
               <h3 className="sf-modal-title">
                 <i className="fas fa-coins" style={{ color: "var(--primary-color)" }} />
-                Agregar costo de envío
+                {costoModal.id ? "Editar costo de envío" : "Agregar costo de envío"}
               </h3>
               <button className="sf-close-btn" onClick={() => !guardandoCosto && setCostoModal(null)}><i className="fas fa-times" /></button>
             </div>

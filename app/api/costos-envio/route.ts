@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
-import { initCostosEnvioTables, getCostosEnvio, createCostoEnvio, deleteCostoEnvio } from "@/lib/costosEnvioDb";
+import { initCostosEnvioTables, getCostosEnvio, createCostoEnvio, updateCostoEnvio, deleteCostoEnvio } from "@/lib/costosEnvioDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +51,35 @@ export async function POST(req: NextRequest) {
 
   await initCostosEnvioTables();
   const costo = await createCostoEnvio(storeId, { cantidadEnvios, costoTotal, createdBy: guard.user.name, fecha });
+  return NextResponse.json({ costo });
+}
+
+// Body: { id, cantidadEnvios, costoTotal, fecha } — corrige un registro
+// existente (ej. monto mal tipeado) sin borrarlo y volver a cargarlo.
+export async function PATCH(req: NextRequest) {
+  const guard = await requireModule(req, "pedidos");
+  if (!guard.ok) return guard.response;
+
+  const storeId = await getStoreId(req);
+  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+
+  const body = await req.json() as { id?: number; cantidadEnvios?: number; costoTotal?: number; fecha?: string };
+  const id = Number(body.id);
+  const cantidadEnvios = Number(body.cantidadEnvios);
+  const costoTotal = Number(body.costoTotal);
+  if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
+  if (!Number.isFinite(cantidadEnvios) || cantidadEnvios <= 0) {
+    return NextResponse.json({ error: "cantidadEnvios inválido" }, { status: 400 });
+  }
+  if (!Number.isFinite(costoTotal) || costoTotal <= 0) {
+    return NextResponse.json({ error: "costoTotal inválido" }, { status: 400 });
+  }
+  const fecha = body.fecha && /^\d{4}-\d{2}-\d{2}$/.test(body.fecha) ? body.fecha : undefined;
+  if (!fecha) return NextResponse.json({ error: "Falta fecha" }, { status: 400 });
+
+  await initCostosEnvioTables();
+  const costo = await updateCostoEnvio(storeId, id, { cantidadEnvios, costoTotal, fecha });
+  if (!costo) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
   return NextResponse.json({ costo });
 }
 

@@ -68,6 +68,23 @@ export async function createCostoEnvio(
   return rows[0];
 }
 
+// Por si se cargó un valor equivocado y hay que corregirlo sin perder el
+// registro (a diferencia de borrar y volver a cargar).
+export async function updateCostoEnvio(
+  storeId: string,
+  id: number,
+  data: { cantidadEnvios: number; costoTotal: number; fecha: string },
+): Promise<CostoEnvio | null> {
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE costos_envio
+    SET cantidad_envios = ${data.cantidadEnvios}, costo_total = ${data.costoTotal}, fecha = ${data.fecha}
+    WHERE id = ${id} AND store_id = ${storeId}
+    RETURNING *
+  ` as CostoEnvio[];
+  return rows[0] ?? null;
+}
+
 export async function deleteCostoEnvio(storeId: string, id: number): Promise<boolean> {
   const sql = getDb();
   const rows = await sql`
