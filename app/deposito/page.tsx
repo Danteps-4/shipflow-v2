@@ -215,7 +215,7 @@ export default function DepositoPage() {
               </p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "1.25rem" }}>
               {etiquetas.map(et => {
                 // Fallback por si queda alguna etiqueta vieja con un origen
                 // que ya no existe (ej. "manual" antes de pedir la plataforma).
@@ -223,54 +223,72 @@ export default function DepositoPage() {
                 return (
                   <div
                     key={et.id}
-                    className="sf-card"
-                    style={{ display: "flex", flexDirection: "column", gap: "0.6rem", borderLeft: `3px solid ${cfg.color}` }}
+                    className="sf-card sf-etiqueta-card"
+                    style={{
+                      display: "flex", flexDirection: "column", gap: "1rem",
+                      padding: "1.35rem", borderLeft: `4px solid ${cfg.color}`,
+                      background: `linear-gradient(160deg, ${cfg.bg} 0%, var(--surface-color) 40%)`,
+                      ["--card-color" as string]: cfg.color,
+                    }}
                   >
                     <div
                       style={{
-                        display: "inline-flex", alignItems: "center", gap: "0.4rem",
-                        padding: "0.2rem 0.6rem", borderRadius: "999px", background: cfg.bg, alignSelf: "flex-start",
+                        display: "inline-flex", alignItems: "center", gap: "0.45rem",
+                        padding: "0.3rem 0.75rem", borderRadius: "999px", background: cfg.bg, alignSelf: "flex-start",
                       }}
                     >
-                      <i className={cfg.icon} style={{ color: cfg.color, fontSize: "0.7rem" }} />
-                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
+                      <i className={cfg.icon} style={{ color: cfg.color, fontSize: "0.72rem" }} />
+                      <span style={{ fontSize: "0.73rem", fontWeight: 700, color: cfg.color, letterSpacing: "0.2px" }}>{cfg.label}</span>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>{et.titulo}</div>
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                      {estado === "pendiente"
-                        ? `Generado ${fmtFecha(et.created_at)} por ${et.created_by}`
-                        : `Impreso ${et.impresa_at ? fmtFecha(et.impresa_at) : ""} por ${et.impresa_by ?? "—"}`
-                      }
+
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: "1rem", lineHeight: 1.4, wordBreak: "break-word" }}>
+                        {et.titulo}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.78rem", color: "var(--text-muted)", marginTop: "0.5rem" }}>
+                        <i className={`fas ${estado === "pendiente" ? "fa-clock" : "fa-circle-check"}`} style={{ fontSize: "0.72rem", flexShrink: 0 }} />
+                        <span>
+                          {estado === "pendiente"
+                            ? `${fmtFecha(et.created_at)} · ${et.created_by}`
+                            : `${et.impresa_at ? fmtFecha(et.impresa_at) : ""} · ${et.impresa_by ?? "—"}`
+                          }
+                        </span>
+                      </div>
                     </div>
-                    <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem", flexWrap: "wrap" }}>
+
+                    <div style={{ borderTop: "1px solid var(--border-color)" }} />
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                       <a
                         href={et.url}
                         target="_blank"
                         rel="noreferrer"
                         className="sf-btn"
-                        style={{ padding: "0.4rem 0.75rem", fontSize: "0.85rem" }}
+                        style={{ padding: "0.6rem", fontSize: "0.85rem", width: "100%" }}
                       >
                         <i className="fas fa-print" /> Ver / Imprimir
                       </a>
-                      {estado === "pendiente" && (
+                      <div style={{ display: "flex", gap: "0.6rem" }}>
+                        {estado === "pendiente" && (
+                          <button
+                            className="sf-btn sf-btn-secondary"
+                            disabled={busyId === et.id}
+                            onClick={() => marcarImpresa(et.id)}
+                            style={{ padding: "0.5rem", fontSize: "0.82rem", flex: 1, justifyContent: "center" }}
+                          >
+                            <i className="fas fa-check" /> Marcar impresa
+                          </button>
+                        )}
                         <button
-                          className="sf-btn sf-btn-secondary"
+                          className="sf-icon-btn danger"
+                          title="Borrar"
                           disabled={busyId === et.id}
-                          onClick={() => marcarImpresa(et.id)}
-                          style={{ padding: "0.4rem 0.75rem", fontSize: "0.85rem" }}
+                          onClick={() => borrar(et.id)}
+                          style={estado === "impresa" ? { marginLeft: "auto" } : undefined}
                         >
-                          <i className="fas fa-check" /> Marcar impresa
+                          <i className="fas fa-trash" />
                         </button>
-                      )}
-                      <button
-                        className="sf-icon-btn danger"
-                        title="Borrar"
-                        disabled={busyId === et.id}
-                        onClick={() => borrar(et.id)}
-                        style={{ marginLeft: "auto" }}
-                      >
-                        <i className="fas fa-trash" />
-                      </button>
+                      </div>
                     </div>
                   </div>
                 );

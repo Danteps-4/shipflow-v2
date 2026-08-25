@@ -936,6 +936,17 @@ input[type="checkbox"] {
   box-shadow: var(--shadow);
 }
 
+/* ── Etiqueta card (Depósito) ──────────────────────────────────── */
+.sf-etiqueta-card {
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.sf-etiqueta-card:hover {
+  border-color: color-mix(in srgb, var(--card-color, var(--primary-color)) 55%, var(--border-color));
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  transform: translateY(-2px);
+}
+
 /* ── Icon button (editar/eliminar inline) ─────────────────────── */
 .sf-icon-btn {
   display: inline-flex;
