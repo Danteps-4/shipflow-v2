@@ -6,6 +6,7 @@ export const MODULE_KEYS = [
   "creativo",
   "tickets",
   "retiros",
+  "deposito",
   "publicidad",
   "redes",
 ] as const;
@@ -22,6 +23,7 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
   creativo: "Creativo",
   tickets: "Tickets de Soporte",
   retiros: "Retiros Presenciales",
+  deposito: "Depósito",
   publicidad: "Publicidad",
   redes: "Redes Sociales",
 };

@@ -162,6 +162,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Depósito",
+    module: "deposito" as ModuleKey,
+    tools: [
+      {
+        href: "/deposito",
+        icon: "fas fa-print",
+        color: "#06b6d4",
+        title: "Etiquetas para Depósito",
+        description: "Etiquetas de Tienda Nube y Mercado Libre listas para ver, descargar e imprimir con la impresora térmica, sin acceso a Pedidos ni Mercado Libre.",
+        tags: ["Tienda Nube", "Mercado Libre", "Impresión"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

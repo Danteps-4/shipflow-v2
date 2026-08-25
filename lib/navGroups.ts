@@ -102,6 +102,13 @@ export const NAV_GROUPS: Apartado[] = [
       { href: "/retiros", icon: "fas fa-box-open", label: "Retiros Presenciales", retirosSupervisor: true },
     ],
   },
+  {
+    label: "Depósito",
+    module: "deposito",
+    subApartados: [
+      { href: "/deposito", icon: "fas fa-print", label: "Etiquetas para Depósito" },
+    ],
+  },
 ];
 
 export const ALL_HREFS: string[] = NAV_GROUPS.flatMap((g) => g.subApartados.map((s) => s.href));

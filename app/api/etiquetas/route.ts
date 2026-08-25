@@ -2,8 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import path from "path";
 import { requireModule } from "@/lib/permissions";
+import { readTokens } from "@/lib/tnTokens";
+import { initDepositoTables, createEtiquetaDeposito } from "@/lib/depositoDb";
+import { uploadBuffer } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
+
+// Además de devolvérselo a quien lo generó, deja una copia en el módulo de
+// Depósito para que esa persona no necesite acceso a Pedidos para verlo. Es
+// best-effort: si Cloudinary/la base fallan, no debe romper la descarga que
+// la persona de Pedidos sí está esperando.
+async function copiarADeposito(sfUserId: string, createdBy: string, buffer: Buffer) {
+  try {
+    const tokens = readTokens(sfUserId);
+    if (!tokens) return;
+    const storeId = String(tokens.user_id);
+
+    const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito");
+    await initDepositoTables();
+    const fecha = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    await createEtiquetaDeposito(storeId, {
+      origen: "tienda_nube",
+      titulo: `Etiquetas con SKU · ${fecha}`,
+      url,
+      publicId,
+      createdBy,
+    });
+  } catch (e) {
+    console.error("[etiquetas] no se pudo copiar a Depósito:", e);
+  }
+}
 
 export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "pedidos", "/etiquetas");
@@ -99,6 +127,8 @@ export async function POST(req: NextRequest) {
   }
 
   const resultBuffer = Buffer.from(b64Result, "base64");
+
+  await copiarADeposito(guard.user.id, guard.user.name, resultBuffer);
 
   return new NextResponse(resultBuffer, {
     headers: {

@@ -1,10 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import path from "path";
+import { requireModule } from "@/lib/permissions";
+import { readTokens } from "@/lib/tnTokens";
+import { initDepositoTables, createEtiquetaDeposito } from "@/lib/depositoDb";
+import { uploadBuffer } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
 
+// Ver el comentario equivalente en app/api/etiquetas/route.ts: copia
+// best-effort al módulo de Depósito, no debe romper la descarga principal.
+async function copiarADeposito(sfUserId: string, createdBy: string, buffer: Buffer) {
+  try {
+    const tokens = readTokens(sfUserId);
+    if (!tokens) return;
+    const storeId = String(tokens.user_id);
+
+    const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito");
+    await initDepositoTables();
+    const fecha = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+    await createEtiquetaDeposito(storeId, {
+      origen: "mercado_libre",
+      titulo: `Etiquetas ML · ${fecha}`,
+      url,
+      publicId,
+      createdBy,
+    });
+  } catch (e) {
+    console.error("[etiquetas-ml] no se pudo copiar a Depósito:", e);
+  }
+}
+
 export async function POST(req: NextRequest) {
+  const guard = await requireModule(req, "mercadolibre", "/etiquetas-ml");
+  if (!guard.ok) return guard.response;
+
   let formData: FormData;
   try {
     formData = await req.formData();
@@ -77,6 +107,8 @@ export async function POST(req: NextRequest) {
   }
 
   const resultBuffer = Buffer.from(b64Result, "base64");
+
+  await copiarADeposito(guard.user.id, guard.user.name, resultBuffer);
 
   return new NextResponse(resultBuffer, {
     headers: {
