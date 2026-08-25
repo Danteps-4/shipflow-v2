@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import TicketsNotifier from "@/components/TicketsNotifier";
+import DepositoNotifier from "@/components/DepositoNotifier";
 
 export const metadata: Metadata = {
   title: "ShipFlow — Tienda Nube → Andreani",
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <TicketsNotifier />
+        <DepositoNotifier />
         {children}
       </body>
     </html>
