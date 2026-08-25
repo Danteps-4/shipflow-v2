@@ -8,11 +8,11 @@ const POLL_MS = 15000;
 interface EtiquetaNotif {
   id: number;
   titulo: string;
-  origen: "tienda_nube" | "mercado_libre" | "manual";
+  origen: "tienda_nube" | "mercado_libre";
 }
 
 const ORIGEN_LABEL: Record<EtiquetaNotif["origen"], string> = {
-  tienda_nube: "Tienda Nube", mercado_libre: "Mercado Libre", manual: "Subida manual",
+  tienda_nube: "Andreani (Tienda Nube)", mercado_libre: "Mercado Libre",
 };
 
 // Mismo patrón que TicketsNotifier.tsx, para el módulo Depósito (module key
@@ -56,7 +56,7 @@ export default function DepositoNotifier() {
         setToast(ultima);
         if (typeof Notification !== "undefined" && Notification.permission === "granted") {
           try {
-            new Notification("Nueva etiqueta para depósito", { body: `${ultima.titulo} — ${ORIGEN_LABEL[ultima.origen]}` });
+            new Notification("Nueva etiqueta para depósito", { body: `${ultima.titulo} — ${ORIGEN_LABEL[ultima.origen] ?? "Sin clasificar"}` });
           } catch {}
         }
       } catch {}
@@ -118,7 +118,7 @@ export default function DepositoNotifier() {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: "0.85rem", marginBottom: "0.15rem" }}>Nueva etiqueta para imprimir</div>
         <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {toast.titulo} — {ORIGEN_LABEL[toast.origen]}
+          {toast.titulo} — {ORIGEN_LABEL[toast.origen] ?? "Sin clasificar"}
         </div>
       </div>
       <button

@@ -5,7 +5,7 @@ import { getDb } from "./db";
 // PDFs de etiquetas ya generados (con SKU / ZPL→PDF) o subidos a mano, para
 // que la persona de depósito los vea, descargue e imprima sin necesitar
 // acceso a Pedidos ni Mercado Libre.
-export type OrigenEtiquetaDeposito = "tienda_nube" | "mercado_libre" | "manual";
+export type OrigenEtiquetaDeposito = "tienda_nube" | "mercado_libre";
 export type EstadoEtiquetaDeposito = "pendiente" | "impresa";
 
 export interface EtiquetaDeposito {

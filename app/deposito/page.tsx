@@ -5,9 +5,11 @@ import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
+type Origen = "tienda_nube" | "mercado_libre";
+
 interface EtiquetaDeposito {
   id: number;
-  origen: "tienda_nube" | "mercado_libre" | "manual";
+  origen: Origen;
   titulo: string;
   url: string;
   estado: "pendiente" | "impresa";
@@ -17,10 +19,11 @@ interface EtiquetaDeposito {
   impresa_at: string | null;
 }
 
-const ORIGEN_CONFIG: Record<EtiquetaDeposito["origen"], { label: string; icon: string; color: string }> = {
-  tienda_nube:   { label: "Tienda Nube",   icon: "fas fa-box-open",     color: "#3b82f6" },
-  mercado_libre: { label: "Mercado Libre", icon: "fas fa-barcode",      color: "#eab308" },
-  manual:        { label: "Subida manual", icon: "fas fa-file-upload", color: "#a78bfa" },
+// Colores de marca de cada transportista/plataforma, para que se distingan
+// de un vistazo aunque el título no lo diga.
+const ORIGEN_CONFIG: Record<Origen, { label: string; icon: string; color: string; bg: string }> = {
+  tienda_nube:   { label: "Andreani (Tienda Nube)", icon: "fas fa-truck",    color: "#ff4757", bg: "rgba(255,71,87,0.14)" },
+  mercado_libre: { label: "Mercado Libre",          icon: "fas fa-barcode", color: "#fff159", bg: "rgba(255,241,89,0.14)" },
 };
 
 function fmtFecha(iso: string) {
@@ -39,6 +42,7 @@ export default function DepositoPage() {
 
   const [subiendo, setSubiendo]       = useState(false);
   const [tituloManual, setTituloManual] = useState("");
+  const [origenManual, setOrigenManual] = useState<Origen | "">("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fetchEtiquetas = useCallback(async () => {
@@ -60,11 +64,13 @@ export default function DepositoPage() {
   useEffect(() => { fetchEtiquetas(); }, [fetchEtiquetas]);
 
   async function handleSubirManual(file: File) {
+    if (!origenManual) return;
     setSubiendo(true);
     setError(null);
     try {
       const form = new FormData();
       form.append("file", file);
+      form.append("origen", origenManual);
       if (tituloManual.trim()) form.append("titulo", tituloManual.trim());
       const res = await fetch("/api/deposito", { method: "POST", body: form });
       if (!res.ok) {
@@ -72,6 +78,7 @@ export default function DepositoPage() {
         throw new Error(body.error ?? "Error al subir el archivo");
       }
       setTituloManual("");
+      setOrigenManual("");
       if (fileInputRef.current) fileInputRef.current.value = "";
       if (estado === "pendiente") await fetchEtiquetas();
     } catch (e: unknown) {
@@ -138,13 +145,24 @@ export default function DepositoPage() {
             alignItems: "center", flexWrap: "wrap", background: "rgba(255,255,255,0.02)",
           }}>
             <i className="fas fa-file-upload" style={{ color: "var(--text-muted)" }} />
+            <select
+              className="sf-input"
+              value={origenManual}
+              onChange={e => setOrigenManual(e.target.value as Origen | "")}
+              style={{ maxWidth: 220 }}
+              disabled={subiendo}
+            >
+              <option value="">¿Para qué es?</option>
+              <option value="tienda_nube">Andreani (Tienda Nube)</option>
+              <option value="mercado_libre">Mercado Libre</option>
+            </select>
             <input
               type="text"
               className="sf-input"
               placeholder="Título (opcional)"
               value={tituloManual}
               onChange={e => setTituloManual(e.target.value)}
-              style={{ maxWidth: 240 }}
+              style={{ maxWidth: 220 }}
               disabled={subiendo}
             />
             <input
@@ -157,8 +175,9 @@ export default function DepositoPage() {
             <button
               className="sf-btn sf-btn-secondary"
               onClick={() => fileInputRef.current?.click()}
-              disabled={subiendo}
-              style={{ opacity: subiendo ? 0.6 : 1 }}
+              disabled={subiendo || !origenManual}
+              title={!origenManual ? "Elegí primero para qué es" : undefined}
+              style={{ opacity: subiendo || !origenManual ? 0.5 : 1, cursor: !origenManual ? "not-allowed" : "pointer" }}
             >
               {subiendo
                 ? <><i className="fas fa-spinner fa-spin" /> Subiendo…</>
@@ -198,12 +217,23 @@ export default function DepositoPage() {
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: "1rem" }}>
               {etiquetas.map(et => {
-                const cfg = ORIGEN_CONFIG[et.origen];
+                // Fallback por si queda alguna etiqueta vieja con un origen
+                // que ya no existe (ej. "manual" antes de pedir la plataforma).
+                const cfg = ORIGEN_CONFIG[et.origen] ?? { label: "Sin clasificar", icon: "fas fa-file-pdf", color: "#94a3b8", bg: "rgba(148,163,184,0.14)" };
                 return (
-                  <div key={et.id} className="sf-card" style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <i className={cfg.icon} style={{ color: cfg.color }} />
-                      <span style={{ fontSize: "0.75rem", fontWeight: 600, color: cfg.color }}>{cfg.label}</span>
+                  <div
+                    key={et.id}
+                    className="sf-card"
+                    style={{ display: "flex", flexDirection: "column", gap: "0.6rem", borderLeft: `3px solid ${cfg.color}` }}
+                  >
+                    <div
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: "0.4rem",
+                        padding: "0.2rem 0.6rem", borderRadius: "999px", background: cfg.bg, alignSelf: "flex-start",
+                      }}
+                    >
+                      <i className={cfg.icon} style={{ color: cfg.color, fontSize: "0.7rem" }} />
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, color: cfg.color }}>{cfg.label}</span>
                     </div>
                     <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>{et.titulo}</div>
                     <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>

@@ -8,12 +8,12 @@ const POLL_MS = 15000;
 interface EtiquetaNotif {
   id: number;
   titulo: string;
-  origen: "tienda_nube" | "mercado_libre" | "manual";
+  origen: "tienda_nube" | "mercado_libre";
   created_at: string;
 }
 
 const ORIGEN_LABEL: Record<EtiquetaNotif["origen"], string> = {
-  tienda_nube: "Tienda Nube", mercado_libre: "Mercado Libre", manual: "Subida manual",
+  tienda_nube: "Andreani (Tienda Nube)", mercado_libre: "Mercado Libre",
 };
 
 function loadRead(): Set<number> {
@@ -210,7 +210,7 @@ export default function DepositoNotificationBell() {
                       {e.titulo}
                     </div>
                     <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "0.15rem" }}>
-                      {ORIGEN_LABEL[e.origen]} · {fmtRelative(e.created_at)}
+                      {ORIGEN_LABEL[e.origen] ?? "Sin clasificar"} · {fmtRelative(e.created_at)}
                     </div>
                   </div>
                 </div>

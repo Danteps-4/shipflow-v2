@@ -4,8 +4,10 @@ import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import {
   initDepositoTables, getEtiquetasDeposito, createEtiquetaDeposito,
-  marcarEtiquetaImpresa, deleteEtiquetaDeposito, EstadoEtiquetaDeposito,
+  marcarEtiquetaImpresa, deleteEtiquetaDeposito, EstadoEtiquetaDeposito, OrigenEtiquetaDeposito,
 } from "@/lib/depositoDb";
+
+const ORIGENES_VALIDOS: OrigenEtiquetaDeposito[] = ["tienda_nube", "mercado_libre"];
 import { uploadBuffer, destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
@@ -51,9 +53,13 @@ export async function POST(req: NextRequest) {
 
   const file = formData.get("file") as File | null;
   const tituloForm = (formData.get("titulo") as string | null)?.trim();
+  const origenForm = formData.get("origen") as string | null;
   if (!file) return NextResponse.json({ error: "Falta el archivo PDF" }, { status: 400 });
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
     return NextResponse.json({ error: "El archivo tiene que ser un PDF" }, { status: 400 });
+  }
+  if (!origenForm || !ORIGENES_VALIDOS.includes(origenForm as OrigenEtiquetaDeposito)) {
+    return NextResponse.json({ error: "Falta indicar para qué es (Tienda Nube o Mercado Libre)" }, { status: 400 });
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
@@ -61,7 +67,7 @@ export async function POST(req: NextRequest) {
 
   await initDepositoTables();
   const etiqueta = await createEtiquetaDeposito(storeId, {
-    origen: "manual",
+    origen: origenForm as OrigenEtiquetaDeposito,
     titulo: tituloForm || file.name,
     url,
     publicId,
