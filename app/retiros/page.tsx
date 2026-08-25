@@ -51,6 +51,13 @@ const ESTADO_PAGO_COLORS: Record<string, string> = {
   cobrar_al_retirar: "#ef4444",
 };
 const CANAL_LABELS: Record<string, string> = { tiendanube: "Tienda Nube", mercadolibre: "Mercado Libre" };
+const MEDIOS_PAGO: { value: string; label: string }[] = [
+  { value: "efectivo", label: "Efectivo" },
+  { value: "transferencia", label: "Transferencia" },
+  { value: "tarjeta", label: "Tarjeta" },
+  { value: "mercado_pago", label: "Mercado Pago" },
+  { value: "otro", label: "Otro" },
+];
 
 function fmtMoney(n: number) {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
@@ -94,10 +101,12 @@ export default function RetirosPage() {
   const [clienteDni, setClienteDni] = useState("");
   const [productos, setProductos] = useState<ProductoManual[]>([{ ...PRODUCTO_VACIO }]);
   const [metodoPago, setMetodoPago] = useState<"pagar_ahora" | "pagar_al_retirar">("pagar_al_retirar");
+  const [medioPago, setMedioPago] = useState("");
   const [fechaEstimada, setFechaEstimada] = useState<string | null>(null);
   const [notas, setNotas] = useState("");
   const [creando, setCreando] = useState(false);
   const [errorCreacion, setErrorCreacion] = useState<string | null>(null);
+  const [eliminandoId, setEliminandoId] = useState<number | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(busqueda), 400);
@@ -137,6 +146,7 @@ export default function RetirosPage() {
     setClienteNombre(""); setClienteTelefono(""); setClienteEmail(""); setClienteDni("");
     setProductos([{ ...PRODUCTO_VACIO }]);
     setMetodoPago("pagar_al_retirar");
+    setMedioPago("");
     setFechaEstimada(null);
     setNotas("");
     setShowElegirOrigen(true);
@@ -201,6 +211,7 @@ export default function RetirosPage() {
           clienteDni: pedidoVinculado?.clienteDni || clienteDni || null,
           productos: productosEfectivos,
           estadoPago: yaPagado ? "pagado" : (metodoPago === "pagar_al_retirar" ? "cobrar_al_retirar" : "pendiente"),
+          medioPago: medioPago || null,
           fechaEstimada,
           notas: notas || null,
         }),
@@ -220,6 +231,24 @@ export default function RetirosPage() {
   function cerrarFormulario() {
     setShowFormManual(false);
     setPedidoVinculado(null);
+  }
+
+  async function eliminarRetiroLista(e: React.MouseEvent, id: number) {
+    e.stopPropagation();
+    if (!confirm("¿Eliminar este retiro? Esta acción no se puede deshacer.")) return;
+    setEliminandoId(id);
+    try {
+      const r = await fetch(`/api/retiros/${id}`, { method: "DELETE" });
+      if (r.ok) {
+        setRetiros(prev => prev.filter(x => x.id !== id));
+        fetchCounts();
+      } else {
+        const d = await r.json().catch(() => null);
+        alert(d?.error ?? "No se pudo eliminar el retiro");
+      }
+    } finally {
+      setEliminandoId(null);
+    }
   }
 
   return (
@@ -333,7 +362,16 @@ export default function RetirosPage() {
                         </span>
                       </td>
                       <td style={{ textAlign: "right", fontFamily: "monospace", fontWeight: 600 }}>{fmtMoney(Number(r.total))}</td>
-                      <td><i className="fas fa-chevron-right" style={{ color: "var(--text-muted)", fontSize: "0.75rem" }} /></td>
+                      <td style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <button
+                          className="sf-icon-btn danger" title="Eliminar retiro"
+                          disabled={eliminandoId === r.id}
+                          onClick={e => eliminarRetiroLista(e, r.id)}
+                        >
+                          {eliminandoId === r.id ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-trash" />}
+                        </button>
+                        <i className="fas fa-chevron-right" style={{ color: "var(--text-muted)", fontSize: "0.75rem" }} />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -458,7 +496,7 @@ export default function RetirosPage() {
                 <div className="sf-alert sf-alert-ok"><i className="fas fa-circle-check" /><span>Este pedido ya figura pagado — el retiro se crea como Pagado.</span></div>
               ) : (
                 <div>
-                  <div className="sf-label" style={{ marginBottom: "0.4rem" }}>¿Cómo paga?</div>
+                  <div className="sf-label" style={{ marginBottom: "0.4rem" }}>¿Cuándo paga?</div>
                   <div style={{ display: "flex", gap: "1.25rem" }}>
                     <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontSize: "0.875rem", cursor: "pointer" }}>
                       <input type="radio" checked={metodoPago === "pagar_ahora"} onChange={() => setMetodoPago("pagar_ahora")} /> Pagar ahora
@@ -469,6 +507,13 @@ export default function RetirosPage() {
                   </div>
                 </div>
               )}
+
+              <label className="sf-label">¿Cómo va a pagar? (opcional)
+                <select className="sf-input" value={medioPago} onChange={e => setMedioPago(e.target.value)}>
+                  <option value="">Sin especificar</option>
+                  {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </label>
 
               <div>
                 <div className="sf-label" style={{ marginBottom: "0.4rem" }}>¿Cuándo estima retirar?</div>

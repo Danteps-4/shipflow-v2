@@ -24,6 +24,7 @@ interface Retiro {
   total: string;
   estado_retiro: "pendiente_preparar" | "listo" | "retirado" | "cancelado";
   estado_pago: "pagado" | "pendiente" | "cobrar_al_retirar";
+  medio_pago: string | null;
   fecha_estimada: string | null;
   notas: string | null;
   entregado_por: string | null;
@@ -52,6 +53,16 @@ const ESTADO_PAGO_COLORS: Record<string, string> = {
   cobrar_al_retirar: "var(--error-color)",
 };
 const CANAL_LABELS: Record<string, string> = { tiendanube: "Tienda Nube", mercadolibre: "Mercado Libre" };
+const MEDIOS_PAGO_LABELS: Record<string, string> = {
+  efectivo: "Efectivo", transferencia: "Transferencia", tarjeta: "Tarjeta", mercado_pago: "Mercado Pago", otro: "Otro",
+};
+const MEDIOS_PAGO: { value: string; label: string }[] = [
+  { value: "efectivo", label: "Efectivo" },
+  { value: "transferencia", label: "Transferencia" },
+  { value: "tarjeta", label: "Tarjeta" },
+  { value: "mercado_pago", label: "Mercado Pago" },
+  { value: "otro", label: "Otro" },
+];
 
 function fmtMoney(n: number) {
   return new Intl.NumberFormat("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 2 }).format(n);
@@ -78,6 +89,8 @@ export default function RetiroDetallePage() {
 
   const [accionando, setAccionando] = useState(false);
   const [pidiendoConfirmacionPago, setPidiendoConfirmacionPago] = useState(false);
+  const [pidiendoMedioCobro, setPidiendoMedioCobro] = useState(false);
+  const [medioPagoSeleccion, setMedioPagoSeleccion] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const [editandoFecha, setEditandoFecha] = useState(false);
@@ -250,6 +263,9 @@ export default function RetiroDetallePage() {
                 {retiro.estado_pago !== "pagado" && (
                   <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{fmtMoney(Number(retiro.total))}</span>
                 )}
+                {retiro.medio_pago && (
+                  <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>· {MEDIOS_PAGO_LABELS[retiro.medio_pago] ?? retiro.medio_pago}</span>
+                )}
               </div>
               <span className="sf-badge" style={{ fontSize: "0.85rem", padding: "0.4rem 0.8rem" }}>
                 {ESTADO_RETIRO_LABELS[retiro.estado_retiro]}
@@ -287,7 +303,7 @@ export default function RetiroDetallePage() {
                 </button>
               )}
               {retiro.estado_pago !== "pagado" && (
-                <button className="sf-btn sf-btn-secondary" disabled={accionando} onClick={() => ejecutarAccion({ accion: "registrar_cobro" })}>
+                <button className="sf-btn sf-btn-secondary" disabled={accionando} onClick={() => { setMedioPagoSeleccion(retiro.medio_pago ?? ""); setPidiendoMedioCobro(true); }}>
                   <i className="fas fa-coins" /> Registrar cobro
                 </button>
               )}
@@ -344,8 +360,14 @@ export default function RetiroDetallePage() {
               <h3 className="sf-modal-title"><i className="fas fa-coins" style={{ color: "var(--warning-color)" }} /> ¿Se recibió el pago?</h3>
               <button className="sf-close-btn" onClick={() => !accionando && setPidiendoConfirmacionPago(false)}><i className="fas fa-times" /></button>
             </div>
-            <div className="sf-modal-body">
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
               <p>Hay un saldo pendiente de <strong>{fmtMoney(Number(retiro.total))}</strong>. ¿Se cobró antes de entregar?</p>
+              <label className="sf-label">Medio de pago (opcional)
+                <select className="sf-input" value={medioPagoSeleccion} onChange={e => setMedioPagoSeleccion(e.target.value)}>
+                  <option value="">Sin especificar</option>
+                  {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </label>
             </div>
             <div className="sf-modal-footer" style={{ flexWrap: "wrap" }}>
               <button className="sf-btn sf-btn-secondary" disabled={accionando} onClick={() => setPidiendoConfirmacionPago(false)}>No entregar todavía</button>
@@ -354,8 +376,38 @@ export default function RetiroDetallePage() {
                   <i className="fas fa-user-shield" /> Entregar con saldo pendiente
                 </button>
               )}
-              <button className="sf-btn" disabled={accionando} onClick={() => ejecutarAccion({ accion: "confirmar_entrega", pagoConfirmado: true })}>
+              <button className="sf-btn" disabled={accionando} onClick={() => ejecutarAccion({ accion: "confirmar_entrega", pagoConfirmado: true, medioPago: medioPagoSeleccion || null })}>
                 {accionando ? <><i className="fas fa-spinner fa-spin" /> Confirmando...</> : <><i className="fas fa-check" /> Sí, cobrado</>}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Medio de pago (Registrar cobro) ──────────────────────────────────── */}
+      {pidiendoMedioCobro && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => !accionando && setPidiendoMedioCobro(false)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(360px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title"><i className="fas fa-coins" style={{ color: "var(--primary-color)" }} /> Registrar cobro</h3>
+              <button className="sf-close-btn" onClick={() => !accionando && setPidiendoMedioCobro(false)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body">
+              <label className="sf-label">Medio de pago (opcional)
+                <select className="sf-input" value={medioPagoSeleccion} onChange={e => setMedioPagoSeleccion(e.target.value)}>
+                  <option value="">Sin especificar</option>
+                  {MEDIOS_PAGO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" disabled={accionando} onClick={() => setPidiendoMedioCobro(false)}>Cancelar</button>
+              <button
+                className="sf-btn" disabled={accionando}
+                onClick={async () => { const ok = await ejecutarAccion({ accion: "registrar_cobro", medioPago: medioPagoSeleccion || null }); if (ok) setPidiendoMedioCobro(false); }}
+              >
+                {accionando ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-check" /> Confirmar cobro</>}
               </button>
             </div>
           </div>

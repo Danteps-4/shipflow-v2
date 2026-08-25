@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
-// Adaptado de components/TicketOrderPicker.tsx: mismas funciones de
-// normalización TN/ML, pegando a /api/retiros/orders (gateado por el módulo
-// "retiros", no "tickets"), y sumando lo que este flujo necesita además:
-// si el pedido ya está pagado (define el estado de pago inicial del retiro)
-// y si ya tenía un envío despachado (para avisar antes de convertirlo a
-// retiro presencial, sin tocar nada del pedido automáticamente).
+// Adaptado de components/TicketOrderPicker.tsx: misma normalización de un
+// pedido de Tienda Nube, pegando a /api/retiros/orders (gateado por el
+// módulo "retiros", no "tickets"). Solo Tienda Nube — a diferencia de
+// Tickets, acá no hace falta buscar en Mercado Libre.
 
 interface TnShippingAddress {
   address?: string;
@@ -42,16 +40,6 @@ interface TnOrderResumen {
   fulfillments?: { tracking_number?: string }[];
 }
 
-interface MlOrderResumen {
-  id: number;
-  status: string;
-  date_created?: string;
-  total_amount?: number;
-  currency_id?: string;
-  buyer?: { nickname?: string; first_name?: string; last_name?: string };
-  order_items: { quantity: number; unit_price?: number; item: { id: string; title: string; seller_sku?: string | null } }[];
-}
-
 export interface ProductoPedidoRetiro {
   sku: string | null;
   nombre: string;
@@ -60,7 +48,7 @@ export interface ProductoPedidoRetiro {
 }
 
 export interface PedidoRetiroSeleccionado {
-  canalPedido: "tiendanube" | "mercadolibre";
+  canalPedido: "tiendanube";
   numeroPedido: string;
   pedidoIdInterno: string;
   clienteNombre: string;
@@ -73,7 +61,7 @@ export interface PedidoRetiroSeleccionado {
   trackingOriginal: string;
 }
 
-// ─── Helpers de normalización ─────────────────────────────────────────────────
+// ─── Helper de normalización ───────────────────────────────────────────────────
 
 function normalizeTnOrder(o: TnOrderResumen): PedidoRetiroSeleccionado {
   const tracking = o.shipping_tracking_number || o.fulfillments?.[0]?.tracking_number || "";
@@ -94,25 +82,6 @@ function normalizeTnOrder(o: TnOrderResumen): PedidoRetiroSeleccionado {
   };
 }
 
-function normalizeMlOrder(o: MlOrderResumen): PedidoRetiroSeleccionado {
-  const nombre = o.buyer?.nickname || [o.buyer?.first_name, o.buyer?.last_name].filter(Boolean).join(" ") || "Comprador Mercado Libre";
-  return {
-    canalPedido: "mercadolibre",
-    numeroPedido: String(o.id),
-    pedidoIdInterno: String(o.id),
-    clienteNombre: nombre,
-    clienteTelefono: "",
-    clienteEmail: "",
-    clienteDni: "",
-    pedidoProductos: (o.order_items ?? []).map(oi => ({
-      sku: oi.item.seller_sku ?? null, nombre: oi.item.title, cantidad: oi.quantity, precio: oi.unit_price ?? null,
-    })),
-    pagado: o.status === "paid",
-    metodoEntregaOriginal: o.status,
-    trackingOriginal: "",
-  };
-}
-
 function fmtDate(iso: string): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -126,170 +95,82 @@ export default function RetiroOrderPicker({
   onSelect: (pedido: PedidoRetiroSeleccionado) => void;
   onClose: () => void;
 }) {
-  const [canal, setCanal] = useState<"tiendanube" | "mercadolibre">("tiendanube");
-
   const [busqueda, setBusqueda] = useState("");
-  const [tnResultados, setTnResultados] = useState<TnOrderResumen[]>([]);
-  const [buscandoTn, setBuscandoTn] = useState(false);
-  const [tnError, setTnError] = useState<string | null>(null);
+  const [resultados, setResultados] = useState<TnOrderResumen[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [mlResultados, setMlResultados] = useState<MlOrderResumen[]>([]);
-  const [mlOffset, setMlOffset] = useState(0);
-  const [mlTotal, setMlTotal] = useState(0);
-  const [cargandoMl, setCargandoMl] = useState(false);
-  const [mlError, setMlError] = useState<string | null>(null);
-  const ML_LIMIT = 10;
-
-  function onBuscarTn(value: string) {
+  function onBuscar(value: string) {
     setBusqueda(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (value.trim().length < 2) { setTnResultados([]); return; }
+    if (value.trim().length < 2) { setResultados([]); return; }
     debounceRef.current = setTimeout(async () => {
-      setBuscandoTn(true);
-      setTnError(null);
+      setBuscando(true);
+      setError(null);
       try {
-        const res = await fetch(`/api/retiros/orders?canal=tiendanube&q=${encodeURIComponent(value)}&per_page=8`);
+        const res = await fetch(`/api/retiros/orders?q=${encodeURIComponent(value)}&per_page=8`);
         if (res.ok) {
-          setTnResultados((await res.json()).orders ?? []);
+          setResultados((await res.json()).orders ?? []);
         } else {
-          setTnError((await res.json().catch(() => null))?.error ?? "Error al buscar pedidos");
+          setError((await res.json().catch(() => null))?.error ?? "Error al buscar pedidos");
         }
       } catch {
-        setTnError("Error al buscar pedidos");
+        setError("Error al buscar pedidos");
       } finally {
-        setBuscandoTn(false);
+        setBuscando(false);
       }
     }, 400);
   }
 
-  async function fetchMl(offset: number) {
-    setCargandoMl(true);
-    setMlError(null);
-    try {
-      const res = await fetch(`/api/retiros/orders?canal=mercadolibre&offset=${offset}&limit=${ML_LIMIT}`);
-      if (res.ok) {
-        const d = await res.json();
-        setMlResultados(d.orders ?? []);
-        setMlTotal(d.total ?? 0);
-      } else {
-        setMlError((await res.json().catch(() => null))?.error ?? "Error al cargar pedidos de Mercado Libre");
-      }
-    } catch {
-      setMlError("Error al cargar pedidos de Mercado Libre");
-    } finally {
-      setCargandoMl(false);
-    }
-  }
-
-  useEffect(() => {
-    if (canal === "mercadolibre") fetchMl(mlOffset);
-  }, [canal, mlOffset]);
-
   return (
     <>
       <div className="sf-modal-backdrop" onClick={onClose} />
-      <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(640px, calc(100vw - 2rem))" }}>
+      <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(560px, calc(100vw - 2rem))" }}>
         <div className="sf-modal-header">
           <h3 className="sf-modal-title">
             <i className="fas fa-magnifying-glass" style={{ color: "var(--primary-color)" }} />
-            Buscar pedido
+            Buscar pedido de Tienda Nube
           </h3>
           <button className="sf-close-btn" onClick={onClose}><i className="fas fa-times" /></button>
         </div>
 
         <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-          <div className="sf-tabs" style={{ marginBottom: 0 }}>
-            <button className={`sf-tab ${canal === "tiendanube" ? "active" : ""}`} onClick={() => setCanal("tiendanube")}>
-              <i className="fas fa-store" /> Tienda Nube
-            </button>
-            <button className={`sf-tab ${canal === "mercadolibre" ? "active" : ""}`} onClick={() => setCanal("mercadolibre")}>
-              <i className="fas fa-bag-shopping" /> Mercado Libre
-            </button>
-          </div>
-
-          {canal === "tiendanube" ? (
-            <>
-              <input
-                className="sf-input"
-                value={busqueda}
-                onChange={e => onBuscarTn(e.target.value)}
-                placeholder="Buscar por número de pedido o nombre del cliente..."
-                autoFocus
-              />
-              {buscandoTn && (
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                  <i className="fas fa-spinner fa-spin" /> Buscando...
-                </div>
-              )}
-              {tnError && <div className="sf-alert sf-alert-warning"><i className="fas fa-triangle-exclamation" /><span>{tnError}</span></div>}
-              {!buscandoTn && busqueda.trim().length >= 2 && tnResultados.length === 0 && !tnError && (
-                <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Sin resultados.</p>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", maxHeight: 340, overflowY: "auto" }}>
-                {tnResultados.map(o => (
-                  <button
-                    key={o.id}
-                    onClick={() => onSelect(normalizeTnOrder(o))}
-                    style={{
-                      textAlign: "left", background: "rgba(15,23,42,0.4)", border: "1px solid var(--border-color)",
-                      borderRadius: "var(--radius)", padding: "0.65rem 0.85rem", cursor: "pointer", color: "var(--text-color)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
-                      <strong style={{ fontFamily: "monospace" }}>#{o.number}</strong>
-                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(o.created_at)}</span>
-                    </div>
-                    <div style={{ fontSize: "0.85rem" }}>{o.contact_name}</div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{o.contact_email}</div>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <>
-              <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
-                Mercado Libre no tiene búsqueda por texto — navegá la lista de pedidos recientes.
-              </p>
-              {cargandoMl && (
-                <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                  <i className="fas fa-spinner fa-spin" /> Cargando...
-                </div>
-              )}
-              {mlError && <div className="sf-alert sf-alert-warning"><i className="fas fa-triangle-exclamation" /><span>{mlError}</span></div>}
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", maxHeight: 340, overflowY: "auto" }}>
-                {mlResultados.map(o => (
-                  <button
-                    key={o.id}
-                    onClick={() => onSelect(normalizeMlOrder(o))}
-                    style={{
-                      textAlign: "left", background: "rgba(15,23,42,0.4)", border: "1px solid var(--border-color)",
-                      borderRadius: "var(--radius)", padding: "0.65rem 0.85rem", cursor: "pointer", color: "var(--text-color)",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
-                      <strong style={{ fontFamily: "monospace" }}>#{o.id}</strong>
-                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(o.date_created ?? "")}</span>
-                    </div>
-                    <div style={{ fontSize: "0.85rem" }}>{o.buyer?.nickname || [o.buyer?.first_name, o.buyer?.last_name].filter(Boolean).join(" ") || "—"}</div>
-                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{o.status}</div>
-                  </button>
-                ))}
-              </div>
-              {mlTotal > ML_LIMIT && (
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <button className="sf-btn sf-btn-secondary" disabled={mlOffset === 0} onClick={() => setMlOffset(o => Math.max(0, o - ML_LIMIT))}>
-                    <i className="fas fa-chevron-left" /> Anterior
-                  </button>
-                  <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>{mlOffset + 1}–{Math.min(mlOffset + ML_LIMIT, mlTotal)} de {mlTotal}</span>
-                  <button className="sf-btn sf-btn-secondary" disabled={mlOffset + ML_LIMIT >= mlTotal} onClick={() => setMlOffset(o => o + ML_LIMIT)}>
-                    Siguiente <i className="fas fa-chevron-right" />
-                  </button>
-                </div>
-              )}
-            </>
+          <input
+            className="sf-input"
+            value={busqueda}
+            onChange={e => onBuscar(e.target.value)}
+            placeholder="Buscar por número de pedido o nombre del cliente..."
+            autoFocus
+          />
+          {buscando && (
+            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+              <i className="fas fa-spinner fa-spin" /> Buscando...
+            </div>
           )}
+          {error && <div className="sf-alert sf-alert-warning"><i className="fas fa-triangle-exclamation" /><span>{error}</span></div>}
+          {!buscando && busqueda.trim().length >= 2 && resultados.length === 0 && !error && (
+            <p style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>Sin resultados.</p>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", maxHeight: 340, overflowY: "auto" }}>
+            {resultados.map(o => (
+              <button
+                key={o.id}
+                onClick={() => onSelect(normalizeTnOrder(o))}
+                style={{
+                  textAlign: "left", background: "rgba(15,23,42,0.4)", border: "1px solid var(--border-color)",
+                  borderRadius: "var(--radius)", padding: "0.65rem 0.85rem", cursor: "pointer", color: "var(--text-color)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                  <strong style={{ fontFamily: "monospace" }}>#{o.number}</strong>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{fmtDate(o.created_at)}</span>
+                </div>
+                <div style={{ fontSize: "0.85rem" }}>{o.contact_name}</div>
+                <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{o.contact_email}</div>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="sf-modal-footer">

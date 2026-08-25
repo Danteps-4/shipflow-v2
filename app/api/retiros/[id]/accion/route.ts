@@ -3,7 +3,7 @@ import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule, requireRetirosSupervisor } from "@/lib/permissions";
 import {
-  initRetirosTables, marcarListo, registrarCobro, confirmarEntrega, cancelarRetiro,
+  initRetirosTables, marcarListo, registrarCobro, confirmarEntrega, cancelarRetiro, MedioPagoRetiro,
 } from "@/lib/retirosDb";
 
 export const runtime = "nodejs";
@@ -24,6 +24,7 @@ interface AccionBody {
   pagoConfirmado?: boolean;
   overrideSupervisor?: boolean;
   motivo?: string | null;
+  medioPago?: MedioPagoRetiro | null;
 }
 
 // Todas las transiciones de estado de un retiro pasan por acá, en vez de un
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       return NextResponse.json({ retiro });
     }
     case "registrar_cobro": {
-      const retiro = await registrarCobro(storeId, id, guard.user.name);
+      const retiro = await registrarCobro(storeId, id, guard.user.name, body.medioPago ?? null);
       if (!retiro) return NextResponse.json({ error: "No se pudo registrar el cobro" }, { status: 400 });
       return NextResponse.json({ retiro });
     }
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         overrideSupervisor = true;
       }
       const result = await confirmarEntrega(storeId, id, guard.user.name, {
-        pagoConfirmado: body.pagoConfirmado, overrideSupervisor,
+        pagoConfirmado: body.pagoConfirmado, overrideSupervisor, medioPago: body.medioPago ?? null,
       });
       if (!result.ok) {
         const mensajes: Record<string, string> = {

@@ -4,8 +4,9 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
 import {
   initRetirosTables, getRetiros, createRetiro, getRetiroAbiertoPorPedido,
-  ProductoRetiro, CanalPedidoRetiro, EstadoPagoRetiro,
+  ProductoRetiro, CanalPedidoRetiro, EstadoPagoRetiro, MedioPagoRetiro,
 } from "@/lib/retirosDb";
+import { initPedidoEnvioTables, getEnvioOverridesPorOrdenes, setEnvioOverride } from "@/lib/pedidoEnvioDb";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +51,7 @@ interface CreateRetiroBody {
   clienteDni?: string | null;
   productos?: ProductoRetiro[];
   estadoPago?: EstadoPagoRetiro;
+  medioPago?: MedioPagoRetiro | null;
   fechaEstimada?: string | null;
   notas?: string | null;
 }
@@ -95,10 +97,26 @@ export async function POST(req: NextRequest) {
     productos,
     total,
     estadoPago,
+    medioPago: body.medioPago ?? null,
     fechaEstimada: body.fechaEstimada ?? null,
     notas: body.notas ?? null,
     createdBy: guard.user.name,
   });
+
+  // Si el retiro está vinculado a un pedido real de Tienda Nube, se marca
+  // ese pedido como "Retiro presencial" en el mismo campo que ya usa
+  // /orders (pedido_envio_overrides) — así queda excluido del Excel de
+  // Andreani y no se procesa por error. Se preserva cualquier otro dato
+  // de dirección/sucursal que ya tuviera cargado ese override.
+  if (body.canalPedido === "tiendanube" && body.numeroPedido) {
+    await initPedidoEnvioTables();
+    const existentes = await getEnvioOverridesPorOrdenes(storeId, [body.numeroPedido]);
+    const actual = existentes[body.numeroPedido] ?? {
+      tipo: null, direccion: null, numeroDireccion: null, piso: null,
+      localidad: null, provincia: null, codigoPostal: null, sucursal: null,
+    };
+    await setEnvioOverride(storeId, body.numeroPedido, { ...actual, tipo: "retiro" });
+  }
 
   return NextResponse.json({ retiro });
 }

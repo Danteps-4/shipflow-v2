@@ -11,6 +11,9 @@ export type EstadoRetiro = (typeof ESTADOS_RETIRO)[number];
 export const ESTADOS_PAGO_RETIRO = ["pagado", "pendiente", "cobrar_al_retirar"] as const;
 export type EstadoPagoRetiro = (typeof ESTADOS_PAGO_RETIRO)[number];
 
+export const MEDIOS_PAGO_RETIRO = ["efectivo", "transferencia", "tarjeta", "mercado_pago", "otro"] as const;
+export type MedioPagoRetiro = (typeof MEDIOS_PAGO_RETIRO)[number];
+
 export interface ProductoRetiro {
   sku: string | null;
   nombre: string;
@@ -40,6 +43,7 @@ export interface Retiro {
 
   estado_retiro: EstadoRetiro;
   estado_pago: EstadoPagoRetiro;
+  medio_pago: MedioPagoRetiro | null;
 
   fecha_estimada: string | null;
   notas: string | null;
@@ -96,6 +100,7 @@ export async function initRetirosTables(): Promise<void> {
 
       estado_retiro                   TEXT NOT NULL DEFAULT 'pendiente_preparar',
       estado_pago                     TEXT NOT NULL DEFAULT 'pendiente',
+      medio_pago                      TEXT,
 
       fecha_estimada                  DATE,
       notas                           TEXT,
@@ -113,6 +118,7 @@ export async function initRetirosTables(): Promise<void> {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS retiros_store_codigo ON retiros (store_id, codigo)`;
   await sql`CREATE INDEX IF NOT EXISTS retiros_store_estado ON retiros (store_id, estado_retiro, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS retiros_store_pedido ON retiros (store_id, numero_pedido)`;
+  await sql`ALTER TABLE retiros ADD COLUMN IF NOT EXISTS medio_pago TEXT`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS retiros_historial (
@@ -266,6 +272,7 @@ export interface CreateRetiroData {
   productos: ProductoRetiro[];
   total: number;
   estadoPago: EstadoPagoRetiro;
+  medioPago?: MedioPagoRetiro | null;
   fechaEstimada?: string | null;
   notas?: string | null;
   createdBy: string;
@@ -278,12 +285,12 @@ export async function createRetiro(storeId: string, data: CreateRetiroData): Pro
       store_id, canal_pedido, numero_pedido, pedido_id_interno,
       pedido_pagado_original, pedido_metodo_entrega_original, pedido_tracking_original,
       cliente_nombre, cliente_telefono, cliente_email, cliente_dni,
-      productos_json, total, estado_pago, fecha_estimada, notas, created_by
+      productos_json, total, estado_pago, medio_pago, fecha_estimada, notas, created_by
     ) VALUES (
       ${storeId}, ${data.canalPedido ?? null}, ${data.numeroPedido ?? null}, ${data.pedidoIdInterno ?? null},
       ${data.pedidoPagadoOriginal ?? null}, ${data.pedidoMetodoEntregaOriginal ?? null}, ${data.pedidoTrackingOriginal ?? null},
       ${data.clienteNombre}, ${data.clienteTelefono ?? null}, ${data.clienteEmail ?? null}, ${data.clienteDni ?? null},
-      ${JSON.stringify(data.productos)}, ${data.total}, ${data.estadoPago}, ${data.fechaEstimada ?? null}, ${data.notas ?? null}, ${data.createdBy}
+      ${JSON.stringify(data.productos)}, ${data.total}, ${data.estadoPago}, ${data.medioPago ?? null}, ${data.fechaEstimada ?? null}, ${data.notas ?? null}, ${data.createdBy}
     )
     RETURNING *
   ` as Retiro[];
@@ -346,15 +353,24 @@ export async function marcarListo(storeId: string, id: number, by: string): Prom
   return rows[0];
 }
 
-export async function registrarCobro(storeId: string, id: number, by: string): Promise<Retiro | null> {
+export async function registrarCobro(
+  storeId: string, id: number, by: string, medioPago?: MedioPagoRetiro | null,
+): Promise<Retiro | null> {
   const sql = getDb();
+  const current = await sql`SELECT medio_pago FROM retiros WHERE store_id = ${storeId} AND id = ${id}` as { medio_pago: string | null }[];
+  if (!current.length) return null;
+  const medioPagoFinal = medioPago ?? current[0].medio_pago;
   const rows = await sql`
-    UPDATE retiros SET estado_pago = 'pagado', updated_at = NOW()
+    UPDATE retiros SET estado_pago = 'pagado', medio_pago = ${medioPagoFinal}, updated_at = NOW()
     WHERE store_id = ${storeId} AND id = ${id} AND estado_pago != 'pagado'
     RETURNING *
   ` as Retiro[];
   if (!rows.length) return null;
-  await addHistorialRetiro(id, "otro", `${by} registró el cobro de $${rows[0].total}`, by);
+  await addHistorialRetiro(
+    id, "otro",
+    `${by} registró el cobro de $${rows[0].total}${medioPagoFinal ? ` (${medioPagoFinal.replace("_", " ")})` : ""}`,
+    by,
+  );
   return rows[0];
 }
 
@@ -367,7 +383,7 @@ export interface ConfirmarEntregaError {
 
 export async function confirmarEntrega(
   storeId: string, id: number, by: string,
-  opts: { pagoConfirmado?: boolean; overrideSupervisor?: boolean },
+  opts: { pagoConfirmado?: boolean; overrideSupervisor?: boolean; medioPago?: MedioPagoRetiro | null },
 ): Promise<ConfirmarEntregaResult | ConfirmarEntregaError> {
   const sql = getDb();
   const current = await sql`SELECT * FROM retiros WHERE store_id = ${storeId} AND id = ${id}` as Retiro[];
@@ -383,17 +399,18 @@ export async function confirmarEntrega(
       return { ok: false, error: "saldo_pendiente" };
     }
   }
+  const medioPago = opts.medioPago ?? actual.medio_pago;
 
   const rows = await sql`
     UPDATE retiros SET
-      estado_retiro = 'retirado', estado_pago = ${estadoPago},
+      estado_retiro = 'retirado', estado_pago = ${estadoPago}, medio_pago = ${medioPago},
       entregado_por = ${by}, entregado_at = NOW(), updated_at = NOW()
     WHERE store_id = ${storeId} AND id = ${id}
     RETURNING *
   ` as Retiro[];
 
   if (opts.pagoConfirmado && actual.estado_pago !== "pagado") {
-    await addHistorialRetiro(id, "otro", `${by} cobró $${actual.total} al momento de la entrega`, by);
+    await addHistorialRetiro(id, "otro", `${by} cobró $${actual.total} al momento de la entrega${medioPago ? ` (${medioPago.replace("_", " ")})` : ""}`, by);
   } else if (opts.overrideSupervisor && actual.estado_pago !== "pagado") {
     await addHistorialRetiro(id, "otro", `${by} entregó el retiro con saldo pendiente (autorización de supervisor)`, by, { estadoPago: actual.estado_pago });
   }
