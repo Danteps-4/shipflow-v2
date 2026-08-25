@@ -32,6 +32,8 @@ function fmtFecha(iso: string) {
   });
 }
 
+const POLL_MS = 15000;
+
 export default function DepositoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [estado, setEstado]           = useState<"pendiente" | "impresa">("pendiente");
@@ -45,9 +47,11 @@ export default function DepositoPage() {
   const [origenManual, setOrigenManual] = useState<Origen | "">("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchEtiquetas = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // silent = refresco de fondo (polling): no muestra el spinner ni tapa la
+  // lista con "Cargando...", solo actualiza los datos cuando llegan.
+  const fetchEtiquetas = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent ?? false;
+    if (!silent) { setLoading(true); setError(null); }
     try {
       const res = await fetch(`/api/deposito?estado=${estado}`);
       if (res.status === 401 || res.status === 403) { setError("No tenés acceso a este módulo."); return; }
@@ -55,13 +59,20 @@ export default function DepositoPage() {
       const { etiquetas } = await res.json();
       setEtiquetas(etiquetas ?? []);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error desconocido");
+      if (!silent) setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [estado]);
 
   useEffect(() => { fetchEtiquetas(); }, [fetchEtiquetas]);
+
+  // Se actualiza sola cada POLL_MS mientras la pantalla está abierta, para
+  // que depósito vea las etiquetas nuevas sin tener que refrescar la página.
+  useEffect(() => {
+    const id = setInterval(() => fetchEtiquetas({ silent: true }), POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchEtiquetas]);
 
   async function handleSubirManual(file: File) {
     if (!origenManual) return;
