@@ -16,7 +16,7 @@ async function copiarADeposito(sfUserId: string, createdBy: string, buffer: Buff
     if (!tokens) return;
     const storeId = String(tokens.user_id);
 
-    const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito");
+    const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito", "pdf");
     await initDepositoTables();
     const fecha = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
     await createEtiquetaDeposito(storeId, {

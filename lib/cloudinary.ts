@@ -37,10 +37,13 @@ export async function destroyAsset(publicId: string, resourceType: "image" | "vi
 // Cloudinary), esto sube desde el propio servidor — para archivos que ya
 // generamos ahí mismo (ej. el PDF de etiquetas con SKU) y no tiene sentido
 // bajarlos al cliente para volver a subirlos.
-export function uploadBuffer(buffer: Buffer, folder: string): Promise<{ url: string; publicId: string }> {
+// `format` es importante para recursos "raw": sin él, Cloudinary le pone un
+// public_id random SIN extensión, y el navegador no tiene forma de saber
+// que es un PDF (lo descarga como blob sin nombre ni formato).
+export function uploadBuffer(buffer: Buffer, folder: string, format: string): Promise<{ url: string; publicId: string }> {
   return new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: "raw" },
+      { folder, resource_type: "raw", format },
       (err, result) => {
         if (err || !result) { reject(err ?? new Error("Cloudinary upload failed")); return; }
         resolve({ url: result.secure_url, publicId: result.public_id });

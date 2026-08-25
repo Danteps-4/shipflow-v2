@@ -52,9 +52,12 @@ export async function POST(req: NextRequest) {
   const file = formData.get("file") as File | null;
   const tituloForm = (formData.get("titulo") as string | null)?.trim();
   if (!file) return NextResponse.json({ error: "Falta el archivo PDF" }, { status: 400 });
+  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+    return NextResponse.json({ error: "El archivo tiene que ser un PDF" }, { status: 400 });
+  }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito");
+  const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito", "pdf");
 
   await initDepositoTables();
   const etiqueta = await createEtiquetaDeposito(storeId, {
