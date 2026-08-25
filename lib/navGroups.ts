@@ -20,9 +20,14 @@ export interface SubApartado {
   // Agregar/Editar/Eliminar por separado (ver /equipo).
   acciones?: boolean;
   // true = este sub apartado admite un checkbox propio "Puede supervisar"
-  // (hoy solo Tickets). No reusa `acciones`/LinkAction porque "supervisor"
-  // es una capacidad de aprobación, no un verbo CRUD — ver lib/permissions.ts.
+  // (hoy Tickets y Retiros). No reusa `acciones`/LinkAction porque
+  // "supervisor" es una capacidad de aprobación, no un verbo CRUD — ver
+  // lib/permissions.ts. Cada módulo tiene su propio flag booleano en User
+  // (ticketsPuedeSupervisar / retirosPuedeSupervisar) en vez de uno
+  // genérico, mismo criterio de "no compartir infraestructura sensible
+  // entre módulos independientes" que ya se usa en el resto de la app.
   ticketsSupervisor?: boolean;
+  retirosSupervisor?: boolean;
 }
 
 export interface Apartado {
@@ -88,6 +93,13 @@ export const NAV_GROUPS: Apartado[] = [
     module: "tickets",
     subApartados: [
       { href: "/tickets", icon: "fas fa-ticket", label: "Tickets de Soporte", ticketsSupervisor: true },
+    ],
+  },
+  {
+    label: "Retiros Presenciales",
+    module: "retiros",
+    subApartados: [
+      { href: "/retiros", icon: "fas fa-box-open", label: "Retiros Presenciales", retirosSupervisor: true },
     ],
   },
 ];

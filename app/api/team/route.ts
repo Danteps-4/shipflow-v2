@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
     linkAccess: u.linkAccess,
     linkActions: u.linkActions,
     ticketsPuedeSupervisar: u.ticketsPuedeSupervisar,
+    retirosPuedeSupervisar: u.retirosPuedeSupervisar,
     createdAt: u.createdAt,
   }));
   return NextResponse.json({ users });

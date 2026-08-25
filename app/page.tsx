@@ -148,6 +148,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Retiros Presenciales",
+    module: "retiros" as ModuleKey,
+    tools: [
+      {
+        href: "/retiros",
+        icon: "fas fa-box-open",
+        color: "#f97316",
+        title: "Retiros Presenciales",
+        description: "Cargá los pedidos que el cliente retira en el local, con estado de preparación y de pago, para que depósito sepa qué tener listo.",
+        tags: ["Depósito", "Cobro al retirar", "Historial"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

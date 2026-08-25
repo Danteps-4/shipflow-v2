@@ -32,6 +32,9 @@ export interface User {
   // — es una capacidad nueva, nadie la tuvo antes, así que no debe heredar
   // el criterio "undefined = permitido" del resto de los permisos.
   ticketsPuedeSupervisar?: boolean;
+  // Mismo criterio que ticketsPuedeSupervisar, para Retiros Presenciales
+  // (cancelar, eliminar, entregar con saldo pendiente sin cobrar).
+  retirosPuedeSupervisar?: boolean;
 }
 
 // Usuarios creados antes de que existiera role/modules no tienen esos campos
@@ -95,7 +98,7 @@ export function updateUserAccess(
   id: string,
   access: {
     role: UserRole; modules: ModuleKey[]; linkAccess?: string[]; linkActions?: Record<string, LinkAction[]>;
-    ticketsPuedeSupervisar?: boolean;
+    ticketsPuedeSupervisar?: boolean; retirosPuedeSupervisar?: boolean;
   }
 ): User | null {
   const users = readUsers();
@@ -106,6 +109,7 @@ export function updateUserAccess(
   user.linkAccess = access.linkAccess;
   user.linkActions = access.linkActions;
   user.ticketsPuedeSupervisar = access.ticketsPuedeSupervisar;
+  user.retirosPuedeSupervisar = access.retirosPuedeSupervisar;
   writeUsers(users);
   return user;
 }

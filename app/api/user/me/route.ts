@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
       id: user.id, name: user.name, email: user.email, role: user.role, modules: user.modules,
       linkAccess: user.linkAccess, linkActions: user.linkActions,
       ticketsPuedeSupervisar: user.ticketsPuedeSupervisar,
+      retirosPuedeSupervisar: user.retirosPuedeSupervisar,
     },
   });
 }

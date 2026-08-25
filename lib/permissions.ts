@@ -43,6 +43,15 @@ export async function requireTicketsSupervisor(req: NextRequest): Promise<Guard>
   return { ok: false, response: NextResponse.json({ error: "Requiere permisos de supervisión" }, { status: 403 }) };
 }
 
+// Para las acciones de Retiros Presenciales que requieren supervisión
+// (cancelar, eliminar, entregar con saldo pendiente sin cobrar).
+export async function requireRetirosSupervisor(req: NextRequest): Promise<Guard> {
+  const guard = await requireModule(req, "retiros", "/retiros");
+  if (!guard.ok) return guard;
+  if (guard.user.role === "admin" || guard.user.retirosPuedeSupervisar) return guard;
+  return { ok: false, response: NextResponse.json({ error: "Requiere permisos de supervisión" }, { status: 403 }) };
+}
+
 export async function requireAdmin(req: NextRequest): Promise<Guard> {
   const user = await getCurrentUser(req);
   if (!user) {
