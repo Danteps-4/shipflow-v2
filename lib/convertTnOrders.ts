@@ -19,6 +19,8 @@ import { lookupSucursalByAddress } from "./andreaniAddressMap";
 function inferSucursalFromPickupName(
   addrName: string,
   optionName: string,
+  ciudad: string,
+  localidad: string,
 ): string {
   // Strip common prefixes like "Andreani -", "Andreani ", "PUNTO ANDREANI"
   const clean = (s: string) =>
@@ -31,8 +33,12 @@ function inferSucursalFromPickupName(
     // Try exact slugified match against official sucursal names
     const exact = matchSucursal(cleaned);
     if (exact && exact !== cleaned) return exact; // matchSucursal returns input unchanged when not found
-    // Try street inference from the cleaned name (handles "FLORES AV JUAN B ALBERDI" style)
-    const byStreet = inferSucursalByStreet(cleaned);
+    // Try street inference from the cleaned name (handles "FLORES AV JUAN B ALBERDI" style).
+    // Se pasan ciudad/localidad para que el filtro de ciudad de
+    // inferSucursalByStreet aplique acá también — sin esto, un nombre de
+    // punto de retiro ambiguo podía matchear la sucursal de otra ciudad
+    // sin ninguna verificación geográfica.
+    const byStreet = inferSucursalByStreet(cleaned, ciudad, localidad);
     if (byStreet) return byStreet;
   }
   return "";
@@ -48,7 +54,7 @@ function resolveSucursal(
   addrName: string, optionName: string,
 ): string {
   // 0. Try matching the TN pickup point name / shipping option name
-  const byName = inferSucursalFromPickupName(addrName, optionName);
+  const byName = inferSucursalFromPickupName(addrName, optionName, ciudad, localidad);
   if (byName) return byName;
 
   // 1. Address database lookup

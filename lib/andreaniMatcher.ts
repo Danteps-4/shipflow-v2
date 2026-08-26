@@ -56,13 +56,31 @@ for (const s of ANDREANI_SUCURSALES) {
 
 // slug of parenthetical street content -> sucursal name
 // e.g. "FLORES (AV JUAN B ALBERDI)" → "av-juan-b-alberdi" → sucursal name
-// Used for matching customer street address against sucursal street names
+// Used for matching customer street address against sucursal street names.
+//
+// Varias decenas de sucursales comparten el mismo texto genérico entre
+// paréntesis (ej. "(CENTRO)": SAN FRANCISCO, SAN JUSTO, TUCUMAN, SANTA FE...
+// unas 30 en total). Ese texto no identifica una calle real, así que NO
+// alcanza para elegir una sucursal específica — si se guardara igual
+// (con el último que pisa a los anteriores), inferSucursalByStreet podía
+// devolver con confianza una sucursal equivocada en otra provincia. Por
+// eso las claves ambiguas (que aparecen más de una vez) se sacan del todo
+// del mapa en vez de quedarse con cualquiera: mejor no adivinar y que el
+// pedido caiga en el siguiente paso (ciudad + CP) o quede para revisión
+// manual, antes que despachar a la sucursal incorrecta.
 const sucursalByParen = new Map<string, string>();
+const parenSlugAmbiguo = new Set<string>();
 for (const s of ANDREANI_SUCURSALES) {
   const m = s.match(/\(([^)]+)\)/);
-  if (m) {
-    sucursalByParen.set(slugify(m[1]), s);
+  if (!m) continue;
+  const slug = slugify(m[1]);
+  if (parenSlugAmbiguo.has(slug)) continue;
+  if (sucursalByParen.has(slug)) {
+    sucursalByParen.delete(slug);
+    parenSlugAmbiguo.add(slug);
+    continue;
   }
+  sucursalByParen.set(slug, s);
 }
 
 // CP -> set of locality names (from provLocCp data)
@@ -274,7 +292,7 @@ const CITY_TO_SUCURSAL: Record<string, string> = {
 // ----------------------------------------------------------------
 export function inferSucursal(
   localidad: string,
-  cp: string
+  cp: string,
 ): { sucursal: string; confident: boolean } {
   const localidadSlug = slugify(localidad);
 
@@ -291,18 +309,18 @@ export function inferSucursal(
   const override = CITY_TO_SUCURSAL[localidadSlug];
   if (override) return { sucursal: override, confident: true };
 
-  // 1. Try direct city match from localidad
-  const directMatches = lookupCity(localidadSlug);
-  if (directMatches.length === 1) {
-    return { sucursal: directMatches[0], confident: true };
-  }
-  if (directMatches.length > 1) {
-    // Multiple branches in this city — can't choose
-    return { sucursal: "", confident: false };
-  }
-
-  // 2. Try localities that share the same CP, then look for their sucursal (with overrides)
-  const locForCp = cpToLocalities.get(cp) ?? [];
+  // 1. CP primero: localidades que comparten ese código postal, cruzadas
+  // contra las que realmente tienen sucursal Andreani propia. Se prioriza
+  // sobre el nombre de ciudad tal como lo cargó el cliente/Tienda Nube
+  // porque el CP es mucho más difícil de tipear mal, y porque este cruce
+  // ya descarta las localidades sin sucursal (ej. "LA MILKA"/"VILLANI",
+  // que comparten el CP 2400 con "SAN FRANCISCO" pero no tienen sucursal
+  // propia). Esto evita el caso real detectado en la orden #6483: ciudad
+  // tipeada "San Justo" con CP "2400" (que es San Francisco, Córdoba) —
+  // "SAN JUSTO (CENTRO)" es una sucursal real (en Buenos Aires) y el
+  // match directo por nombre de ciudad la encontraba con confianza,
+  // antes de llegar a este cruce por CP que hubiera revelado el error.
+  const locForCp = cp ? (cpToLocalities.get(cp) ?? []) : [];
   const cpMatchSet = new Set<string>();
   for (const loc of locForCp) {
     const found = lookupCity(slugify(loc));
@@ -312,7 +330,16 @@ export function inferSucursal(
   if (cpMatches.length === 1) {
     return { sucursal: cpMatches[0], confident: true };
   }
-  if (cpMatches.length > 1) {
+
+  // 2. Match directo por nombre de ciudad — recién si el CP no alcanzó a
+  // resolverlo solo (sin CP, o con varias/ninguna localidad candidata).
+  const directMatches = lookupCity(localidadSlug);
+  if (directMatches.length === 1) {
+    return { sucursal: directMatches[0], confident: true };
+  }
+  if (directMatches.length > 1 || cpMatches.length > 1) {
+    // Ambiguo por nombre de ciudad, o por CP (varias localidades con
+    // sucursal propia comparten ese código) — no elegir al azar.
     return { sucursal: "", confident: false };
   }
 
