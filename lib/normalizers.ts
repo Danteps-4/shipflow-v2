@@ -135,6 +135,13 @@ const PROVINCIA_MAP: Record<string, string> = {
   "tierra del fuego": "TIERRA DEL FUEGO",
 };
 
+// Nombres canónicos de provincia tal como los usa Andreani (valores únicos
+// de PROVINCIA_MAP). Se usa, entre otras cosas, para detectar cuando el
+// texto entre paréntesis de una sucursal es en realidad el nombre de una
+// provincia (ej. "SAN MARTIN (MENDOZA)", que distingue de otros "San
+// Martín" del país) y no una calle — ver lib/andreaniMatcher.ts.
+export const PROVINCIAS_ARGENTINA: string[] = Array.from(new Set(Object.values(PROVINCIA_MAP)));
+
 // -------------------------------------------------------------------
 // Normaliza el nombre de la provincia al formato estándar
 // -------------------------------------------------------------------

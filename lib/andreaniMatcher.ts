@@ -1,5 +1,11 @@
 import { ANDREANI_SUCURSALES, ANDREANI_PROV_LOC_CP } from "./andreaniData";
-import { slugify, quitarCaracteresInvalidos } from "./normalizers";
+import { slugify, quitarCaracteresInvalidos, PROVINCIAS_ARGENTINA } from "./normalizers";
+
+// Slugs de nombres de provincia, para detectar cuando el texto entre
+// paréntesis de una sucursal es en realidad una provincia (ej. "SAN MARTIN
+// (MENDOZA)", que distingue esa sucursal de otros "San Martín" del país) y
+// no una calle — ver el comentario en sucursalByParen más abajo.
+const PROVINCIA_SLUGS = new Set(PROVINCIAS_ARGENTINA.map(p => slugify(p)));
 
 // ----------------------------------------------------------------
 // Build lookup structures once at module load (fast O(1) matching)
@@ -68,12 +74,22 @@ for (const s of ANDREANI_SUCURSALES) {
 // del mapa en vez de quedarse con cualquiera: mejor no adivinar y que el
 // pedido caiga en el siguiente paso (ciudad + CP) o quede para revisión
 // manual, antes que despachar a la sucursal incorrecta.
+// Además, algunas pocas sucursales usan el nombre de una PROVINCIA entre
+// paréntesis para distinguirse de otras del mismo nombre en el país (ej.
+// "SAN MARTIN (MENDOZA)", "LA PAZ (ENTRE RIOS)") — no una calle. Si un
+// cliente vive justo en una calle llamada igual que esa provincia (ej.
+// "Calle Mendoza"), el matching por calle podía confundir la dirección
+// con la provincia y despachar a la sucursal equivocada (orden #6423:
+// "Mendoza 1085" en Villa Nueva/Gral. San Martín, Córdoba, terminó
+// resuelto como "SAN MARTIN (MENDOZA)"). Estas entradas se excluyen del
+// todo de este mapa — nunca deben resolverse por nombre de calle.
 const sucursalByParen = new Map<string, string>();
 const parenSlugAmbiguo = new Set<string>();
 for (const s of ANDREANI_SUCURSALES) {
   const m = s.match(/\(([^)]+)\)/);
   if (!m) continue;
   const slug = slugify(m[1]);
+  if (PROVINCIA_SLUGS.has(slug)) continue;
   if (parenSlugAmbiguo.has(slug)) continue;
   if (sucursalByParen.has(slug)) {
     sucursalByParen.delete(slug);
