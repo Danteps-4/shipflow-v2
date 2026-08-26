@@ -50,14 +50,19 @@ export async function initDepositoTables(): Promise<void> {
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────
 
+// Sin filtro por store_id a propósito: depósito ve las etiquetas de TODAS
+// las tiendas de Tienda Nube conectadas mezcladas en una sola lista, no
+// separadas por la tienda activa del usuario (que además puede cambiar en
+// cualquier momento con el StoreSwitcher, sin relación con lo que depósito
+// necesita ver). store_id se sigue guardando en cada fila solo a modo de
+// registro de origen.
 export async function getEtiquetasDeposito(
-  storeId: string,
   estado: EstadoEtiquetaDeposito,
 ): Promise<EtiquetaDeposito[]> {
   const sql = getDb();
   const rows = await sql`
     SELECT * FROM etiquetas_deposito
-    WHERE store_id = ${storeId} AND estado = ${estado}
+    WHERE estado = ${estado}
     ORDER BY created_at DESC
   `;
   return rows as EtiquetaDeposito[];
@@ -79,23 +84,23 @@ export async function createEtiquetaDeposito(
 }
 
 export async function marcarEtiquetaImpresa(
-  storeId: string, id: number, impresaBy: string,
+  id: number, impresaBy: string,
 ): Promise<EtiquetaDeposito | null> {
   const sql = getDb();
   const rows = await sql`
     UPDATE etiquetas_deposito
     SET estado = 'impresa', impresa_by = ${impresaBy}, impresa_at = NOW()
-    WHERE store_id = ${storeId} AND id = ${id}
+    WHERE id = ${id}
     RETURNING *
   ` as EtiquetaDeposito[];
   return rows[0] ?? null;
 }
 
-export async function deleteEtiquetaDeposito(storeId: string, id: number): Promise<{ public_id: string } | null> {
+export async function deleteEtiquetaDeposito(id: number): Promise<{ public_id: string } | null> {
   const sql = getDb();
   const rows = await sql`
     DELETE FROM etiquetas_deposito
-    WHERE store_id = ${storeId} AND id = ${id}
+    WHERE id = ${id}
     RETURNING public_id
   ` as { public_id: string }[];
   return rows[0] ?? null;

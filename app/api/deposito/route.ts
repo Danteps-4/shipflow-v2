@@ -20,18 +20,18 @@ async function getStoreId(req: NextRequest): Promise<string | null> {
   return String(tokens.user_id);
 }
 
+// Sin scope por tienda a propósito: depósito ve las etiquetas de todas las
+// tiendas de Tienda Nube conectadas juntas, no separadas por la tienda
+// activa (ver comentario en lib/depositoDb.ts).
 export async function GET(req: NextRequest) {
   const guard = await requireModule(req, "deposito", "/deposito");
   if (!guard.ok) return guard.response;
-
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const estadoParam = req.nextUrl.searchParams.get("estado");
   const estado: EstadoEtiquetaDeposito = estadoParam === "impresa" ? "impresa" : "pendiente";
 
   await initDepositoTables();
-  const etiquetas = await getEtiquetasDeposito(storeId, estado);
+  const etiquetas = await getEtiquetasDeposito(estado);
   return NextResponse.json({ etiquetas });
 }
 
@@ -81,14 +81,11 @@ export async function PATCH(req: NextRequest) {
   const guard = await requireModule(req, "deposito", "/deposito");
   if (!guard.ok) return guard.response;
 
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-
   const { id } = await req.json() as { id?: number };
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initDepositoTables();
-  const etiqueta = await marcarEtiquetaImpresa(storeId, Number(id), guard.user.name);
+  const etiqueta = await marcarEtiquetaImpresa(Number(id), guard.user.name);
   if (!etiqueta) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
   return NextResponse.json({ etiqueta });
 }
@@ -97,14 +94,11 @@ export async function DELETE(req: NextRequest) {
   const guard = await requireModule(req, "deposito", "/deposito");
   if (!guard.ok) return guard.response;
 
-  const storeId = await getStoreId(req);
-  if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-
   const { id } = await req.json() as { id?: number };
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initDepositoTables();
-  const borrada = await deleteEtiquetaDeposito(storeId, Number(id));
+  const borrada = await deleteEtiquetaDeposito(Number(id));
   if (!borrada) return NextResponse.json({ error: "No encontrada" }, { status: 404 });
 
   await destroyAsset(borrada.public_id, "raw").catch(() => {});

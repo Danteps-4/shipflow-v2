@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
@@ -138,7 +137,7 @@ export default function DepositoPage() {
         </button>
         <a href="/" className="sf-brand"><i className="fas fa-rocket" /> ShipFlow</a>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <StoreSwitcher /><UserMenu />
+          <UserMenu />
         </div>
       </header>
 
@@ -146,7 +145,7 @@ export default function DepositoPage() {
         <div className="sf-container">
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Etiquetas para Depósito</h1>
           <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
-            Etiquetas de Tienda Nube y Mercado Libre listas para imprimir. Se suman solas al generarse, o subilas a mano.
+            Etiquetas de todas las tiendas conectadas (Tienda Nube y Mercado Libre) listas para imprimir. Se suman solas al generarse, o subilas a mano.
           </p>
 
           {/* ── Subida manual ── */}
