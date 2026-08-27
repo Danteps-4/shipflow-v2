@@ -36,6 +36,11 @@ const ESTADO_COLORS: Record<string, string> = {
   cerrado: "#64748b",
   cancelado: "#ef4444",
 };
+// Color distintivo para la categoría "Hacer factura" — no es un estado, es
+// para que el ticket se note de un vistazo tanto en el tablero como en el
+// detalle, ya que su flujo (sin acciones de Resolver, sin Costos) es
+// bastante distinto del resto.
+const CATEGORIA_FACTURA_COLOR = "#d946ef";
 const PRIORIDADES = ["normal", "alta", "urgente"];
 const PRIORIDAD_LABELS: Record<string, string> = { normal: "Normal", alta: "Alta", urgente: "Urgente" };
 const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"];
@@ -768,7 +773,15 @@ function TicketCardKanban({
       <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{t.cliente_nombre || "—"}</span>
       <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "monospace" }}>{t.numero_pedido ? `Pedido #${t.numero_pedido}` : "Sin pedido"}</span>
       <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
-        <span className="sf-badge" style={{ fontSize: "0.7rem" }}>{labelCategoria(t.categoria)}</span>
+        <span
+          className="sf-badge"
+          style={t.categoria === "hacer_factura"
+            ? { fontSize: "0.7rem", fontWeight: 700, background: CATEGORIA_FACTURA_COLOR + "22", color: CATEGORIA_FACTURA_COLOR, border: `1px solid ${CATEGORIA_FACTURA_COLOR}44` }
+            : { fontSize: "0.7rem" }}
+        >
+          {t.categoria === "hacer_factura" && <i className="fas fa-file-invoice" style={{ marginRight: "0.3rem" }} />}
+          {labelCategoria(t.categoria)}
+        </span>
         <span
           className="sf-badge"
           style={{

@@ -38,6 +38,9 @@ const ESTADO_COLORS: Record<string, string> = {
   cerrado: "#64748b",
   cancelado: "#ef4444",
 };
+// Mismo color que en app/tickets/page.tsx (duplicado a propósito, igual que
+// ESTADO_COLORS — no hay constantes compartidas para Tickets todavía).
+const CATEGORIA_FACTURA_COLOR = "#d946ef";
 const PRIORIDADES = ["normal", "alta", "urgente"];
 const PRIORIDAD_LABELS: Record<string, string> = { normal: "Normal", alta: "Alta", urgente: "Urgente" };
 const CANALES_CONTACTO = ["WhatsApp", "Instagram", "Email", "Trusty", "Otro"];
@@ -360,7 +363,15 @@ export default function TicketDetallePage() {
                     >
                       {ESTADOS_LABELS[detalle.estado]}
                     </span>
-                    <span className="sf-badge">{labelCategoria(detalle.categoria)}</span>
+                    <span
+                      className="sf-badge"
+                      style={detalle.categoria === "hacer_factura"
+                        ? { fontWeight: 700, background: CATEGORIA_FACTURA_COLOR + "22", color: CATEGORIA_FACTURA_COLOR, border: `1px solid ${CATEGORIA_FACTURA_COLOR}44` }
+                        : undefined}
+                    >
+                      {detalle.categoria === "hacer_factura" && <i className="fas fa-file-invoice" style={{ marginRight: "0.3rem" }} />}
+                      {labelCategoria(detalle.categoria)}
+                    </span>
                     {detalle.subcategoria_1 && <span className="sf-badge">{labelSubcategoria1(detalle.categoria, detalle.subcategoria_1)}</span>}
                     {detalle.subcategoria_2 && <span className="sf-badge">{labelSubcategoria2(detalle.categoria, detalle.subcategoria_1 ?? "", detalle.subcategoria_2)}</span>}
                   </div>
@@ -509,6 +520,59 @@ export default function TicketDetallePage() {
                   </div>
                 )}
 
+                {/* Factura (solo categoría "Hacer factura") — reemplaza Descripción/
+                    Resolver ticket/Costos, que no aplican a este tipo de ticket */}
+                {detalle.categoria === "hacer_factura" && (
+                  <div className="ticket-card">
+                    <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
+                      <div className="sf-step-badge" style={{ background: CATEGORIA_FACTURA_COLOR }}><i className="fas fa-file-invoice-dollar" style={{ fontSize: "0.65rem" }} /></div>
+                      <div><h2>Factura</h2><p>Subí acá la factura ya generada</p></div>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.5rem" }}>
+                      {detalle.adjuntos.map(a => (
+                        <div key={a.id} style={{ position: "relative" }}>
+                          {a.resource_type === "image" ? (
+                            <button type="button" onClick={() => setPreviewImage(a.url)} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+                              <img src={a.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: "var(--radius)", border: "1px solid var(--border-color)" }} />
+                            </button>
+                          ) : (
+                            <a href={a.url} target="_blank" rel="noopener noreferrer" title={a.nombre_archivo ?? ""} style={{
+                              width: 72, height: 72, display: "flex", alignItems: "center", justifyContent: "center",
+                              border: "1px solid var(--border-color)", borderRadius: "var(--radius)", fontSize: "1.4rem", color: "var(--text-muted)",
+                            }}>
+                              <i className={a.resource_type === "video" ? "fas fa-film" : "fas fa-file"} />
+                            </a>
+                          )}
+                          {puedeSupervisar && (
+                            <button type="button" onClick={() => borrarAdjunto(a.id)} title="Eliminar" style={{
+                              position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%",
+                              background: "var(--error-color)", color: "#fff", border: "none", cursor: "pointer", fontSize: "0.65rem", lineHeight: 1,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                            }}>
+                              <i className="fas fa-times" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <div
+                      className="sf-dropzone" style={{ maxWidth: 260 }}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFiles(e.target.files); e.target.value = ""; }} />
+                      {subiendo ? (
+                        <><i className="fas fa-spinner fa-spin" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Subiendo…</span></>
+                      ) : (
+                        <><i className="fas fa-cloud-arrow-up" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Cargar factura</span></>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {detalle.categoria !== "hacer_factura" && (
+                  <>
                 {/* Descripción + adjuntos */}
                 <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
@@ -672,6 +736,8 @@ export default function TicketDetallePage() {
                     </button>
                   )}
                 </div>
+                  </>
+                )}
 
                 {/* Comentarios internos */}
                 <div className="ticket-card">
