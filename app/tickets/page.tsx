@@ -101,9 +101,12 @@ const ICONOS_RAPIDOS: Record<string, string> = {
   cambio_direccion: "fas fa-location-dot",
 };
 
+interface Me { id: string; name: string; role: "admin" | "member"; ticketsPuedeSupervisar?: boolean; }
+
 export default function TicketsPage() {
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
 
   const [counts, setCounts] = useState<TicketCounts | null>(null);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -134,6 +137,12 @@ export default function TicketsPage() {
   const [subiendo, setSubiendo] = useState(false);
   const [creando, setCreando] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const puedeSupervisar = me?.role === "admin" || !!me?.ticketsPuedeSupervisar;
+
+  useEffect(() => {
+    fetch("/api/user/me").then(r => r.json()).then(d => setMe(d.user ?? null)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(busqueda), 400);
@@ -188,6 +197,17 @@ export default function TicketsPage() {
       }
     } finally {
       setMovingId(null);
+    }
+  }
+
+  async function borrarTicket(ticket: Ticket) {
+    if (!confirm(`¿Eliminar el ticket #${ticket.id} por completo? No se puede deshacer. Para un caso terminado, mejor pasalo a Cancelado en vez de borrarlo.`)) return;
+    const res = await fetch(`/api/tickets/${ticket.id}`, { method: "DELETE" });
+    if (res.ok) {
+      setTickets(prev => prev.filter(t => t.id !== ticket.id));
+      fetchCounts();
+    } else {
+      alert((await res.json().catch(() => null))?.error ?? "No se pudo eliminar");
     }
   }
 
@@ -469,9 +489,11 @@ export default function TicketsPage() {
                             vencido={isVencido(t.sla_vencimiento, t.estado)}
                             isDragging={draggingId === t.id}
                             isMoving={movingId === t.id}
+                            puedeEliminar={puedeSupervisar}
                             onClick={() => router.push(`/tickets/${t.id}`)}
                             onDragStart={e => handleDragStart(e, t.id)}
                             onDragEnd={handleDragEnd}
+                            onDelete={() => borrarTicket(t)}
                           />
                         ))
                       )}
@@ -698,15 +720,17 @@ export default function TicketsPage() {
 }
 
 function TicketCardKanban({
-  t, vencido, isDragging, isMoving, onClick, onDragStart, onDragEnd,
+  t, vencido, isDragging, isMoving, puedeEliminar, onClick, onDragStart, onDragEnd, onDelete,
 }: {
   t: Ticket;
   vencido: boolean;
   isDragging: boolean;
   isMoving: boolean;
+  puedeEliminar: boolean;
   onClick: () => void;
   onDragStart: (e: React.DragEvent) => void;
   onDragEnd: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div
@@ -730,11 +754,25 @@ function TicketCardKanban({
       )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
         <span style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--primary-color)" }}>#{t.id}</span>
-        {vencido && (
-          <span className="sf-badge sf-badge-error" style={{ fontSize: "0.65rem" }}>
-            <i className="fas fa-triangle-exclamation" /> SLA vencido
-          </span>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+          {vencido && (
+            <span className="sf-badge sf-badge-error" style={{ fontSize: "0.65rem" }}>
+              <i className="fas fa-triangle-exclamation" /> SLA vencido
+            </span>
+          )}
+          {puedeEliminar && (
+            <button
+              className="sf-icon-btn danger"
+              title="Eliminar ticket"
+              draggable={false}
+              onDragStart={e => e.stopPropagation()}
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              style={{ padding: "0.2rem 0.35rem", fontSize: "0.7rem" }}
+            >
+              <i className="fas fa-trash" />
+            </button>
+          )}
+        </div>
       </div>
       <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{t.cliente_nombre || "—"}</span>
       <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "monospace" }}>{t.numero_pedido ? `Pedido #${t.numero_pedido}` : "Sin pedido"}</span>
