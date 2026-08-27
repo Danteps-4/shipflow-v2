@@ -7,7 +7,7 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import TicketStatCards from "@/components/TicketStatCards";
 import TicketOrderPicker, { PedidoSeleccionado } from "@/components/TicketOrderPicker";
-import { CATEGORIAS_TICKET, labelCategoria } from "@/lib/ticketCategorias";
+import { CATEGORIAS_TICKET, labelCategoria, CONDICIONES_IVA, CATEGORIAS_RAPIDAS } from "@/lib/ticketCategorias";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -54,7 +54,7 @@ const COLUMNAS: { key: string; label: string; icon: string; color: string; estad
 
 interface Ticket {
   id: number;
-  numero_pedido: string;
+  numero_pedido: string | null;
   cliente_nombre: string;
   canal_contacto: string | null;
   categoria: string;
@@ -84,10 +84,21 @@ function isVencido(slaVencimiento: string | null, estado: string): boolean {
   return new Date(slaVencimiento).getTime() < Date.now();
 }
 
-// Formulario de creación (paso 2, tras elegir el pedido)
+// Formulario de creación (paso 2, tras elegir el pedido o el tipo rápido)
 const EMPTY_CREAR_FORM = {
   categoria: "", subcategoria1: "", subcategoria2: "", canalContacto: "",
   clienteInstagram: "", descripcion: "", troubleshooting: "", prioridad: "normal",
+  facturaCuit: "", facturaRazonSocial: "", facturaCondicionIva: "", facturaDireccionFiscal: "",
+};
+const EMPTY_MANUAL_FORM = { clienteNombre: "", clienteTelefono: "", clienteEmail: "", clienteDni: "" };
+
+// Íconos para los botones rápidos del primer paso de "Crear Ticket" — el
+// label sale de CATEGORIAS_TICKET (labelCategoria), acá solo el ícono.
+const ICONOS_RAPIDOS: Record<string, string> = {
+  hacer_factura: "fas fa-file-invoice",
+  crear_orden_compra: "fas fa-cart-shopping",
+  falla_producto: "fas fa-triangle-exclamation",
+  cambio_direccion: "fas fa-location-dot",
 };
 
 export default function TicketsPage() {
@@ -113,7 +124,10 @@ export default function TicketsPage() {
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<number | null>(null);
 
+  const [showTipoPicker, setShowTipoPicker] = useState(false);
   const [showOrderPicker, setShowOrderPicker] = useState(false);
+  const [modoManual, setModoManual] = useState(false);
+  const [manualForm, setManualForm] = useState(EMPTY_MANUAL_FORM);
   const [pedidoSeleccionado, setPedidoSeleccionado] = useState<PedidoSeleccionado | null>(null);
   const [crearForm, setCrearForm] = useState(EMPTY_CREAR_FORM);
   const [adjuntos, setAdjuntos] = useState<{ url: string; publicId: string | null; resourceType: string; nombreArchivo: string }[]>([]);
@@ -214,8 +228,41 @@ export default function TicketsPage() {
   function onPedidoElegido(pedido: PedidoSeleccionado) {
     setPedidoSeleccionado(pedido);
     setShowOrderPicker(false);
-    setCrearForm(EMPTY_CREAR_FORM);
+    // Preserva la categoría si vino de un botón rápido (ver elegirTipoRapido).
+    setCrearForm(f => ({ ...EMPTY_CREAR_FORM, categoria: f.categoria }));
     setAdjuntos([]);
+  }
+
+  // ── Paso 1: elegir el tipo de ticket ─────────────────────────────────────
+
+  function elegirTipoRapido(categoria: string) {
+    setShowTipoPicker(false);
+    setAdjuntos([]);
+    if (categoria === "crear_orden_compra") {
+      // Única categoría sin pedido vinculado: por definición el pedido
+      // todavía no existe, así que no tiene sentido buscarlo.
+      setModoManual(true);
+      setManualForm(EMPTY_MANUAL_FORM);
+      setPedidoSeleccionado(null);
+      setCrearForm({ ...EMPTY_CREAR_FORM, categoria });
+    } else {
+      setModoManual(false);
+      setCrearForm({ ...EMPTY_CREAR_FORM, categoria });
+      setShowOrderPicker(true);
+    }
+  }
+
+  function elegirOtraCategoria() {
+    setShowTipoPicker(false);
+    setModoManual(false);
+    setAdjuntos([]);
+    setCrearForm(EMPTY_CREAR_FORM);
+    setShowOrderPicker(true);
+  }
+
+  function cerrarModalDetalle() {
+    setPedidoSeleccionado(null);
+    setModoManual(false);
   }
 
   async function subirArchivo(file: File) {
@@ -257,28 +304,33 @@ export default function TicketsPage() {
   const sub1Seleccionada = categoriaSeleccionada?.subcategorias?.find(s => s.valor === crearForm.subcategoria1);
 
   async function crearTicket() {
-    if (!pedidoSeleccionado || !crearForm.categoria) return;
+    if (!crearForm.categoria) return;
+    if (modoManual) {
+      if (!manualForm.clienteNombre.trim()) { alert("Falta el nombre del cliente"); return; }
+    } else if (!pedidoSeleccionado) {
+      return;
+    }
     setCreando(true);
     try {
       const res = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          canalPedido: pedidoSeleccionado.canalPedido,
-          numeroPedido: pedidoSeleccionado.numeroPedido,
-          pedidoIdInterno: pedidoSeleccionado.pedidoIdInterno,
-          clienteNombre: pedidoSeleccionado.clienteNombre,
-          clienteTelefono: pedidoSeleccionado.clienteTelefono,
-          clienteEmail: pedidoSeleccionado.clienteEmail,
-          clienteDni: pedidoSeleccionado.clienteDni,
-          clienteDireccion: pedidoSeleccionado.clienteDireccion,
-          pedidoTotal: pedidoSeleccionado.pedidoTotal,
-          pedidoMoneda: pedidoSeleccionado.pedidoMoneda,
-          pedidoFecha: pedidoSeleccionado.pedidoFecha,
-          pedidoEstado: pedidoSeleccionado.pedidoEstado,
-          pedidoTransportista: pedidoSeleccionado.pedidoTransportista,
-          pedidoTracking: pedidoSeleccionado.pedidoTracking,
-          pedidoProductos: pedidoSeleccionado.pedidoProductos,
+          canalPedido: modoManual ? null : pedidoSeleccionado!.canalPedido,
+          numeroPedido: modoManual ? null : pedidoSeleccionado!.numeroPedido,
+          pedidoIdInterno: modoManual ? null : pedidoSeleccionado!.pedidoIdInterno,
+          clienteNombre: modoManual ? manualForm.clienteNombre.trim() : pedidoSeleccionado!.clienteNombre,
+          clienteTelefono: modoManual ? (manualForm.clienteTelefono.trim() || null) : pedidoSeleccionado!.clienteTelefono,
+          clienteEmail: modoManual ? (manualForm.clienteEmail.trim() || null) : pedidoSeleccionado!.clienteEmail,
+          clienteDni: modoManual ? (manualForm.clienteDni.trim() || null) : pedidoSeleccionado!.clienteDni,
+          clienteDireccion: modoManual ? null : pedidoSeleccionado!.clienteDireccion,
+          pedidoTotal: modoManual ? null : pedidoSeleccionado!.pedidoTotal,
+          pedidoMoneda: modoManual ? null : pedidoSeleccionado!.pedidoMoneda,
+          pedidoFecha: modoManual ? null : pedidoSeleccionado!.pedidoFecha,
+          pedidoEstado: modoManual ? null : pedidoSeleccionado!.pedidoEstado,
+          pedidoTransportista: modoManual ? null : pedidoSeleccionado!.pedidoTransportista,
+          pedidoTracking: modoManual ? null : pedidoSeleccionado!.pedidoTracking,
+          pedidoProductos: modoManual ? [] : pedidoSeleccionado!.pedidoProductos,
           categoria: crearForm.categoria,
           subcategoria1: crearForm.subcategoria1 || null,
           subcategoria2: crearForm.subcategoria2 || null,
@@ -286,6 +338,10 @@ export default function TicketsPage() {
           clienteInstagram: crearForm.clienteInstagram || null,
           descripcion: crearForm.descripcion || null,
           troubleshooting: crearForm.troubleshooting || null,
+          facturaCuit: crearForm.facturaCuit || null,
+          facturaRazonSocial: crearForm.facturaRazonSocial || null,
+          facturaCondicionIva: crearForm.facturaCondicionIva || null,
+          facturaDireccionFiscal: crearForm.facturaDireccionFiscal || null,
           prioridad: crearForm.prioridad,
           adjuntos,
         }),
@@ -325,7 +381,7 @@ export default function TicketsPage() {
                 Arrastrá las tarjetas entre columnas para cambiar el estado del ticket.
               </p>
             </div>
-            <button className="sf-btn" onClick={() => setShowOrderPicker(true)}>
+            <button className="sf-btn" onClick={() => setShowTipoPicker(true)}>
               <i className="fas fa-plus" /> Crear Ticket
             </button>
           </div>
@@ -433,41 +489,81 @@ export default function TicketsPage() {
         ShipFlow
       </footer>
 
+      {showTipoPicker && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setShowTipoPicker(false)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(440px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title"><i className="fas fa-ticket" style={{ color: "var(--primary-color)" }} /> Nuevo ticket</h3>
+              <button className="sf-close-btn" onClick={() => setShowTipoPicker(false)}><i className="fas fa-times" /></button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>¿Qué tipo de ticket es?</p>
+              {CATEGORIAS_RAPIDAS.map(valor => (
+                <button key={valor} className="sf-btn" style={{ justifyContent: "flex-start" }} onClick={() => elegirTipoRapido(valor)}>
+                  <i className={ICONOS_RAPIDOS[valor]} /> {labelCategoria(valor)}
+                </button>
+              ))}
+              <button className="sf-btn sf-btn-secondary" style={{ justifyContent: "flex-start", marginTop: "0.4rem" }} onClick={elegirOtraCategoria}>
+                <i className="fas fa-ellipsis" /> Otra categoría
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {showOrderPicker && (
         <TicketOrderPicker onSelect={onPedidoElegido} onClose={() => setShowOrderPicker(false)} />
       )}
 
-      {pedidoSeleccionado && (
+      {(pedidoSeleccionado || modoManual) && (
         <>
-          <div className="sf-modal-backdrop" onClick={() => !creando && setPedidoSeleccionado(null)} />
+          <div className="sf-modal-backdrop" onClick={() => !creando && cerrarModalDetalle()} />
           <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(600px, calc(100vw - 2rem))" }}>
             <div className="sf-modal-header">
               <h3 className="sf-modal-title">
                 <i className="fas fa-ticket" style={{ color: "var(--primary-color)" }} />
-                Nuevo ticket — Pedido #{pedidoSeleccionado.numeroPedido}
+                {modoManual ? "Nuevo ticket — Crear orden de compra" : `Nuevo ticket — Pedido #${pedidoSeleccionado!.numeroPedido}`}
               </h3>
-              <button className="sf-close-btn" onClick={() => !creando && setPedidoSeleccionado(null)}><i className="fas fa-times" /></button>
+              <button className="sf-close-btn" onClick={() => !creando && cerrarModalDetalle()}><i className="fas fa-times" /></button>
             </div>
             <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <div className="sf-info-block">
-                <div className="sf-info-block-title">Datos importados del pedido</div>
-                <div className="sf-info-block-grid">
-                  <div><strong>Cliente:</strong> {pedidoSeleccionado.clienteNombre || "—"}</div>
-                  <div><strong>Teléfono:</strong> {pedidoSeleccionado.clienteTelefono || "—"}</div>
-                  <div><strong>Email:</strong> {pedidoSeleccionado.clienteEmail || "—"}</div>
-                  <div><strong>DNI:</strong> {pedidoSeleccionado.clienteDni || "—"}</div>
-                  <div style={{ gridColumn: "1 / -1" }}><strong>Dirección:</strong> {pedidoSeleccionado.clienteDireccion || "—"}</div>
-                  <div><strong>Total:</strong> {pedidoSeleccionado.pedidoTotal != null ? `${pedidoSeleccionado.pedidoMoneda} ${pedidoSeleccionado.pedidoTotal.toLocaleString("es-AR")}` : "—"}</div>
-                  <div><strong>Transportista:</strong> {pedidoSeleccionado.pedidoTransportista || "—"}</div>
-                  <div><strong>Tracking:</strong> {pedidoSeleccionado.pedidoTracking || "—"}</div>
-                  <div><strong>Estado:</strong> {pedidoSeleccionado.pedidoEstado || "—"}</div>
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <strong>Productos:</strong> {pedidoSeleccionado.pedidoProductos.length
-                      ? pedidoSeleccionado.pedidoProductos.map(p => `${p.nombre}${p.cantidad > 1 ? ` x${p.cantidad}` : ""}`).join(", ")
-                      : "—"}
+              {modoManual ? (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                  <label className="sf-label">Nombre del cliente
+                    <input className="sf-input" value={manualForm.clienteNombre} onChange={e => setManualForm(f => ({ ...f, clienteNombre: e.target.value }))} placeholder="Nombre y apellido" autoFocus />
+                  </label>
+                  <label className="sf-label">Teléfono
+                    <input className="sf-input" value={manualForm.clienteTelefono} onChange={e => setManualForm(f => ({ ...f, clienteTelefono: e.target.value }))} placeholder="Opcional" />
+                  </label>
+                  <label className="sf-label">Email
+                    <input className="sf-input" value={manualForm.clienteEmail} onChange={e => setManualForm(f => ({ ...f, clienteEmail: e.target.value }))} placeholder="Opcional" />
+                  </label>
+                  <label className="sf-label">DNI
+                    <input className="sf-input" value={manualForm.clienteDni} onChange={e => setManualForm(f => ({ ...f, clienteDni: e.target.value }))} placeholder="Opcional" />
+                  </label>
+                </div>
+              ) : (
+                <div className="sf-info-block">
+                  <div className="sf-info-block-title">Datos importados del pedido</div>
+                  <div className="sf-info-block-grid">
+                    <div><strong>Cliente:</strong> {pedidoSeleccionado!.clienteNombre || "—"}</div>
+                    <div><strong>Teléfono:</strong> {pedidoSeleccionado!.clienteTelefono || "—"}</div>
+                    <div><strong>Email:</strong> {pedidoSeleccionado!.clienteEmail || "—"}</div>
+                    <div><strong>DNI:</strong> {pedidoSeleccionado!.clienteDni || "—"}</div>
+                    <div style={{ gridColumn: "1 / -1" }}><strong>Dirección:</strong> {pedidoSeleccionado!.clienteDireccion || "—"}</div>
+                    <div><strong>Total:</strong> {pedidoSeleccionado!.pedidoTotal != null ? `${pedidoSeleccionado!.pedidoMoneda} ${pedidoSeleccionado!.pedidoTotal.toLocaleString("es-AR")}` : "—"}</div>
+                    <div><strong>Transportista:</strong> {pedidoSeleccionado!.pedidoTransportista || "—"}</div>
+                    <div><strong>Tracking:</strong> {pedidoSeleccionado!.pedidoTracking || "—"}</div>
+                    <div><strong>Estado:</strong> {pedidoSeleccionado!.pedidoEstado || "—"}</div>
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <strong>Productos:</strong> {pedidoSeleccionado!.pedidoProductos.length
+                        ? pedidoSeleccionado!.pedidoProductos.map(p => `${p.nombre}${p.cantidad > 1 ? ` x${p.cantidad}` : ""}`).join(", ")
+                        : "—"}
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
                 <label className="sf-label">
@@ -506,6 +602,26 @@ export default function TicketsPage() {
                 </div>
               )}
 
+              {crearForm.categoria === "hacer_factura" && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
+                  <label className="sf-label">CUIT
+                    <input className="sf-input" value={crearForm.facturaCuit} onChange={e => setCrearForm(f => ({ ...f, facturaCuit: e.target.value }))} placeholder="Ej: 20304050607" />
+                  </label>
+                  <label className="sf-label">Razón Social
+                    <input className="sf-input" value={crearForm.facturaRazonSocial} onChange={e => setCrearForm(f => ({ ...f, facturaRazonSocial: e.target.value }))} />
+                  </label>
+                  <label className="sf-label">Condición frente al IVA
+                    <select className="sf-input" value={crearForm.facturaCondicionIva} onChange={e => setCrearForm(f => ({ ...f, facturaCondicionIva: e.target.value }))}>
+                      <option value="">Seleccionar...</option>
+                      {CONDICIONES_IVA.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </label>
+                  <label className="sf-label">Dirección fiscal
+                    <input className="sf-input" value={crearForm.facturaDireccionFiscal} onChange={e => setCrearForm(f => ({ ...f, facturaDireccionFiscal: e.target.value }))} />
+                  </label>
+                </div>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: crearForm.canalContacto === "Instagram" ? "1fr 1fr" : "1fr", gap: "0.75rem" }}>
                 <label className="sf-label">
                   Canal de contacto
@@ -532,7 +648,7 @@ export default function TicketsPage() {
               </label>
 
               <label className="sf-label">
-                Adjuntos
+                {crearForm.categoria === "crear_orden_compra" ? "Comprobante de pago" : "Adjuntos"}
                 <div
                   className="sf-dropzone"
                   onDragOver={e => e.preventDefault()}
@@ -542,6 +658,8 @@ export default function TicketsPage() {
                   <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFiles(e.target.files); e.target.value = ""; }} />
                   {subiendo ? (
                     <><i className="fas fa-spinner fa-spin" style={{ fontSize: "1.5rem", color: "var(--primary-color)" }} /><span style={{ fontWeight: 600 }}>Subiendo…</span></>
+                  ) : crearForm.categoria === "crear_orden_compra" ? (
+                    <><i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} /><span style={{ fontWeight: 600 }}>Subí el comprobante de pago</span></>
                   ) : (
                     <><i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} /><span style={{ fontWeight: 600 }}>Fotos, videos, capturas, audios o archivos</span></>
                   )}
@@ -567,7 +685,7 @@ export default function TicketsPage() {
               )}
             </div>
             <div className="sf-modal-footer">
-              <button className="sf-btn sf-btn-secondary" onClick={() => setPedidoSeleccionado(null)} disabled={creando}>Cancelar</button>
+              <button className="sf-btn sf-btn-secondary" onClick={cerrarModalDetalle} disabled={creando}>Cancelar</button>
               <button className="sf-btn" onClick={crearTicket} disabled={creando || !crearForm.categoria || subiendo}>
                 {creando ? <><i className="fas fa-spinner fa-spin" /> Creando...</> : <><i className="fas fa-check" /> Crear Ticket</>}
               </button>
@@ -619,7 +737,7 @@ function TicketCardKanban({
         )}
       </div>
       <span style={{ fontWeight: 600, fontSize: "0.88rem" }}>{t.cliente_nombre || "—"}</span>
-      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "monospace" }}>Pedido #{t.numero_pedido}</span>
+      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontFamily: "monospace" }}>{t.numero_pedido ? `Pedido #${t.numero_pedido}` : "Sin pedido"}</span>
       <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", alignItems: "center" }}>
         <span className="sf-badge" style={{ fontSize: "0.7rem" }}>{labelCategoria(t.categoria)}</span>
         <span

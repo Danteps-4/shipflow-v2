@@ -38,7 +38,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const cambiosGenerados = await getCambiosByTicketCasoId(storeId, ticket.id);
 
   let envioOverride = null;
-  if (ticket.canal_pedido === "tiendanube") {
+  if (ticket.canal_pedido === "tiendanube" && ticket.numero_pedido) {
     await initPedidoEnvioTables();
     const overrides = await getEnvioOverridesPorOrdenes(storeId, [ticket.numero_pedido]);
     envioOverride = overrides[ticket.numero_pedido] ?? null;
@@ -64,6 +64,10 @@ interface PatchBody {
   clienteEmail?: string | null;
   clienteInstagram?: string | null;
   clienteDireccion?: string | null;
+  facturaCuit?: string | null;
+  facturaRazonSocial?: string | null;
+  facturaCondicionIva?: string | null;
+  facturaDireccionFiscal?: string | null;
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -112,6 +116,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     clienteEmail: body.clienteEmail,
     clienteInstagram: body.clienteInstagram,
     clienteDireccion: body.clienteDireccion,
+    facturaCuit: body.facturaCuit,
+    facturaRazonSocial: body.facturaRazonSocial,
+    facturaCondicionIva: body.facturaCondicionIva,
+    facturaDireccionFiscal: body.facturaDireccionFiscal,
   };
   const ticket = await updateTicket(storeId, id, data, guard.user.name);
   if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });

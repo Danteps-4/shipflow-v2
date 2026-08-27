@@ -32,7 +32,9 @@ const FALLAS: SubcategoriaNivel2[] = [
 ];
 
 export const CATEGORIAS_TICKET: CategoriaTicket[] = [
-  { valor: "cambio_direccion", label: "Cambio de dirección" },
+  { valor: "hacer_factura", label: "Hacer factura" },
+  { valor: "crear_orden_compra", label: "Crear orden de compra" },
+  { valor: "cambio_direccion", label: "Cambio de dirección/sucursal" },
   { valor: "modificacion_pedido", label: "Modificación de pedido" },
   { valor: "agregar_producto", label: "Agregar producto" },
   { valor: "quitar_producto", label: "Quitar producto" },
@@ -62,6 +64,19 @@ export const CATEGORIAS_TICKET: CategoriaTicket[] = [
   { valor: "problema_pago", label: "Problema de pago" },
   { valor: "otro", label: "Otro" },
 ];
+
+// Condición frente al IVA para "Hacer factura" (Factura A). Vocabulario
+// estándar de AFIP — sin tabla de configuración porque, igual que las
+// categorías, no cambia con frecuencia.
+export const CONDICIONES_IVA = ["Responsable Inscripto", "Monotributista", "Exento", "Consumidor Final"];
+
+// Los 4 tipos de ticket que se muestran como botón grande en el primer
+// paso de "Crear Ticket" (ver app/tickets/page.tsx), en vez de tener que
+// buscarlos en el dropdown completo de categorías. El resto de las ~18
+// categorías se elige vía el botón "Otra categoría", que abre el flujo
+// de siempre. "crear_orden_compra" es el único caso especial: no pide
+// buscar un pedido existente, porque por definición todavía no existe.
+export const CATEGORIAS_RAPIDAS = ["hacer_factura", "crear_orden_compra", "falla_producto", "cambio_direccion"];
 
 export function labelCategoria(valor: string): string {
   return CATEGORIAS_TICKET.find(c => c.valor === valor)?.label ?? valor;

@@ -37,7 +37,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const casoId = Number(params.id);
   const ticket = await getTicketById(storeId, casoId);
   if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
-  if (ticket.canal_pedido !== "tiendanube") {
+  if (ticket.canal_pedido !== "tiendanube" || !ticket.numero_pedido) {
     return NextResponse.json({ error: "La corrección de destino solo aplica a pedidos de Tienda Nube" }, { status: 400 });
   }
 
@@ -77,6 +77,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const casoId = Number(params.id);
   const ticket = await getTicketById(storeId, casoId);
   if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
+  if (!ticket.numero_pedido) return NextResponse.json({ error: "Este ticket no tiene un pedido vinculado" }, { status: 400 });
 
   await initPedidoEnvioTables();
   await setEnvioOverride(storeId, ticket.numero_pedido, OVERRIDE_VACIO);

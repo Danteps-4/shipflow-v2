@@ -209,8 +209,8 @@ export default function TicketResolverSection({
   onRegistrada: () => void;
   puedeSupervisar: boolean;
   ticketCliente: TicketCliente;
-  ticketNumeroPedido: string;
-  ticketCanalPedido: string;
+  ticketNumeroPedido: string | null;
+  ticketCanalPedido: string | null;
   cambiosGenerados: CambioGeneradoUI[];
   envioOverride: EnvioOverrideUI | null;
   comprobantes: ComprobanteUI[];
@@ -351,7 +351,7 @@ export default function TicketResolverSection({
               envioLocalidad: destino.localidad, envioProvincia: destino.provincia, envioCodigoPostal: destino.codigoPostal,
               envioSucursal: destino.sucursal,
               envioSku: envioSku.trim() || undefined,
-              numeroPedidoOriginal: ticketNumeroPedido,
+              numeroPedidoOriginal: ticketNumeroPedido ?? undefined,
             } : {}),
           }),
         });

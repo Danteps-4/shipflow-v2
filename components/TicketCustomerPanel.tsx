@@ -42,13 +42,15 @@ export default function TicketCustomerPanel({
   accionesResumen: Record<string, number>;
   historial: TicketHistorialEntryUI[];
   creadoEn: string;
-  numeroPedido: string;
+  numeroPedido: string | null;
 }) {
   const [historialAbierto, setHistorialAbierto] = useState(false);
 
   const fechas = [creadoEn, ...otrosTickets.map(t => t.created_at)];
   const clienteDesde = fechas.reduce((min, f) => (f < min ? f : min), fechas[0]);
-  const pedidosUnicos = new Set([numeroPedido, ...otrosTickets.map(t => t.numero_pedido)]).size;
+  // numeroPedido puede ser null (ticket sin pedido vinculado, ej. "Crear
+  // orden de compra") — no cuenta como un pedido real para este conteo.
+  const pedidosUnicos = new Set([numeroPedido, ...otrosTickets.map(t => t.numero_pedido)].filter((n): n is string => !!n)).size;
   const ticketsCount = 1 + otrosTickets.length;
 
   return (

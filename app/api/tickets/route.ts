@@ -4,6 +4,7 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
 import { initTicketsTables, getTickets, createTicket, addAdjunto, CreateTicketData } from "@/lib/ticketsDb";
 import { computeSlaVencimiento } from "@/lib/ticketSla";
+import { normalizeCuit } from "@/lib/normalizers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,8 +42,8 @@ export async function GET(req: NextRequest) {
 }
 
 interface CreateTicketBody {
-  canalPedido?: string;
-  numeroPedido?: string;
+  canalPedido?: string | null;
+  numeroPedido?: string | null;
   pedidoIdInterno?: string;
   clienteNombre?: string;
   clienteTelefono?: string;
@@ -64,6 +65,10 @@ interface CreateTicketBody {
   descripcion?: string;
   troubleshooting?: string;
   marca?: string;
+  facturaCuit?: string;
+  facturaRazonSocial?: string;
+  facturaCondicionIva?: string;
+  facturaDireccionFiscal?: string;
   prioridad?: string;
   adjuntos?: { url: string; publicId?: string | null; resourceType?: string; nombreArchivo?: string | null }[];
 }
@@ -76,17 +81,25 @@ export async function POST(req: NextRequest) {
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const body = await req.json() as CreateTicketBody;
-  if (!body.canalPedido || (body.canalPedido !== "tiendanube" && body.canalPedido !== "mercadolibre")) {
-    return NextResponse.json({ error: "Falta el canal del pedido" }, { status: 400 });
-  }
-  if (!body.numeroPedido) return NextResponse.json({ error: "Falta el pedido" }, { status: 400 });
   if (!body.categoria) return NextResponse.json({ error: "Falta la categoría" }, { status: 400 });
+
+  // "crear_orden_compra" es la única categoría sin pedido vinculado — por
+  // definición, el pedido todavía no existe en Tienda Nube/Mercado Libre.
+  // El resto sigue requiriendo un pedido real, igual que siempre.
+  if (body.categoria === "crear_orden_compra") {
+    if (!body.clienteNombre?.trim()) return NextResponse.json({ error: "Falta el nombre del cliente" }, { status: 400 });
+  } else {
+    if (!body.canalPedido || (body.canalPedido !== "tiendanube" && body.canalPedido !== "mercadolibre")) {
+      return NextResponse.json({ error: "Falta el canal del pedido" }, { status: 400 });
+    }
+    if (!body.numeroPedido) return NextResponse.json({ error: "Falta el pedido" }, { status: 400 });
+  }
 
   await initTicketsTables();
   const prioridad = body.prioridad || "normal";
   const ticket = await createTicket(storeId, {
-    canalPedido: body.canalPedido,
-    numeroPedido: body.numeroPedido,
+    canalPedido: (body.canalPedido as CreateTicketData["canalPedido"]) ?? null,
+    numeroPedido: body.numeroPedido ?? null,
     pedidoIdInterno: body.pedidoIdInterno,
     clienteNombre: body.clienteNombre || "",
     clienteTelefono: body.clienteTelefono,
@@ -108,6 +121,10 @@ export async function POST(req: NextRequest) {
     descripcion: body.descripcion,
     troubleshooting: body.troubleshooting,
     marca: body.marca,
+    facturaCuit: body.facturaCuit ? normalizeCuit(body.facturaCuit) : null,
+    facturaRazonSocial: body.facturaRazonSocial || null,
+    facturaCondicionIva: body.facturaCondicionIva || null,
+    facturaDireccionFiscal: body.facturaDireccionFiscal || null,
     prioridad,
     createdBy: guard.user.name,
   }, computeSlaVencimiento(prioridad));

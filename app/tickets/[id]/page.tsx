@@ -9,7 +9,7 @@ import TicketResolverSection, { TicketAccionUI, CambioGeneradoUI, EnvioOverrideU
 import { TicketHistorialEntryUI } from "@/components/TicketHistorial";
 import { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
 import TicketCustomerPanel from "@/components/TicketCustomerPanel";
-import { labelCategoria, labelSubcategoria1, labelSubcategoria2 } from "@/lib/ticketCategorias";
+import { labelCategoria, labelSubcategoria1, labelSubcategoria2, CONDICIONES_IVA } from "@/lib/ticketCategorias";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -53,8 +53,8 @@ interface TicketComentario { id: number; texto: string; created_by: string; crea
 
 interface TicketDetalle {
   id: number;
-  canal_pedido: string;
-  numero_pedido: string;
+  canal_pedido: string | null;
+  numero_pedido: string | null;
   cliente_nombre: string;
   cliente_telefono: string | null;
   cliente_email: string | null;
@@ -75,6 +75,10 @@ interface TicketDetalle {
   descripcion: string | null;
   troubleshooting: string | null;
   marca: string | null;
+  factura_cuit: string | null;
+  factura_razon_social: string | null;
+  factura_condicion_iva: string | null;
+  factura_direccion_fiscal: string | null;
   estado: string;
   prioridad: string;
   responsable_id: string | null;
@@ -133,6 +137,9 @@ export default function TicketDetallePage() {
   const [direccionDraft, setDireccionDraft] = useState("");
 
   const [mostrarFormCosto, setMostrarFormCosto] = useState(false);
+
+  const [editandoFactura, setEditandoFactura] = useState(false);
+  const [facturaDraft, setFacturaDraft] = useState({ cuit: "", razonSocial: "", condicionIva: "", direccionFiscal: "" });
 
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -231,6 +238,25 @@ export default function TicketDetallePage() {
     });
     if (res.ok) await fetchDetalle(true);
     else alert((await res.json().catch(() => null))?.error ?? "No se pudo eliminar");
+  }
+
+  function abrirEditarFactura() {
+    if (!detalle) return;
+    setFacturaDraft({
+      cuit: detalle.factura_cuit ?? "", razonSocial: detalle.factura_razon_social ?? "",
+      condicionIva: detalle.factura_condicion_iva ?? "", direccionFiscal: detalle.factura_direccion_fiscal ?? "",
+    });
+    setEditandoFactura(true);
+  }
+
+  async function guardarFactura() {
+    await patchTicket({
+      facturaCuit: facturaDraft.cuit.trim() || null,
+      facturaRazonSocial: facturaDraft.razonSocial.trim() || null,
+      facturaCondicionIva: facturaDraft.condicionIva || null,
+      facturaDireccionFiscal: facturaDraft.direccionFiscal.trim() || null,
+    });
+    setEditandoFactura(false);
   }
 
   async function subirArchivo(file: File, cambioId?: number) {
@@ -389,7 +415,18 @@ export default function TicketDetallePage() {
                   </div>
                 </div>
 
-                {/* Pedido original */}
+                {/* Pedido original (o carga manual, si no hay pedido vinculado) */}
+                {!detalle.numero_pedido ? (
+                  <div className="ticket-card">
+                    <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
+                      <div className="sf-step-badge"><i className="fas fa-receipt" style={{ fontSize: "0.65rem" }} /></div>
+                      <div>
+                        <h2>Pedido</h2>
+                        <p>Sin pedido vinculado — carga manual</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
                 <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-receipt" style={{ fontSize: "0.65rem" }} /></div>
@@ -440,6 +477,54 @@ export default function TicketDetallePage() {
                     Ver pedidos <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: "0.7rem" }} />
                   </a>
                 </div>
+                )}
+
+                {/* Datos de facturación (solo categoría "Hacer factura") */}
+                {detalle.categoria === "hacer_factura" && (
+                  <div className="ticket-card">
+                    <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
+                      <div className="sf-step-badge"><i className="fas fa-file-invoice" style={{ fontSize: "0.65rem" }} /></div>
+                      <div><h2>Datos de facturación</h2></div>
+                    </div>
+                    {editandoFactura ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                        <div className="ticket-field-grid">
+                          <label className="sf-label">CUIT
+                            <input className="sf-input" value={facturaDraft.cuit} onChange={e => setFacturaDraft(f => ({ ...f, cuit: e.target.value }))} />
+                          </label>
+                          <label className="sf-label">Razón Social
+                            <input className="sf-input" value={facturaDraft.razonSocial} onChange={e => setFacturaDraft(f => ({ ...f, razonSocial: e.target.value }))} />
+                          </label>
+                          <label className="sf-label">Condición frente al IVA
+                            <select className="sf-input" value={facturaDraft.condicionIva} onChange={e => setFacturaDraft(f => ({ ...f, condicionIva: e.target.value }))}>
+                              <option value="">Seleccionar...</option>
+                              {CONDICIONES_IVA.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          </label>
+                        </div>
+                        <label className="sf-label">Dirección fiscal
+                          <input className="sf-input" value={facturaDraft.direccionFiscal} onChange={e => setFacturaDraft(f => ({ ...f, direccionFiscal: e.target.value }))} />
+                        </label>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <button className="sf-btn sf-btn-secondary" onClick={() => setEditandoFactura(false)} disabled={savingCampo}>Cancelar</button>
+                          <button className="sf-btn" onClick={guardarFactura} disabled={savingCampo}>Guardar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="sf-info-block">
+                        <div className="sf-info-block-grid">
+                          <div><strong>CUIT:</strong> {detalle.factura_cuit || "—"}</div>
+                          <div><strong>Razón Social:</strong> {detalle.factura_razon_social || "—"}</div>
+                          <div><strong>Condición frente al IVA:</strong> {detalle.factura_condicion_iva || "—"}</div>
+                          <div><strong>Dirección fiscal:</strong> {detalle.factura_direccion_fiscal || "—"}</div>
+                        </div>
+                        <button className="sf-btn sf-btn-secondary" style={{ marginTop: "0.6rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem" }} onClick={abrirEditarFactura}>
+                          <i className="fas fa-pen" /> Editar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Descripción + adjuntos */}
                 <div className="ticket-card">
