@@ -650,8 +650,10 @@ export default function TicketsPage() {
               )}
 
               {crearForm.categoria === "crear_orden_compra" && (
-                <label className="sf-label" style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
-                  Producto(s)
+                <label className="sf-label" style={{ border: "2px solid var(--primary-color)", borderRadius: "var(--radius)", padding: "0.75rem", background: "rgba(99,102,241,0.07)" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--primary-color)" }}>
+                    <i className="fas fa-box-open" /> Producto(s)
+                  </span>
                   <textarea
                     className="sf-input" rows={3} value={crearForm.ordenCompraProductos}
                     onChange={e => setCrearForm(f => ({ ...f, ordenCompraProductos: e.target.value }))}
@@ -677,10 +679,12 @@ export default function TicketsPage() {
                 )}
               </div>
 
-              <label className="sf-label">
-                Descripción
-                <textarea className="sf-input" rows={3} value={crearForm.descripcion} onChange={e => setCrearForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Qué reportó el cliente..." style={{ resize: "vertical", fontFamily: "inherit" }} />
-              </label>
+              {crearForm.categoria !== "crear_orden_compra" && (
+                <label className="sf-label">
+                  Descripción
+                  <textarea className="sf-input" rows={3} value={crearForm.descripcion} onChange={e => setCrearForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Qué reportó el cliente..." style={{ resize: "vertical", fontFamily: "inherit" }} />
+                </label>
+              )}
               {!SIN_TROUBLESHOOTING.includes(crearForm.categoria) && (
                 <label className="sf-label">
                   Troubleshooting ya realizado

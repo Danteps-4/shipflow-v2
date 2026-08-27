@@ -468,7 +468,10 @@ export default function TicketDetallePage() {
                         <label className="sf-label">Datos del cliente
                           <textarea className="sf-input" rows={3} value={ordenDraft.cliente} onChange={e => setOrdenDraft(o => ({ ...o, cliente: e.target.value }))} style={{ resize: "vertical", fontFamily: "inherit" }} />
                         </label>
-                        <label className="sf-label">Producto(s)
+                        <label className="sf-label" style={{ border: "2px solid var(--primary-color)", borderRadius: "var(--radius)", padding: "0.75rem", background: "rgba(99,102,241,0.07)" }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--primary-color)" }}>
+                            <i className="fas fa-box-open" /> Producto(s)
+                          </span>
                           <textarea className="sf-input" rows={3} value={ordenDraft.productos} onChange={e => setOrdenDraft(o => ({ ...o, productos: e.target.value }))} style={{ resize: "vertical", fontFamily: "inherit" }} />
                         </label>
                         <div style={{ display: "flex", gap: "0.5rem" }}>
@@ -479,7 +482,12 @@ export default function TicketDetallePage() {
                     ) : (
                       <div className="sf-info-block">
                         <div><strong>Cliente:</strong> <span style={{ whiteSpace: "pre-wrap" }}>{detalle.cliente_nombre || "—"}</span></div>
-                        <div style={{ marginTop: "0.5rem" }}><strong>Producto(s):</strong> <span style={{ whiteSpace: "pre-wrap" }}>{detalle.orden_compra_productos || "—"}</span></div>
+                        <div style={{ marginTop: "0.6rem", border: "1px solid var(--primary-color)", borderRadius: "var(--radius)", padding: "0.5rem 0.7rem", background: "rgba(99,102,241,0.07)" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", fontWeight: 700, fontSize: "0.72rem", color: "var(--primary-color)", textTransform: "uppercase", marginBottom: "0.25rem" }}>
+                            <i className="fas fa-box-open" /> Producto(s)
+                          </div>
+                          <span style={{ whiteSpace: "pre-wrap" }}>{detalle.orden_compra_productos || "—"}</span>
+                        </div>
                         <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.6rem" }}>
                           <button className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem" }} onClick={abrirEditarOrden}>
                             <i className="fas fa-pen" /> Editar
@@ -673,7 +681,10 @@ export default function TicketDetallePage() {
                     ))}
                   </div>
                   <div
-                    className="sf-dropzone" style={{ maxWidth: 260 }}
+                    className="sf-dropzone"
+                    style={detalle.categoria === "crear_orden_compra"
+                      ? { maxWidth: 260, minHeight: "auto", padding: "0.6rem 0.75rem", fontSize: "0.72rem", gap: "0.3rem" }
+                      : { maxWidth: 260 }}
                     tabIndex={0}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
@@ -688,7 +699,7 @@ export default function TicketDetallePage() {
                     {subiendo ? (
                       <><i className="fas fa-spinner fa-spin" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Subiendo…</span></>
                     ) : detalle.categoria === "crear_orden_compra" ? (
-                      <><i className="fas fa-cloud-arrow-up" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Subí el comprobante o pegalo con Ctrl+V</span></>
+                      <><i className="fas fa-cloud-arrow-up" /><span style={{ fontWeight: 600 }}>Subí el comprobante o pegalo con Ctrl+V</span></>
                     ) : (
                       <><i className="fas fa-cloud-arrow-up" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Agregar adjunto</span></>
                     )}
