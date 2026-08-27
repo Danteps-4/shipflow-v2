@@ -319,11 +319,21 @@ export default function TicketDetallePage() {
     Array.from(files).forEach(f => subirArchivo(f));
   }
 
-  function handlePasteArchivo(e: React.ClipboardEvent) {
-    if (!e.clipboardData?.files?.length) return;
-    e.preventDefault();
-    handleFiles(e.clipboardData.files);
-  }
+  // Escucha en toda la ventana (no solo en el dropzone) porque requerir que
+  // el dropzone tenga el foco es poco confiable: clickearlo abre el
+  // selector de archivos nativo del SO, que le saca el foco al div y el
+  // paste deja de llegarle.
+  useEffect(() => {
+    if (detalle?.categoria !== "crear_orden_compra") return;
+    function onWindowPaste(e: ClipboardEvent) {
+      if (!e.clipboardData?.files?.length) return;
+      e.preventDefault();
+      handleFiles(e.clipboardData.files);
+    }
+    window.addEventListener("paste", onWindowPaste);
+    return () => window.removeEventListener("paste", onWindowPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detalle?.categoria]);
 
   async function borrarTicket() {
     if (!confirm("¿Eliminar este ticket por completo? No se puede deshacer. Para un caso terminado, mejor pasalo a Cancelado en vez de borrarlo.")) return;
@@ -685,11 +695,9 @@ export default function TicketDetallePage() {
                     style={detalle.categoria === "crear_orden_compra"
                       ? { maxWidth: 260, minHeight: "auto", padding: "0.6rem 0.75rem", fontSize: "0.72rem", gap: "0.3rem" }
                       : { maxWidth: 260 }}
-                    tabIndex={0}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
                     onClick={() => fileInputRef.current?.click()}
-                    onPaste={detalle.categoria === "crear_orden_compra" ? handlePasteArchivo : undefined}
                   >
                     <input
                       ref={fileInputRef} type="file" multiple style={{ display: "none" }}

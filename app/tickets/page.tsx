@@ -328,13 +328,22 @@ export default function TicketsPage() {
     Array.from(files).forEach(f => subirArchivo(f));
   }
 
-  // Permite pegar (Ctrl+V) un comprobante copiado al portapapeles
-  // directamente en el dropzone, sin tener que guardarlo como archivo antes.
-  function handlePasteArchivo(e: React.ClipboardEvent) {
-    if (!e.clipboardData?.files?.length) return;
-    e.preventDefault();
-    handleFiles(e.clipboardData.files);
-  }
+  // Permite pegar (Ctrl+V) un comprobante copiado al portapapeles sin tener
+  // que guardarlo como archivo antes. Escucha en toda la ventana (no solo en
+  // el dropzone) porque requerir que el dropzone tenga el foco es poco
+  // confiable: clickearlo abre el selector de archivos nativo del SO, que le
+  // saca el foco al div y el paste deja de llegarle.
+  useEffect(() => {
+    if (!(pedidoSeleccionado || modoManual) || crearForm.categoria !== "crear_orden_compra") return;
+    function onWindowPaste(e: ClipboardEvent) {
+      if (!e.clipboardData?.files?.length) return;
+      e.preventDefault();
+      handleFiles(e.clipboardData.files);
+    }
+    window.addEventListener("paste", onWindowPaste);
+    return () => window.removeEventListener("paste", onWindowPaste);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidoSeleccionado, modoManual, crearForm.categoria]);
 
   function quitarAdjunto(idx: number) {
     setAdjuntos(prev => prev.filter((_, i) => i !== idx));
@@ -696,11 +705,9 @@ export default function TicketsPage() {
                 {crearForm.categoria === "crear_orden_compra" ? "Comprobante de pago" : "Adjuntos"}
                 <div
                   className="sf-dropzone"
-                  tabIndex={0}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
                   onClick={() => fileInputRef.current?.click()}
-                  onPaste={crearForm.categoria === "crear_orden_compra" ? handlePasteArchivo : undefined}
                 >
                   <input
                     ref={fileInputRef} type="file" multiple style={{ display: "none" }}
