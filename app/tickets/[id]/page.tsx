@@ -80,6 +80,7 @@ interface TicketDetalle {
   marca: string | null;
   factura_datos: string | null;
   factura_forma_pago: string | null;
+  orden_compra_productos: string | null;
   estado: string;
   prioridad: string;
   responsable_id: string | null;
@@ -141,6 +142,9 @@ export default function TicketDetallePage() {
 
   const [editandoFactura, setEditandoFactura] = useState(false);
   const [facturaDraft, setFacturaDraft] = useState({ datos: "", formaPago: "" });
+
+  const [editandoOrden, setEditandoOrden] = useState(false);
+  const [ordenDraft, setOrdenDraft] = useState({ cliente: "", productos: "" });
 
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -257,6 +261,27 @@ export default function TicketDetallePage() {
     setEditandoFactura(false);
   }
 
+  function abrirEditarOrden() {
+    if (!detalle) return;
+    setOrdenDraft({
+      cliente: detalle.cliente_nombre ?? "", productos: detalle.orden_compra_productos ?? "",
+    });
+    setEditandoOrden(true);
+  }
+
+  async function guardarOrden() {
+    if (!ordenDraft.cliente.trim()) { alert("Faltan los datos del cliente"); return; }
+    await patchTicket({
+      clienteNombre: ordenDraft.cliente.trim(),
+      ordenCompraProductos: ordenDraft.productos.trim() || null,
+    });
+    setEditandoOrden(false);
+  }
+
+  async function marcarOrdenCreada() {
+    await patchTicket({ estado: "resuelto" });
+  }
+
   async function subirArchivo(file: File, cambioId?: number) {
     setSubiendo(true);
     try {
@@ -292,6 +317,12 @@ export default function TicketDetallePage() {
   function handleFiles(files: FileList | null) {
     if (!files) return;
     Array.from(files).forEach(f => subirArchivo(f));
+  }
+
+  function handlePasteArchivo(e: React.ClipboardEvent) {
+    if (!e.clipboardData?.files?.length) return;
+    e.preventDefault();
+    handleFiles(e.clipboardData.files);
   }
 
   async function borrarTicket() {
@@ -421,16 +452,46 @@ export default function TicketDetallePage() {
                   </div>
                 </div>
 
-                {/* Pedido original (o carga manual, si no hay pedido vinculado) */}
+                {/* Pedido original (o Datos de la orden, si no hay pedido vinculado —
+                    hoy solo pasa en "crear_orden_compra") */}
                 {!detalle.numero_pedido ? (
                   <div className="ticket-card">
                     <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                       <div className="sf-step-badge"><i className="fas fa-receipt" style={{ fontSize: "0.65rem" }} /></div>
                       <div>
-                        <h2>Pedido</h2>
+                        <h2>Datos de la orden</h2>
                         <p>Sin pedido vinculado — carga manual</p>
                       </div>
                     </div>
+                    {editandoOrden ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                        <label className="sf-label">Datos del cliente
+                          <textarea className="sf-input" rows={3} value={ordenDraft.cliente} onChange={e => setOrdenDraft(o => ({ ...o, cliente: e.target.value }))} style={{ resize: "vertical", fontFamily: "inherit" }} />
+                        </label>
+                        <label className="sf-label">Producto(s)
+                          <textarea className="sf-input" rows={3} value={ordenDraft.productos} onChange={e => setOrdenDraft(o => ({ ...o, productos: e.target.value }))} style={{ resize: "vertical", fontFamily: "inherit" }} />
+                        </label>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <button className="sf-btn sf-btn-secondary" onClick={() => setEditandoOrden(false)} disabled={savingCampo}>Cancelar</button>
+                          <button className="sf-btn" onClick={guardarOrden} disabled={savingCampo}>Guardar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="sf-info-block">
+                        <div><strong>Cliente:</strong> <span style={{ whiteSpace: "pre-wrap" }}>{detalle.cliente_nombre || "—"}</span></div>
+                        <div style={{ marginTop: "0.5rem" }}><strong>Producto(s):</strong> <span style={{ whiteSpace: "pre-wrap" }}>{detalle.orden_compra_productos || "—"}</span></div>
+                        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.6rem" }}>
+                          <button className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem" }} onClick={abrirEditarOrden}>
+                            <i className="fas fa-pen" /> Editar
+                          </button>
+                          {!["resuelto", "cerrado", "cancelado"].includes(detalle.estado) && (
+                            <button className="sf-btn" style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem", background: "var(--success-color)" }} onClick={marcarOrdenCreada} disabled={savingCampo}>
+                              <i className="fas fa-check" /> Orden creada
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                 <div className="ticket-card">
@@ -572,12 +633,10 @@ export default function TicketDetallePage() {
                 )}
 
                 {detalle.categoria !== "hacer_factura" && (
-                  <>
-                {/* Descripción + adjuntos */}
                 <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                     <div className="sf-step-badge"><i className="fas fa-file-lines" style={{ fontSize: "0.65rem" }} /></div>
-                    <div><h2>Descripción</h2></div>
+                    <div><h2>{detalle.categoria === "crear_orden_compra" ? "Comprobante de pago" : "Descripción"}</h2></div>
                   </div>
                   {detalle.descripcion && <p style={{ fontSize: "0.9rem", whiteSpace: "pre-wrap", marginBottom: "0.75rem" }}>{detalle.descripcion}</p>}
                   {detalle.troubleshooting && (
@@ -615,19 +674,30 @@ export default function TicketDetallePage() {
                   </div>
                   <div
                     className="sf-dropzone" style={{ maxWidth: 260 }}
+                    tabIndex={0}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
                     onClick={() => fileInputRef.current?.click()}
+                    onPaste={detalle.categoria === "crear_orden_compra" ? handlePasteArchivo : undefined}
                   >
-                    <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFiles(e.target.files); e.target.value = ""; }} />
+                    <input
+                      ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+                      accept={detalle.categoria === "crear_orden_compra" ? "image/*,application/pdf" : undefined}
+                      onChange={e => { handleFiles(e.target.files); e.target.value = ""; }}
+                    />
                     {subiendo ? (
                       <><i className="fas fa-spinner fa-spin" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Subiendo…</span></>
+                    ) : detalle.categoria === "crear_orden_compra" ? (
+                      <><i className="fas fa-cloud-arrow-up" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Subí el comprobante o pegalo con Ctrl+V</span></>
                     ) : (
                       <><i className="fas fa-cloud-arrow-up" /><span style={{ fontWeight: 600, fontSize: "0.85rem" }}>Agregar adjunto</span></>
                     )}
                   </div>
                 </div>
+                )}
 
+                {detalle.categoria !== "hacer_factura" && detalle.categoria !== "crear_orden_compra" && (
+                  <>
                 {/* Resolver ticket */}
                 <div className="ticket-card">
                   <TicketResolverSection

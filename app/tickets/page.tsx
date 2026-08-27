@@ -93,9 +93,16 @@ function isVencido(slaVencimiento: string | null, estado: string): boolean {
 const EMPTY_CREAR_FORM = {
   categoria: "", subcategoria1: "", subcategoria2: "", canalContacto: "",
   clienteInstagram: "", descripcion: "", troubleshooting: "", prioridad: "normal",
-  facturaDatos: "",
+  facturaDatos: "", ordenCompraProductos: "",
 };
-const EMPTY_MANUAL_FORM = { clienteNombre: "", clienteTelefono: "", clienteEmail: "", clienteDni: "" };
+// Un solo campo de texto libre en vez de Nombre/Teléfono/Email/DNI
+// separados — la idea es que la persona de atención al cliente pueda
+// pegar todo junto sin llenar varios inputs.
+const EMPTY_MANUAL_FORM = { datosCliente: "" };
+// Categorías donde "Troubleshooting ya realizado" no tiene sentido: son
+// tickets administrativos (facturación, alta de una orden), no un reclamo
+// de producto que alguien intentó resolver antes de derivar.
+const SIN_TROUBLESHOOTING = ["hacer_factura", "crear_orden_compra"];
 
 // Íconos para los botones rápidos del primer paso de "Crear Ticket" — el
 // label sale de CATEGORIAS_TICKET (labelCategoria), acá solo el ícono.
@@ -321,6 +328,14 @@ export default function TicketsPage() {
     Array.from(files).forEach(f => subirArchivo(f));
   }
 
+  // Permite pegar (Ctrl+V) un comprobante copiado al portapapeles
+  // directamente en el dropzone, sin tener que guardarlo como archivo antes.
+  function handlePasteArchivo(e: React.ClipboardEvent) {
+    if (!e.clipboardData?.files?.length) return;
+    e.preventDefault();
+    handleFiles(e.clipboardData.files);
+  }
+
   function quitarAdjunto(idx: number) {
     setAdjuntos(prev => prev.filter((_, i) => i !== idx));
   }
@@ -331,7 +346,7 @@ export default function TicketsPage() {
   async function crearTicket() {
     if (!crearForm.categoria) return;
     if (modoManual) {
-      if (!manualForm.clienteNombre.trim()) { alert("Falta el nombre del cliente"); return; }
+      if (!manualForm.datosCliente.trim()) { alert("Faltan los datos del cliente"); return; }
     } else if (!pedidoSeleccionado) {
       return;
     }
@@ -344,10 +359,10 @@ export default function TicketsPage() {
           canalPedido: modoManual ? null : pedidoSeleccionado!.canalPedido,
           numeroPedido: modoManual ? null : pedidoSeleccionado!.numeroPedido,
           pedidoIdInterno: modoManual ? null : pedidoSeleccionado!.pedidoIdInterno,
-          clienteNombre: modoManual ? manualForm.clienteNombre.trim() : pedidoSeleccionado!.clienteNombre,
-          clienteTelefono: modoManual ? (manualForm.clienteTelefono.trim() || null) : pedidoSeleccionado!.clienteTelefono,
-          clienteEmail: modoManual ? (manualForm.clienteEmail.trim() || null) : pedidoSeleccionado!.clienteEmail,
-          clienteDni: modoManual ? (manualForm.clienteDni.trim() || null) : pedidoSeleccionado!.clienteDni,
+          clienteNombre: modoManual ? manualForm.datosCliente.trim() : pedidoSeleccionado!.clienteNombre,
+          clienteTelefono: modoManual ? null : pedidoSeleccionado!.clienteTelefono,
+          clienteEmail: modoManual ? null : pedidoSeleccionado!.clienteEmail,
+          clienteDni: modoManual ? null : pedidoSeleccionado!.clienteDni,
           clienteDireccion: modoManual ? null : pedidoSeleccionado!.clienteDireccion,
           pedidoTotal: modoManual ? null : pedidoSeleccionado!.pedidoTotal,
           pedidoMoneda: modoManual ? null : pedidoSeleccionado!.pedidoMoneda,
@@ -362,8 +377,9 @@ export default function TicketsPage() {
           canalContacto: crearForm.canalContacto || null,
           clienteInstagram: crearForm.clienteInstagram || null,
           descripcion: crearForm.descripcion || null,
-          troubleshooting: crearForm.categoria === "hacer_factura" ? null : (crearForm.troubleshooting || null),
+          troubleshooting: SIN_TROUBLESHOOTING.includes(crearForm.categoria) ? null : (crearForm.troubleshooting || null),
           facturaDatos: crearForm.facturaDatos || null,
+          ordenCompraProductos: crearForm.ordenCompraProductos || null,
           prioridad: crearForm.prioridad,
           adjuntos,
         }),
@@ -553,20 +569,15 @@ export default function TicketsPage() {
             </div>
             <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
               {modoManual ? (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
-                  <label className="sf-label">Nombre del cliente
-                    <input className="sf-input" value={manualForm.clienteNombre} onChange={e => setManualForm(f => ({ ...f, clienteNombre: e.target.value }))} placeholder="Nombre y apellido" autoFocus />
-                  </label>
-                  <label className="sf-label">Teléfono
-                    <input className="sf-input" value={manualForm.clienteTelefono} onChange={e => setManualForm(f => ({ ...f, clienteTelefono: e.target.value }))} placeholder="Opcional" />
-                  </label>
-                  <label className="sf-label">Email
-                    <input className="sf-input" value={manualForm.clienteEmail} onChange={e => setManualForm(f => ({ ...f, clienteEmail: e.target.value }))} placeholder="Opcional" />
-                  </label>
-                  <label className="sf-label">DNI
-                    <input className="sf-input" value={manualForm.clienteDni} onChange={e => setManualForm(f => ({ ...f, clienteDni: e.target.value }))} placeholder="Opcional" />
-                  </label>
-                </div>
+                <label className="sf-label">Datos del cliente
+                  <textarea
+                    className="sf-input" rows={3} value={manualForm.datosCliente}
+                    onChange={e => setManualForm(f => ({ ...f, datosCliente: e.target.value }))}
+                    placeholder="Pegá o escribí todo junto: nombre, teléfono, email, DNI..."
+                    style={{ resize: "vertical", fontFamily: "inherit" }}
+                    autoFocus
+                  />
+                </label>
               ) : (
                 <div className="sf-info-block">
                   <div className="sf-info-block-title">Datos importados del pedido</div>
@@ -638,6 +649,18 @@ export default function TicketsPage() {
                 </label>
               )}
 
+              {crearForm.categoria === "crear_orden_compra" && (
+                <label className="sf-label" style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
+                  Producto(s)
+                  <textarea
+                    className="sf-input" rows={3} value={crearForm.ordenCompraProductos}
+                    onChange={e => setCrearForm(f => ({ ...f, ordenCompraProductos: e.target.value }))}
+                    placeholder="Qué producto(s) pidió el cliente..."
+                    style={{ resize: "vertical", fontFamily: "inherit" }}
+                  />
+                </label>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: crearForm.canalContacto === "Instagram" ? "1fr 1fr" : "1fr", gap: "0.75rem" }}>
                 <label className="sf-label">
                   Canal de contacto
@@ -658,7 +681,7 @@ export default function TicketsPage() {
                 Descripción
                 <textarea className="sf-input" rows={3} value={crearForm.descripcion} onChange={e => setCrearForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Qué reportó el cliente..." style={{ resize: "vertical", fontFamily: "inherit" }} />
               </label>
-              {crearForm.categoria !== "hacer_factura" && (
+              {!SIN_TROUBLESHOOTING.includes(crearForm.categoria) && (
                 <label className="sf-label">
                   Troubleshooting ya realizado
                   <textarea className="sf-input" rows={2} value={crearForm.troubleshooting} onChange={e => setCrearForm(f => ({ ...f, troubleshooting: e.target.value }))} placeholder="Qué ya se probó con el cliente antes de derivar..." style={{ resize: "vertical", fontFamily: "inherit" }} />
@@ -669,15 +692,21 @@ export default function TicketsPage() {
                 {crearForm.categoria === "crear_orden_compra" ? "Comprobante de pago" : "Adjuntos"}
                 <div
                   className="sf-dropzone"
+                  tabIndex={0}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => { e.preventDefault(); handleFiles(e.dataTransfer.files); }}
                   onClick={() => fileInputRef.current?.click()}
+                  onPaste={crearForm.categoria === "crear_orden_compra" ? handlePasteArchivo : undefined}
                 >
-                  <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={e => { handleFiles(e.target.files); e.target.value = ""; }} />
+                  <input
+                    ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+                    accept={crearForm.categoria === "crear_orden_compra" ? "image/*,application/pdf" : undefined}
+                    onChange={e => { handleFiles(e.target.files); e.target.value = ""; }}
+                  />
                   {subiendo ? (
                     <><i className="fas fa-spinner fa-spin" style={{ fontSize: "1.5rem", color: "var(--primary-color)" }} /><span style={{ fontWeight: 600 }}>Subiendo…</span></>
                   ) : crearForm.categoria === "crear_orden_compra" ? (
-                    <><i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} /><span style={{ fontWeight: 600 }}>Subí el comprobante de pago</span></>
+                    <><i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} /><span style={{ fontWeight: 600 }}>Subí el comprobante (imagen o PDF) o pegalo con Ctrl+V</span></>
                   ) : (
                     <><i className="fas fa-cloud-arrow-up" style={{ fontSize: "1.5rem", color: "var(--text-muted)" }} /><span style={{ fontWeight: 600 }}>Fotos, videos, capturas, audios o archivos</span></>
                   )}
