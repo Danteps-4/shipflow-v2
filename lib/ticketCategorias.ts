@@ -65,10 +65,9 @@ export const CATEGORIAS_TICKET: CategoriaTicket[] = [
   { valor: "otro", label: "Otro" },
 ];
 
-// Condición frente al IVA para "Hacer factura" (Factura A). Vocabulario
-// estándar de AFIP — sin tabla de configuración porque, igual que las
-// categorías, no cambia con frecuencia.
-export const CONDICIONES_IVA = ["Responsable Inscripto", "Monotributista", "Exento", "Consumidor Final"];
+// Forma de pago del pedido a facturar — se completa después, dentro del
+// ticket (no al crearlo), cuando quien gestiona la factura ya tiene ese dato.
+export const FORMAS_PAGO = ["Transferencia", "Tarjeta de crédito", "Tarjeta de débito", "Efectivo", "Mercado Pago", "Otro"];
 
 // Los 4 tipos de ticket que se muestran como botón grande en el primer
 // paso de "Crear Ticket" (ver app/tickets/page.tsx), en vez de tener que

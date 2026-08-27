@@ -9,7 +9,7 @@ import TicketResolverSection, { TicketAccionUI, CambioGeneradoUI, EnvioOverrideU
 import { TicketHistorialEntryUI } from "@/components/TicketHistorial";
 import { TicketResumenClienteUI } from "@/components/TicketClienteHistorial";
 import TicketCustomerPanel from "@/components/TicketCustomerPanel";
-import { labelCategoria, labelSubcategoria1, labelSubcategoria2, CONDICIONES_IVA } from "@/lib/ticketCategorias";
+import { labelCategoria, labelSubcategoria1, labelSubcategoria2, FORMAS_PAGO } from "@/lib/ticketCategorias";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -75,10 +75,8 @@ interface TicketDetalle {
   descripcion: string | null;
   troubleshooting: string | null;
   marca: string | null;
-  factura_cuit: string | null;
-  factura_razon_social: string | null;
-  factura_condicion_iva: string | null;
-  factura_direccion_fiscal: string | null;
+  factura_datos: string | null;
+  factura_forma_pago: string | null;
   estado: string;
   prioridad: string;
   responsable_id: string | null;
@@ -139,7 +137,7 @@ export default function TicketDetallePage() {
   const [mostrarFormCosto, setMostrarFormCosto] = useState(false);
 
   const [editandoFactura, setEditandoFactura] = useState(false);
-  const [facturaDraft, setFacturaDraft] = useState({ cuit: "", razonSocial: "", condicionIva: "", direccionFiscal: "" });
+  const [facturaDraft, setFacturaDraft] = useState({ datos: "", formaPago: "" });
 
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -243,18 +241,15 @@ export default function TicketDetallePage() {
   function abrirEditarFactura() {
     if (!detalle) return;
     setFacturaDraft({
-      cuit: detalle.factura_cuit ?? "", razonSocial: detalle.factura_razon_social ?? "",
-      condicionIva: detalle.factura_condicion_iva ?? "", direccionFiscal: detalle.factura_direccion_fiscal ?? "",
+      datos: detalle.factura_datos ?? "", formaPago: detalle.factura_forma_pago ?? "",
     });
     setEditandoFactura(true);
   }
 
   async function guardarFactura() {
     await patchTicket({
-      facturaCuit: facturaDraft.cuit.trim() || null,
-      facturaRazonSocial: facturaDraft.razonSocial.trim() || null,
-      facturaCondicionIva: facturaDraft.condicionIva || null,
-      facturaDireccionFiscal: facturaDraft.direccionFiscal.trim() || null,
+      facturaDatos: facturaDraft.datos.trim() || null,
+      facturaFormaPago: facturaDraft.formaPago || null,
     });
     setEditandoFactura(false);
   }
@@ -488,22 +483,14 @@ export default function TicketDetallePage() {
                     </div>
                     {editandoFactura ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
-                        <div className="ticket-field-grid">
-                          <label className="sf-label">CUIT
-                            <input className="sf-input" value={facturaDraft.cuit} onChange={e => setFacturaDraft(f => ({ ...f, cuit: e.target.value }))} />
-                          </label>
-                          <label className="sf-label">Razón Social
-                            <input className="sf-input" value={facturaDraft.razonSocial} onChange={e => setFacturaDraft(f => ({ ...f, razonSocial: e.target.value }))} />
-                          </label>
-                          <label className="sf-label">Condición frente al IVA
-                            <select className="sf-input" value={facturaDraft.condicionIva} onChange={e => setFacturaDraft(f => ({ ...f, condicionIva: e.target.value }))}>
-                              <option value="">Seleccionar...</option>
-                              {CONDICIONES_IVA.map(c => <option key={c} value={c}>{c}</option>)}
-                            </select>
-                          </label>
-                        </div>
-                        <label className="sf-label">Dirección fiscal
-                          <input className="sf-input" value={facturaDraft.direccionFiscal} onChange={e => setFacturaDraft(f => ({ ...f, direccionFiscal: e.target.value }))} />
+                        <label className="sf-label">Datos para facturar
+                          <textarea className="sf-input" rows={4} value={facturaDraft.datos} onChange={e => setFacturaDraft(f => ({ ...f, datos: e.target.value }))} style={{ resize: "vertical", fontFamily: "inherit" }} />
+                        </label>
+                        <label className="sf-label">Forma de pago
+                          <select className="sf-input" value={facturaDraft.formaPago} onChange={e => setFacturaDraft(f => ({ ...f, formaPago: e.target.value }))}>
+                            <option value="">Seleccionar...</option>
+                            {FORMAS_PAGO.map(f => <option key={f} value={f}>{f}</option>)}
+                          </select>
                         </label>
                         <div style={{ display: "flex", gap: "0.5rem" }}>
                           <button className="sf-btn sf-btn-secondary" onClick={() => setEditandoFactura(false)} disabled={savingCampo}>Cancelar</button>
@@ -512,12 +499,8 @@ export default function TicketDetallePage() {
                       </div>
                     ) : (
                       <div className="sf-info-block">
-                        <div className="sf-info-block-grid">
-                          <div><strong>CUIT:</strong> {detalle.factura_cuit || "—"}</div>
-                          <div><strong>Razón Social:</strong> {detalle.factura_razon_social || "—"}</div>
-                          <div><strong>Condición frente al IVA:</strong> {detalle.factura_condicion_iva || "—"}</div>
-                          <div><strong>Dirección fiscal:</strong> {detalle.factura_direccion_fiscal || "—"}</div>
-                        </div>
+                        <div style={{ whiteSpace: "pre-wrap" }}>{detalle.factura_datos || "Sin datos cargados"}</div>
+                        <div style={{ marginTop: "0.5rem" }}><strong>Forma de pago:</strong> {detalle.factura_forma_pago || "—"}</div>
                         <button className="sf-btn sf-btn-secondary" style={{ marginTop: "0.6rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem" }} onClick={abrirEditarFactura}>
                           <i className="fas fa-pen" /> Editar
                         </button>

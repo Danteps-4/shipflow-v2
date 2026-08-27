@@ -4,7 +4,6 @@ import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
 import { initTicketsTables, getTickets, createTicket, addAdjunto, CreateTicketData } from "@/lib/ticketsDb";
 import { computeSlaVencimiento } from "@/lib/ticketSla";
-import { normalizeCuit } from "@/lib/normalizers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,10 +64,7 @@ interface CreateTicketBody {
   descripcion?: string;
   troubleshooting?: string;
   marca?: string;
-  facturaCuit?: string;
-  facturaRazonSocial?: string;
-  facturaCondicionIva?: string;
-  facturaDireccionFiscal?: string;
+  facturaDatos?: string;
   prioridad?: string;
   adjuntos?: { url: string; publicId?: string | null; resourceType?: string; nombreArchivo?: string | null }[];
 }
@@ -121,10 +117,7 @@ export async function POST(req: NextRequest) {
     descripcion: body.descripcion,
     troubleshooting: body.troubleshooting,
     marca: body.marca,
-    facturaCuit: body.facturaCuit ? normalizeCuit(body.facturaCuit) : null,
-    facturaRazonSocial: body.facturaRazonSocial || null,
-    facturaCondicionIva: body.facturaCondicionIva || null,
-    facturaDireccionFiscal: body.facturaDireccionFiscal || null,
+    facturaDatos: body.facturaDatos || null,
     prioridad,
     createdBy: guard.user.name,
   }, computeSlaVencimiento(prioridad));

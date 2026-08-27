@@ -49,14 +49,6 @@ export function normalizeDni(value: string): string {
     .replace(/[^0-9]/g, ""); // solo dígitos
 }
 
-// Mismo criterio que normalizeDni (solo limpieza de formato, sin validar
-// dígito verificador) — separado por nombre para que el código de Tickets
-// (Factura A) sea legible, ya que un CUIT no es lo mismo que un DNI aunque
-// hoy se limpien igual.
-export function normalizeCuit(value: string): string {
-  return normalizeDni(value);
-}
-
 // -------------------------------------------------------------------
 // Normaliza el teléfono: se queda solo con los dígitos (Andreani espera
 // un número puro; cualquier otro caracter, incluidas comillas/tildes

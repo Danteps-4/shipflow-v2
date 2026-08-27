@@ -7,7 +7,7 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import TicketStatCards from "@/components/TicketStatCards";
 import TicketOrderPicker, { PedidoSeleccionado } from "@/components/TicketOrderPicker";
-import { CATEGORIAS_TICKET, labelCategoria, CONDICIONES_IVA, CATEGORIAS_RAPIDAS } from "@/lib/ticketCategorias";
+import { CATEGORIAS_TICKET, labelCategoria, CATEGORIAS_RAPIDAS } from "@/lib/ticketCategorias";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ function isVencido(slaVencimiento: string | null, estado: string): boolean {
 const EMPTY_CREAR_FORM = {
   categoria: "", subcategoria1: "", subcategoria2: "", canalContacto: "",
   clienteInstagram: "", descripcion: "", troubleshooting: "", prioridad: "normal",
-  facturaCuit: "", facturaRazonSocial: "", facturaCondicionIva: "", facturaDireccionFiscal: "",
+  facturaDatos: "",
 };
 const EMPTY_MANUAL_FORM = { clienteNombre: "", clienteTelefono: "", clienteEmail: "", clienteDni: "" };
 
@@ -357,11 +357,8 @@ export default function TicketsPage() {
           canalContacto: crearForm.canalContacto || null,
           clienteInstagram: crearForm.clienteInstagram || null,
           descripcion: crearForm.descripcion || null,
-          troubleshooting: crearForm.troubleshooting || null,
-          facturaCuit: crearForm.facturaCuit || null,
-          facturaRazonSocial: crearForm.facturaRazonSocial || null,
-          facturaCondicionIva: crearForm.facturaCondicionIva || null,
-          facturaDireccionFiscal: crearForm.facturaDireccionFiscal || null,
+          troubleshooting: crearForm.categoria === "hacer_factura" ? null : (crearForm.troubleshooting || null),
+          facturaDatos: crearForm.facturaDatos || null,
           prioridad: crearForm.prioridad,
           adjuntos,
         }),
@@ -625,23 +622,15 @@ export default function TicketsPage() {
               )}
 
               {crearForm.categoria === "hacer_factura" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
-                  <label className="sf-label">CUIT
-                    <input className="sf-input" value={crearForm.facturaCuit} onChange={e => setCrearForm(f => ({ ...f, facturaCuit: e.target.value }))} placeholder="Ej: 20304050607" />
-                  </label>
-                  <label className="sf-label">Razón Social
-                    <input className="sf-input" value={crearForm.facturaRazonSocial} onChange={e => setCrearForm(f => ({ ...f, facturaRazonSocial: e.target.value }))} />
-                  </label>
-                  <label className="sf-label">Condición frente al IVA
-                    <select className="sf-input" value={crearForm.facturaCondicionIva} onChange={e => setCrearForm(f => ({ ...f, facturaCondicionIva: e.target.value }))}>
-                      <option value="">Seleccionar...</option>
-                      {CONDICIONES_IVA.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </label>
-                  <label className="sf-label">Dirección fiscal
-                    <input className="sf-input" value={crearForm.facturaDireccionFiscal} onChange={e => setCrearForm(f => ({ ...f, facturaDireccionFiscal: e.target.value }))} />
-                  </label>
-                </div>
+                <label className="sf-label" style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
+                  Datos para facturar
+                  <textarea
+                    className="sf-input" rows={4} value={crearForm.facturaDatos}
+                    onChange={e => setCrearForm(f => ({ ...f, facturaDatos: e.target.value }))}
+                    placeholder="Pegá acá lo que mandó el cliente: CUIT, Razón Social, Condición frente al IVA, Dirección fiscal..."
+                    style={{ resize: "vertical", fontFamily: "inherit" }}
+                  />
+                </label>
               )}
 
               <div style={{ display: "grid", gridTemplateColumns: crearForm.canalContacto === "Instagram" ? "1fr 1fr" : "1fr", gap: "0.75rem" }}>
@@ -664,10 +653,12 @@ export default function TicketsPage() {
                 Descripción
                 <textarea className="sf-input" rows={3} value={crearForm.descripcion} onChange={e => setCrearForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Qué reportó el cliente..." style={{ resize: "vertical", fontFamily: "inherit" }} />
               </label>
-              <label className="sf-label">
-                Troubleshooting ya realizado
-                <textarea className="sf-input" rows={2} value={crearForm.troubleshooting} onChange={e => setCrearForm(f => ({ ...f, troubleshooting: e.target.value }))} placeholder="Qué ya se probó con el cliente antes de derivar..." style={{ resize: "vertical", fontFamily: "inherit" }} />
-              </label>
+              {crearForm.categoria !== "hacer_factura" && (
+                <label className="sf-label">
+                  Troubleshooting ya realizado
+                  <textarea className="sf-input" rows={2} value={crearForm.troubleshooting} onChange={e => setCrearForm(f => ({ ...f, troubleshooting: e.target.value }))} placeholder="Qué ya se probó con el cliente antes de derivar..." style={{ resize: "vertical", fontFamily: "inherit" }} />
+                </label>
+              )}
 
               <label className="sf-label">
                 {crearForm.categoria === "crear_orden_compra" ? "Comprobante de pago" : "Adjuntos"}

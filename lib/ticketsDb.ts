@@ -80,11 +80,12 @@ export interface Ticket {
   descripcion: string | null;
   troubleshooting: string | null;
   marca: string | null;
-  // Solo se usan cuando categoria = "hacer_factura".
-  factura_cuit: string | null;
-  factura_razon_social: string | null;
-  factura_condicion_iva: string | null;
-  factura_direccion_fiscal: string | null;
+  // Solo se usan cuando categoria = "hacer_factura". factura_datos es texto
+  // libre (CUIT/Razón Social/Condición IVA/Dirección fiscal pegados de una
+  // vez por la persona de atención al cliente); factura_forma_pago se carga
+  // después, dentro del ticket, cuando se gestiona la factura.
+  factura_datos: string | null;
+  factura_forma_pago: string | null;
   estado: EstadoTicket;
   prioridad: string;
   responsable_id: string | null;
@@ -214,10 +215,8 @@ export async function initTicketsTables(): Promise<void> {
       troubleshooting       TEXT,
       marca                 TEXT,
 
-      factura_cuit             TEXT,
-      factura_razon_social     TEXT,
-      factura_condicion_iva    TEXT,
-      factura_direccion_fiscal TEXT,
+      factura_datos         TEXT,
+      factura_forma_pago    TEXT,
 
       estado                TEXT NOT NULL DEFAULT 'nuevo',
       prioridad             TEXT NOT NULL DEFAULT 'normal',
@@ -240,10 +239,15 @@ export async function initTicketsTables(): Promise<void> {
   // registra un ticket sin pedido real (todavía no existe en Tienda Nube).
   await sql`ALTER TABLE casos ALTER COLUMN canal_pedido DROP NOT NULL`;
   await sql`ALTER TABLE casos ALTER COLUMN numero_pedido DROP NOT NULL`;
-  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_cuit TEXT`;
-  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_razon_social TEXT`;
-  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_condicion_iva TEXT`;
-  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_direccion_fiscal TEXT`;
+  // Los 4 campos separados de facturación (CUIT/Razón Social/Condición
+  // IVA/Dirección fiscal) se simplificaron a un solo campo de texto libre
+  // antes de que ningún ticket real los usara.
+  await sql`ALTER TABLE casos DROP COLUMN IF EXISTS factura_cuit`;
+  await sql`ALTER TABLE casos DROP COLUMN IF EXISTS factura_razon_social`;
+  await sql`ALTER TABLE casos DROP COLUMN IF EXISTS factura_condicion_iva`;
+  await sql`ALTER TABLE casos DROP COLUMN IF EXISTS factura_direccion_fiscal`;
+  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_datos TEXT`;
+  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_forma_pago TEXT`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_estado  ON casos (store_id, estado, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_pedido  ON casos (store_id, numero_pedido)`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_tel     ON casos (store_id, cliente_telefono)`;
@@ -544,10 +548,7 @@ export interface CreateTicketData {
   descripcion?: string | null;
   troubleshooting?: string | null;
   marca?: string | null;
-  facturaCuit?: string | null;
-  facturaRazonSocial?: string | null;
-  facturaCondicionIva?: string | null;
-  facturaDireccionFiscal?: string | null;
+  facturaDatos?: string | null;
   prioridad?: string;
   createdBy: string;
 }
@@ -560,14 +561,14 @@ export async function createTicket(storeId: string, data: CreateTicketData, slaV
       cliente_nombre, cliente_telefono, cliente_email, cliente_instagram, cliente_dni, cliente_direccion,
       pedido_total, pedido_moneda, pedido_fecha, pedido_estado, pedido_transportista, pedido_tracking, pedido_productos_json,
       categoria, subcategoria_1, subcategoria_2, canal_contacto, descripcion, troubleshooting, marca,
-      factura_cuit, factura_razon_social, factura_condicion_iva, factura_direccion_fiscal,
+      factura_datos,
       prioridad, sla_vencimiento, created_by
     ) VALUES (
       ${storeId}, ${data.canalPedido ?? null}, ${data.numeroPedido ?? null}, ${data.pedidoIdInterno ?? null},
       ${data.clienteNombre}, ${data.clienteTelefono ?? null}, ${data.clienteEmail ?? null}, ${data.clienteInstagram ?? null}, ${data.clienteDni ?? null}, ${data.clienteDireccion ?? null},
       ${data.pedidoTotal ?? null}, ${data.pedidoMoneda ?? null}, ${data.pedidoFecha ?? null}, ${data.pedidoEstado ?? null}, ${data.pedidoTransportista ?? null}, ${data.pedidoTracking ?? null}, ${data.pedidoProductos ? JSON.stringify(data.pedidoProductos) : null},
       ${data.categoria}, ${data.subcategoria1 ?? null}, ${data.subcategoria2 ?? null}, ${data.canalContacto ?? null}, ${data.descripcion ?? null}, ${data.troubleshooting ?? null}, ${data.marca ?? null},
-      ${data.facturaCuit ?? null}, ${data.facturaRazonSocial ?? null}, ${data.facturaCondicionIva ?? null}, ${data.facturaDireccionFiscal ?? null},
+      ${data.facturaDatos ?? null},
       ${data.prioridad ?? "normal"}, ${slaVencimiento.toISOString()}, ${data.createdBy}
     )
     RETURNING *
@@ -603,10 +604,8 @@ export interface UpdateTicketData {
   clienteEmail?: string | null;
   clienteInstagram?: string | null;
   clienteDireccion?: string | null;
-  facturaCuit?: string | null;
-  facturaRazonSocial?: string | null;
-  facturaCondicionIva?: string | null;
-  facturaDireccionFiscal?: string | null;
+  facturaDatos?: string | null;
+  facturaFormaPago?: string | null;
 }
 
 export async function updateTicket(
@@ -632,10 +631,8 @@ export async function updateTicket(
   const clienteEmail        = data.clienteEmail        !== undefined ? data.clienteEmail        : current.cliente_email;
   const clienteInstagram    = data.clienteInstagram    !== undefined ? data.clienteInstagram    : current.cliente_instagram;
   const clienteDireccion    = data.clienteDireccion    !== undefined ? data.clienteDireccion    : current.cliente_direccion;
-  const facturaCuit             = data.facturaCuit             !== undefined ? data.facturaCuit             : current.factura_cuit;
-  const facturaRazonSocial      = data.facturaRazonSocial      !== undefined ? data.facturaRazonSocial      : current.factura_razon_social;
-  const facturaCondicionIva     = data.facturaCondicionIva     !== undefined ? data.facturaCondicionIva     : current.factura_condicion_iva;
-  const facturaDireccionFiscal  = data.facturaDireccionFiscal  !== undefined ? data.facturaDireccionFiscal  : current.factura_direccion_fiscal;
+  const facturaDatos        = data.facturaDatos        !== undefined ? data.facturaDatos        : current.factura_datos;
+  const facturaFormaPago    = data.facturaFormaPago    !== undefined ? data.facturaFormaPago    : current.factura_forma_pago;
 
   const resueltoAt = estado === "resuelto" && current.estado !== "resuelto" ? new Date().toISOString() : current.resuelto_at;
   const cerradoAt  = estado === "cerrado"  && current.estado !== "cerrado"  ? new Date().toISOString() : current.cerrado_at;
@@ -653,8 +650,7 @@ export async function updateTicket(
       canal_contacto = ${canalContacto}, valor_comercial = ${valorComercial},
       cliente_telefono = ${clienteTelefono}, cliente_email = ${clienteEmail},
       cliente_instagram = ${clienteInstagram}, cliente_direccion = ${clienteDireccion},
-      factura_cuit = ${facturaCuit}, factura_razon_social = ${facturaRazonSocial},
-      factura_condicion_iva = ${facturaCondicionIva}, factura_direccion_fiscal = ${facturaDireccionFiscal},
+      factura_datos = ${facturaDatos}, factura_forma_pago = ${facturaFormaPago},
       sla_vencimiento = ${slaVencimiento}, updated_at = NOW(),
       resuelto_at = ${resueltoAt}, cerrado_at = ${cerradoAt}
     WHERE store_id = ${storeId} AND id = ${id}
