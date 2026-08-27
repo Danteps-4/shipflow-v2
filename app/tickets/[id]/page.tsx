@@ -465,6 +465,7 @@ export default function TicketDetallePage() {
                 {/* Pedido original (o Datos de la orden, si no hay pedido vinculado —
                     hoy solo pasa en "crear_orden_compra") */}
                 {!detalle.numero_pedido ? (
+                  <>
                   <div className="ticket-card">
                     <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
                       <div className="sf-step-badge"><i className="fas fa-receipt" style={{ fontSize: "0.65rem" }} /></div>
@@ -502,15 +503,16 @@ export default function TicketDetallePage() {
                           <button className="sf-btn sf-btn-secondary" style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem" }} onClick={abrirEditarOrden}>
                             <i className="fas fa-pen" /> Editar
                           </button>
-                          {!["resuelto", "cerrado", "cancelado"].includes(detalle.estado) && (
-                            <button className="sf-btn" style={{ padding: "0.3rem 0.6rem", fontSize: "0.8rem", background: "var(--success-color)" }} onClick={marcarOrdenCreada} disabled={savingCampo}>
-                              <i className="fas fa-check" /> Orden creada
-                            </button>
-                          )}
                         </div>
                       </div>
                     )}
                   </div>
+                  {!editandoOrden && !["resuelto", "cerrado", "cancelado"].includes(detalle.estado) && (
+                    <button className="sf-btn" style={{ alignSelf: "flex-start", background: "var(--success-color)" }} onClick={marcarOrdenCreada} disabled={savingCampo}>
+                      <i className="fas fa-check" /> Orden creada
+                    </button>
+                  )}
+                  </>
                 ) : (
                 <div className="ticket-card">
                   <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
