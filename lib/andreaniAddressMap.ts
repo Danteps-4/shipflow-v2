@@ -66,6 +66,13 @@ const ADDRESS_DB: Record<string, string> = {
   // ── SANTIAGO DEL ESTERO ──────────────────────────────────────────────────────
   "sarmiento 77|santiago del estero":               "SANTIAGO DEL ESTERO (CENTRO)",
 
+  // ── CORDOBA ─────────────────────────────────────────────────────────────────
+  // Orden #6423: Villa Nueva / Gral. San Martín (CP 5903) resuelve mal por
+  // nombre de ciudad/CP porque comparte esa zona con otras sucursales reales
+  // (ver project_sucursal_matching_bug.md) — esta dirección exacta es la
+  // sucursal Villa María (Centro), confirmado por Dante.
+  "mendoza 1085|cordoba":                           "VILLA MARIA (CENTRO)",
+
   // ── Agregar nuevas entradas abajo ──────────────────────────────────────────
   //  "calle numero|provincia": "NOMBRE ANDREANI (ZONA)",
 
