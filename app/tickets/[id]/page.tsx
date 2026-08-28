@@ -81,6 +81,7 @@ interface TicketDetalle {
   factura_datos: string | null;
   factura_forma_pago: string | null;
   orden_compra_productos: string | null;
+  cambio_direccion_nueva: string | null;
   estado: string;
   prioridad: string;
   responsable_id: string | null;
@@ -145,6 +146,9 @@ export default function TicketDetallePage() {
 
   const [editandoOrden, setEditandoOrden] = useState(false);
   const [ordenDraft, setOrdenDraft] = useState({ cliente: "", productos: "" });
+
+  const [editandoCambioDireccion, setEditandoCambioDireccion] = useState(false);
+  const [cambioDireccionDraft, setCambioDireccionDraft] = useState("");
 
   const [subiendo, setSubiendo] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -276,6 +280,17 @@ export default function TicketDetallePage() {
       ordenCompraProductos: ordenDraft.productos.trim() || null,
     });
     setEditandoOrden(false);
+  }
+
+  function abrirEditarCambioDireccion() {
+    if (!detalle) return;
+    setCambioDireccionDraft(detalle.cambio_direccion_nueva ?? "");
+    setEditandoCambioDireccion(true);
+  }
+
+  async function guardarCambioDireccion() {
+    await patchTicket({ cambioDireccionNueva: cambioDireccionDraft.trim() || null });
+    setEditandoCambioDireccion(false);
   }
 
   async function marcarOrdenCreada() {
@@ -566,6 +581,32 @@ export default function TicketDetallePage() {
                 </div>
                 )}
 
+                {/* Nueva dirección/sucursal (solo categoría "Cambio de dirección/sucursal") */}
+                {detalle.categoria === "cambio_direccion" && (
+                  <div className="ticket-card">
+                    <div className="sf-section-title" style={{ marginBottom: "0.5rem" }}>
+                      <div className="sf-step-badge"><i className="fas fa-location-dot" style={{ fontSize: "0.65rem" }} /></div>
+                      <div><h2>Nueva dirección/sucursal</h2></div>
+                    </div>
+                    {editandoCambioDireccion ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                        <textarea className="sf-input" rows={3} value={cambioDireccionDraft} onChange={e => setCambioDireccionDraft(e.target.value)} style={{ resize: "vertical", fontFamily: "inherit" }} autoFocus />
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <button className="sf-btn sf-btn-secondary" onClick={() => setEditandoCambioDireccion(false)} disabled={savingCampo}>Cancelar</button>
+                          <button className="sf-btn" onClick={guardarCambioDireccion} disabled={savingCampo}>Guardar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="sf-info-block">
+                        <div style={{ whiteSpace: "pre-wrap" }}>{detalle.cambio_direccion_nueva || "Sin datos cargados"}</div>
+                        <button className="sf-btn sf-btn-secondary" style={{ marginTop: "0.6rem", padding: "0.3rem 0.6rem", fontSize: "0.8rem" }} onClick={abrirEditarCambioDireccion}>
+                          <i className="fas fa-pen" /> Editar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Datos de facturación (solo categoría "Hacer factura") */}
                 {detalle.categoria === "hacer_factura" && (
                   <div className="ticket-card">
@@ -729,6 +770,7 @@ export default function TicketDetallePage() {
                     }}
                     ticketNumeroPedido={detalle.numero_pedido}
                     ticketCanalPedido={detalle.canal_pedido}
+                    pedidoYaEnviado={!!detalle.pedido_estado?.includes("envío: shipped") && !!detalle.pedido_tracking}
                     cambiosGenerados={cambiosGenerados}
                     envioOverride={envioOverride}
                     comprobantes={detalle.adjuntos.filter(a => a.cambio_id != null)}

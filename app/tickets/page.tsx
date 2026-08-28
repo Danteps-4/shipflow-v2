@@ -93,16 +93,18 @@ function isVencido(slaVencimiento: string | null, estado: string): boolean {
 const EMPTY_CREAR_FORM = {
   categoria: "", subcategoria1: "", subcategoria2: "", canalContacto: "",
   clienteInstagram: "", descripcion: "", troubleshooting: "", prioridad: "normal",
-  facturaDatos: "", ordenCompraProductos: "",
+  facturaDatos: "", ordenCompraProductos: "", cambioDireccionNueva: "",
 };
 // Un solo campo de texto libre en vez de Nombre/Teléfono/Email/DNI
 // separados — la idea es que la persona de atención al cliente pueda
 // pegar todo junto sin llenar varios inputs.
 const EMPTY_MANUAL_FORM = { datosCliente: "" };
-// Categorías donde "Troubleshooting ya realizado" no tiene sentido: son
-// tickets administrativos (facturación, alta de una orden), no un reclamo
-// de producto que alguien intentó resolver antes de derivar.
-const SIN_TROUBLESHOOTING = ["hacer_factura", "crear_orden_compra"];
+// Categorías donde "Troubleshooting ya realizado" y "Descripción" no
+// tienen sentido: son tickets administrativos (facturación, alta de una
+// orden, cambio de dirección) con su propio campo específico, no un
+// reclamo de producto que alguien intentó resolver antes de derivar.
+const SIN_TROUBLESHOOTING = ["hacer_factura", "crear_orden_compra", "cambio_direccion"];
+const SIN_DESCRIPCION = ["crear_orden_compra", "cambio_direccion"];
 
 // Íconos para los botones rápidos del primer paso de "Crear Ticket" — el
 // label sale de CATEGORIAS_TICKET (labelCategoria), acá solo el ícono.
@@ -389,6 +391,7 @@ export default function TicketsPage() {
           troubleshooting: SIN_TROUBLESHOOTING.includes(crearForm.categoria) ? null : (crearForm.troubleshooting || null),
           facturaDatos: crearForm.facturaDatos || null,
           ordenCompraProductos: crearForm.ordenCompraProductos || null,
+          cambioDireccionNueva: crearForm.cambioDireccionNueva || null,
           prioridad: crearForm.prioridad,
           adjuntos,
         }),
@@ -672,6 +675,18 @@ export default function TicketsPage() {
                 </label>
               )}
 
+              {crearForm.categoria === "cambio_direccion" && (
+                <label className="sf-label" style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.75rem" }}>
+                  Nueva dirección/sucursal
+                  <textarea
+                    className="sf-input" rows={3} value={crearForm.cambioDireccionNueva}
+                    onChange={e => setCrearForm(f => ({ ...f, cambioDireccionNueva: e.target.value }))}
+                    placeholder="A qué dirección o sucursal hay que enviarlo..."
+                    style={{ resize: "vertical", fontFamily: "inherit" }}
+                  />
+                </label>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: crearForm.canalContacto === "Instagram" ? "1fr 1fr" : "1fr", gap: "0.75rem" }}>
                 <label className="sf-label">
                   Canal de contacto
@@ -688,7 +703,7 @@ export default function TicketsPage() {
                 )}
               </div>
 
-              {crearForm.categoria !== "crear_orden_compra" && (
+              {!SIN_DESCRIPCION.includes(crearForm.categoria) && (
                 <label className="sf-label">
                   Descripción
                   <textarea className="sf-input" rows={3} value={crearForm.descripcion} onChange={e => setCrearForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Qué reportó el cliente..." style={{ resize: "vertical", fontFamily: "inherit" }} />

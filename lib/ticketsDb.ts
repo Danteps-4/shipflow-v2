@@ -90,6 +90,11 @@ export interface Ticket {
   // hay grilla de productos para este tipo de ticket (no existe un pedido
   // real del que traerlos).
   orden_compra_productos: string | null;
+  // Solo se usa cuando categoria = "cambio_direccion" — la dirección o
+  // sucursal nueva que pidió el cliente, cargada al crear el ticket. Es
+  // informativa: el cambio real se sigue generando desde la acción
+  // "Cambio de dirección/sucursal" en Resolver ticket.
+  cambio_direccion_nueva: string | null;
   estado: EstadoTicket;
   prioridad: string;
   responsable_id: string | null;
@@ -222,6 +227,7 @@ export async function initTicketsTables(): Promise<void> {
       factura_datos         TEXT,
       factura_forma_pago    TEXT,
       orden_compra_productos TEXT,
+      cambio_direccion_nueva TEXT,
 
       estado                TEXT NOT NULL DEFAULT 'nuevo',
       prioridad             TEXT NOT NULL DEFAULT 'normal',
@@ -254,6 +260,7 @@ export async function initTicketsTables(): Promise<void> {
   await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_datos TEXT`;
   await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS factura_forma_pago TEXT`;
   await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS orden_compra_productos TEXT`;
+  await sql`ALTER TABLE casos ADD COLUMN IF NOT EXISTS cambio_direccion_nueva TEXT`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_estado  ON casos (store_id, estado, created_at DESC)`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_pedido  ON casos (store_id, numero_pedido)`;
   await sql`CREATE INDEX IF NOT EXISTS casos_store_tel     ON casos (store_id, cliente_telefono)`;
@@ -556,6 +563,7 @@ export interface CreateTicketData {
   marca?: string | null;
   facturaDatos?: string | null;
   ordenCompraProductos?: string | null;
+  cambioDireccionNueva?: string | null;
   prioridad?: string;
   createdBy: string;
 }
@@ -568,14 +576,14 @@ export async function createTicket(storeId: string, data: CreateTicketData, slaV
       cliente_nombre, cliente_telefono, cliente_email, cliente_instagram, cliente_dni, cliente_direccion,
       pedido_total, pedido_moneda, pedido_fecha, pedido_estado, pedido_transportista, pedido_tracking, pedido_productos_json,
       categoria, subcategoria_1, subcategoria_2, canal_contacto, descripcion, troubleshooting, marca,
-      factura_datos, orden_compra_productos,
+      factura_datos, orden_compra_productos, cambio_direccion_nueva,
       prioridad, sla_vencimiento, created_by
     ) VALUES (
       ${storeId}, ${data.canalPedido ?? null}, ${data.numeroPedido ?? null}, ${data.pedidoIdInterno ?? null},
       ${data.clienteNombre}, ${data.clienteTelefono ?? null}, ${data.clienteEmail ?? null}, ${data.clienteInstagram ?? null}, ${data.clienteDni ?? null}, ${data.clienteDireccion ?? null},
       ${data.pedidoTotal ?? null}, ${data.pedidoMoneda ?? null}, ${data.pedidoFecha ?? null}, ${data.pedidoEstado ?? null}, ${data.pedidoTransportista ?? null}, ${data.pedidoTracking ?? null}, ${data.pedidoProductos ? JSON.stringify(data.pedidoProductos) : null},
       ${data.categoria}, ${data.subcategoria1 ?? null}, ${data.subcategoria2 ?? null}, ${data.canalContacto ?? null}, ${data.descripcion ?? null}, ${data.troubleshooting ?? null}, ${data.marca ?? null},
-      ${data.facturaDatos ?? null}, ${data.ordenCompraProductos ?? null},
+      ${data.facturaDatos ?? null}, ${data.ordenCompraProductos ?? null}, ${data.cambioDireccionNueva ?? null},
       ${data.prioridad ?? "normal"}, ${slaVencimiento.toISOString()}, ${data.createdBy}
     )
     RETURNING *
@@ -615,6 +623,7 @@ export interface UpdateTicketData {
   facturaDatos?: string | null;
   facturaFormaPago?: string | null;
   ordenCompraProductos?: string | null;
+  cambioDireccionNueva?: string | null;
 }
 
 export async function updateTicket(
@@ -644,6 +653,7 @@ export async function updateTicket(
   const facturaDatos        = data.facturaDatos        !== undefined ? data.facturaDatos        : current.factura_datos;
   const facturaFormaPago    = data.facturaFormaPago    !== undefined ? data.facturaFormaPago    : current.factura_forma_pago;
   const ordenCompraProductos = data.ordenCompraProductos !== undefined ? data.ordenCompraProductos : current.orden_compra_productos;
+  const cambioDireccionNueva = data.cambioDireccionNueva !== undefined ? data.cambioDireccionNueva : current.cambio_direccion_nueva;
 
   const resueltoAt = estado === "resuelto" && current.estado !== "resuelto" ? new Date().toISOString() : current.resuelto_at;
   const cerradoAt  = estado === "cerrado"  && current.estado !== "cerrado"  ? new Date().toISOString() : current.cerrado_at;
@@ -662,7 +672,7 @@ export async function updateTicket(
       cliente_nombre = ${clienteNombre}, cliente_telefono = ${clienteTelefono}, cliente_email = ${clienteEmail},
       cliente_instagram = ${clienteInstagram}, cliente_direccion = ${clienteDireccion},
       factura_datos = ${facturaDatos}, factura_forma_pago = ${facturaFormaPago},
-      orden_compra_productos = ${ordenCompraProductos},
+      orden_compra_productos = ${ordenCompraProductos}, cambio_direccion_nueva = ${cambioDireccionNueva},
       sla_vencimiento = ${slaVencimiento}, updated_at = NOW(),
       resuelto_at = ${resueltoAt}, cerrado_at = ${cerradoAt}
     WHERE store_id = ${storeId} AND id = ${id}

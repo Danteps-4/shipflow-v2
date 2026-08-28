@@ -201,7 +201,7 @@ function labelDestino(d: { tipo: string; sucursal: string; direccion: string; nu
 const REQUIERE_ENVIO = ["generar_envio", "producto_faltante"];
 
 export default function TicketResolverSection({
-  ticketId, acciones, onRegistrada, puedeSupervisar, ticketCliente, ticketNumeroPedido, ticketCanalPedido, cambiosGenerados, envioOverride,
+  ticketId, acciones, onRegistrada, puedeSupervisar, ticketCliente, ticketNumeroPedido, ticketCanalPedido, pedidoYaEnviado, cambiosGenerados, envioOverride,
   comprobantes, subiendoComprobante, onSubirComprobante, onBorrarComprobante,
 }: {
   ticketId: number;
@@ -211,6 +211,11 @@ export default function TicketResolverSection({
   ticketCliente: TicketCliente;
   ticketNumeroPedido: string | null;
   ticketCanalPedido: string | null;
+  // El pedido ya fue enviado (estado "shipped" + tracking cargado, tal
+  // como estaba a la hora de crear el ticket) — Andreani ya tiene el
+  // paquete, así que corregir el destino desde ShipFlow ya no sirve de
+  // nada: hay que hablar directamente con Andreani.
+  pedidoYaEnviado: boolean;
   cambiosGenerados: CambioGeneradoUI[];
   envioOverride: EnvioOverrideUI | null;
   comprobantes: ComprobanteUI[];
@@ -455,6 +460,7 @@ export default function TicketResolverSection({
   const mostrarCheckboxCosto = !editingAccionId && formTipo && COSTO_SUGERIDO[formTipo] && monto.trim();
   const mostrarEnvioCambio = !editingAccionId && !!formTipo && REQUIERE_ENVIO.includes(formTipo);
   const overrideActivo = !!envioOverride && (envioOverride.tipo != null);
+  const cambioDireccionBloqueado = formTipo === "cambiar_direccion" && !editingAccionId && esTiendaNube && pedidoYaEnviado;
 
   return (
     <div>
@@ -517,7 +523,7 @@ export default function TicketResolverSection({
             <span>
               <i className={envioOverride!.tipo === "sucursal" ? "fas fa-store" : "fas fa-house"} style={{ marginRight: "0.4rem", color: "var(--primary-color)" }} />
               {envioOverride!.tipo === "sucursal" ? envioOverride!.sucursal : `${envioOverride!.direccion} ${envioOverride!.numeroDireccion}, ${envioOverride!.localidad}`}
-              <span style={{ color: "var(--text-muted)" }}> · se aplica al procesar este pedido</span>
+              <span style={{ color: "var(--text-muted)" }}> · {pedidoYaEnviado ? "el pedido ya fue enviado, esto no se aplicó" : "se aplica al procesar este pedido"}</span>
             </span>
             <span style={{ display: "flex", gap: "0.4rem" }}>
               <button className="sf-icon-btn" title="Editar destino" onClick={() => abrirForm("cambiar_direccion")} style={{ width: 24, height: 24, fontSize: "0.68rem" }}>
@@ -699,7 +705,17 @@ export default function TicketResolverSection({
               )}
 
               {formTipo === "cambiar_direccion" && !editingAccionId && (
-                esTiendaNube ? (
+                !esTiendaNube ? (
+                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                    <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
+                    Este pedido no es de Tienda Nube, así que no se puede corregir el destino automáticamente — registrá el detalle arriba.
+                  </p>
+                ) : pedidoYaEnviado ? (
+                  <div className="sf-alert sf-alert-warning">
+                    <i className="fas fa-triangle-exclamation" style={{ flexShrink: 0 }} />
+                    <span>Este pedido ya fue enviado (estado &quot;shipped&quot; con tracking cargado) — Andreani ya tiene el paquete. No se puede corregir el destino desde ShipFlow; hay que hablar directamente con Andreani.</span>
+                  </div>
+                ) : (
                   <div style={{ border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.6rem 0.7rem", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                     <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", margin: 0 }}>
                       <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
@@ -707,17 +723,12 @@ export default function TicketResolverSection({
                     </p>
                     <DestinoToggleFields value={destino} onChange={setDestino} />
                   </div>
-                ) : (
-                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                    <i className="fas fa-circle-info" style={{ marginRight: "0.3rem" }} />
-                    Este pedido no es de Tienda Nube, así que no se puede corregir el destino automáticamente — registrá el detalle arriba.
-                  </p>
                 )
               )}
             </div>
             <div className="sf-modal-footer">
               <button className="sf-btn sf-btn-secondary" onClick={cerrarForm} disabled={saving}>Cancelar</button>
-              <button className="sf-btn" onClick={guardar} disabled={saving}>
+              <button className="sf-btn" onClick={guardar} disabled={saving || cambioDireccionBloqueado}>
                 {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-check" /> {editingAccionId ? "Guardar cambios" : "Registrar"}</>}
               </button>
             </div>

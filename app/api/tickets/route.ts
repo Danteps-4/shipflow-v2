@@ -66,6 +66,7 @@ interface CreateTicketBody {
   marca?: string;
   facturaDatos?: string;
   ordenCompraProductos?: string;
+  cambioDireccionNueva?: string;
   prioridad?: string;
   adjuntos?: { url: string; publicId?: string | null; resourceType?: string; nombreArchivo?: string | null }[];
 }
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest) {
     marca: body.marca,
     facturaDatos: body.facturaDatos || null,
     ordenCompraProductos: body.ordenCompraProductos || null,
+    cambioDireccionNueva: body.cambioDireccionNueva || null,
     prioridad,
     createdBy: guard.user.name,
   }, computeSlaVencimiento(prioridad));

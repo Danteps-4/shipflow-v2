@@ -68,6 +68,7 @@ interface PatchBody {
   facturaDatos?: string | null;
   facturaFormaPago?: string | null;
   ordenCompraProductos?: string | null;
+  cambioDireccionNueva?: string | null;
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -120,6 +121,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     facturaDatos: body.facturaDatos,
     facturaFormaPago: body.facturaFormaPago,
     ordenCompraProductos: body.ordenCompraProductos,
+    cambioDireccionNueva: body.cambioDireccionNueva,
   };
   const ticket = await updateTicket(storeId, id, data, guard.user.name);
   if (!ticket) return NextResponse.json({ error: "No encontrado" }, { status: 404 });
