@@ -35,6 +35,7 @@ export const CATEGORIAS_TICKET: CategoriaTicket[] = [
   { valor: "hacer_factura", label: "Hacer factura" },
   { valor: "crear_orden_compra", label: "Crear orden de compra" },
   { valor: "cambio_direccion", label: "Cambio de dirección/sucursal" },
+  { valor: "direccion_incorrecta", label: "Fue a dirección incorrecta" },
   { valor: "modificacion_pedido", label: "Modificación de pedido" },
   { valor: "agregar_producto", label: "Agregar producto" },
   { valor: "quitar_producto", label: "Quitar producto" },
@@ -69,13 +70,13 @@ export const CATEGORIAS_TICKET: CategoriaTicket[] = [
 // ticket (no al crearlo), cuando quien gestiona la factura ya tiene ese dato.
 export const FORMAS_PAGO = ["Transferencia", "Tarjeta de crédito", "Tarjeta de débito", "Efectivo", "Mercado Pago", "Otro"];
 
-// Los 4 tipos de ticket que se muestran como botón grande en el primer
+// Los tipos de ticket que se muestran como botón grande en el primer
 // paso de "Crear Ticket" (ver app/tickets/page.tsx), en vez de tener que
-// buscarlos en el dropdown completo de categorías. El resto de las ~18
+// buscarlos en el dropdown completo de categorías. El resto de las ~19
 // categorías se elige vía el botón "Otra categoría", que abre el flujo
 // de siempre. "crear_orden_compra" es el único caso especial: no pide
 // buscar un pedido existente, porque por definición todavía no existe.
-export const CATEGORIAS_RAPIDAS = ["hacer_factura", "crear_orden_compra", "falla_producto", "cambio_direccion"];
+export const CATEGORIAS_RAPIDAS = ["hacer_factura", "crear_orden_compra", "falla_producto", "cambio_direccion", "direccion_incorrecta"];
 
 export function labelCategoria(valor: string): string {
   return CATEGORIAS_TICKET.find(c => c.valor === valor)?.label ?? valor;

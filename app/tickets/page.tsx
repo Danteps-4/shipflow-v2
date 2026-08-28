@@ -113,6 +113,7 @@ const ICONOS_RAPIDOS: Record<string, string> = {
   crear_orden_compra: "fas fa-cart-shopping",
   falla_producto: "fas fa-triangle-exclamation",
   cambio_direccion: "fas fa-location-dot",
+  direccion_incorrecta: "fas fa-signs-post",
 };
 
 interface Me { id: string; name: string; role: "admin" | "member"; ticketsPuedeSupervisar?: boolean; }
