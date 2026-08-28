@@ -378,6 +378,11 @@ export default function TicketDetallePage() {
     );
   }
 
+  // El pedido ya fue enviado (estado "shipped" + tracking, tal como estaba
+  // a la hora de crear el ticket) — Andreani ya tiene el paquete, así que
+  // corregir el destino desde ShipFlow ya no sirve de nada.
+  const pedidoYaEnviado = !!detalle?.pedido_estado?.includes("envío: shipped") && !!detalle?.pedido_tracking;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
@@ -588,6 +593,12 @@ export default function TicketDetallePage() {
                       <div className="sf-step-badge"><i className="fas fa-location-dot" style={{ fontSize: "0.65rem" }} /></div>
                       <div><h2>Nueva dirección/sucursal</h2></div>
                     </div>
+                    {pedidoYaEnviado && (
+                      <div className="sf-alert sf-alert-warning" style={{ marginBottom: "0.75rem" }}>
+                        <i className="fas fa-truck" style={{ flexShrink: 0 }} />
+                        <span>Este pedido ya fue enviado (shipped, con tracking cargado) — Andreani ya tiene el paquete. Este dato queda solo como referencia; para cambiar el destino real hay que hablar con Andreani directamente.</span>
+                      </div>
+                    )}
                     {editandoCambioDireccion ? (
                       <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                         <textarea className="sf-input" rows={3} value={cambioDireccionDraft} onChange={e => setCambioDireccionDraft(e.target.value)} style={{ resize: "vertical", fontFamily: "inherit" }} autoFocus />
@@ -770,7 +781,7 @@ export default function TicketDetallePage() {
                     }}
                     ticketNumeroPedido={detalle.numero_pedido}
                     ticketCanalPedido={detalle.canal_pedido}
-                    pedidoYaEnviado={!!detalle.pedido_estado?.includes("envío: shipped") && !!detalle.pedido_tracking}
+                    pedidoYaEnviado={pedidoYaEnviado}
                     cambiosGenerados={cambiosGenerados}
                     envioOverride={envioOverride}
                     comprobantes={detalle.adjuntos.filter(a => a.cambio_id != null)}
