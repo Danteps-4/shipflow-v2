@@ -91,6 +91,15 @@ export async function deleteTnConexion(storeId: string): Promise<void> {
   await sql`DELETE FROM tn_conexiones WHERE store_id = ${storeId}`;
 }
 
+// Para procesos sin sesión de usuario (ej. el webhook de conciliación de
+// transferencias) que necesitan probar contra todas las tiendas conectadas,
+// no una "tienda activa" — no hay forma de saber a cuál pertenece un aviso
+// de Telegram sin buscarlo.
+export async function getAllTnConexiones(): Promise<TnConexion[]> {
+  const sql = getDb();
+  return await sql`SELECT store_id, access_token, store_name FROM tn_conexiones` as TnConexion[];
+}
+
 // ─── ml_conexiones ───────────────────────────────────────────────────────────
 
 export async function upsertMlConexion(data: {

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import TicketsNotificationBell from "@/components/TicketsNotificationBell";
 import DepositoNotificationBell from "@/components/DepositoNotificationBell";
+import ConciliacionNotificationBell from "@/components/ConciliacionNotificationBell";
 
 export default function UserMenu() {
   const router = useRouter();
@@ -30,6 +31,7 @@ export default function UserMenu() {
     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
       <TicketsNotificationBell />
       <DepositoNotificationBell />
+      <ConciliacionNotificationBell />
       <span style={{
         fontSize: "0.78rem", color: "var(--text-muted)", fontWeight: 500,
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120,

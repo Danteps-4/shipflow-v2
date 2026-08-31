@@ -143,6 +143,11 @@ export interface TnOrder {
   shipping_option:  string | { id?: number; name?: string; code?: string } | null;
   shipping_carrier_name?: string | null;
   fulfillments: unknown[];
+  // Identifican el medio de pago — "offline"/"Transferencia Bancaria" para
+  // pagos manuales (transferencia/depósito). Usado por la conciliación de
+  // transferencias para filtrar candidatos.
+  gateway?: string;
+  gateway_name?: string;
 }
 
 export interface OrdersApiResponse {

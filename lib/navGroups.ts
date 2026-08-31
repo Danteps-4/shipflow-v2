@@ -69,7 +69,7 @@ export const NAV_GROUPS: Apartado[] = [
     module: "finanzas",
     subApartados: [
       { href: "/finanzas", icon: "fas fa-chart-pie", label: "Gastos y Suscripciones" },
-      { href: "/finanzas/transferencias", icon: "fas fa-money-bill-transfer", label: "Transferencias" },
+      { href: "/finanzas/conciliacion-transferencias", icon: "fas fa-money-bill-transfer", label: "Conciliación de transferencias" },
     ],
   },
   {
