@@ -8,9 +8,21 @@ import { uploadBuffer } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
 
+type TipoEtiquetaMl = "envio" | "producto";
+
+const SCRIPT_POR_TIPO: Record<TipoEtiquetaMl, string> = {
+  envio: "zpl_to_pdf.py",
+  producto: "zpl_producto_to_pdf.py",
+};
+
+const TITULO_DEPOSITO_POR_TIPO: Record<TipoEtiquetaMl, string> = {
+  envio: "Etiquetas ML",
+  producto: "Etiquetas de producto ML",
+};
+
 // Ver el comentario equivalente en app/api/etiquetas/route.ts: copia
 // best-effort al módulo de Depósito, no debe romper la descarga principal.
-async function copiarADeposito(sfUserId: string, createdBy: string, buffer: Buffer) {
+async function copiarADeposito(sfUserId: string, createdBy: string, buffer: Buffer, tipo: TipoEtiquetaMl) {
   try {
     const tokens = readTokens(sfUserId);
     if (!tokens) return;
@@ -21,7 +33,7 @@ async function copiarADeposito(sfUserId: string, createdBy: string, buffer: Buff
     const fecha = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
     await createEtiquetaDeposito(storeId, {
       origen: "mercado_libre",
-      titulo: `Etiquetas ML · ${fecha}`,
+      titulo: `${TITULO_DEPOSITO_POR_TIPO[tipo]} · ${fecha}`,
       url,
       publicId,
       createdBy,
@@ -48,6 +60,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Falta el archivo ZIP o TXT" }, { status: 400 });
   }
 
+  const tipoParam = formData.get("tipo") as string | null;
+  const tipo: TipoEtiquetaMl = tipoParam === "producto" ? "producto" : "envio";
+
   let fileBuffer: Buffer;
   try {
     fileBuffer = Buffer.from(await file.arrayBuffer());
@@ -57,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   const fileB64 = fileBuffer.toString("base64");
-  const scriptPath = path.join(process.cwd(), "scripts", "zpl_to_pdf.py");
+  const scriptPath = path.join(process.cwd(), "scripts", SCRIPT_POR_TIPO[tipo]);
   const inputJson = JSON.stringify({ file_b64: fileB64, filename: file.name });
 
   let b64Result: string | null = null;
@@ -108,12 +123,13 @@ export async function POST(req: NextRequest) {
 
   const resultBuffer = Buffer.from(b64Result, "base64");
 
-  await copiarADeposito(guard.user.id, guard.user.name, resultBuffer);
+  await copiarADeposito(guard.user.id, guard.user.name, resultBuffer, tipo);
 
+  const filename = tipo === "producto" ? "etiquetas_producto_ml.pdf" : "etiquetas_ml.pdf";
   return new NextResponse(resultBuffer, {
     headers: {
       "Content-Type": "application/pdf",
-      "Content-Disposition": `attachment; filename="etiquetas_ml.pdf"`,
+      "Content-Disposition": `attachment; filename="${filename}"`,
     },
   });
 }

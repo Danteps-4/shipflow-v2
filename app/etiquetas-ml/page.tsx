@@ -6,6 +6,22 @@ import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
 type FileState = { file: File; name: string } | null;
+type Tipo = "envio" | "producto";
+
+const TIPO_CONFIG: Record<Tipo, { label: string; icon: string; stepDesc: string; resultDesc: string }> = {
+  envio: {
+    label: "Etiqueta de Envío",
+    icon: "fas fa-truck",
+    stepDesc: "ZIP o TXT con las etiquetas de envío ZPL exportadas de Mercado Libre",
+    resultDesc: "Se descargará un PDF de 4×6\" con una etiqueta por página y el SKU incluido",
+  },
+  producto: {
+    label: "Etiqueta de Producto",
+    icon: "fas fa-tag",
+    stepDesc: "ZIP o TXT con las etiquetas de producto (código de barras + SKU) exportadas de Mercado Libre",
+    resultDesc: "Se descargará un PDF de 4×6\" con una página por par de etiquetas, tal como vienen en el rollo",
+  },
+};
 
 function DropZone({
   label,
@@ -60,10 +76,18 @@ function DropZone({
 
 export default function EtiquetasMlPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [tipo, setTipo] = useState<Tipo>("envio");
   const [file, setFile] = useState<FileState>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+
+  function cambiarTipo(t: Tipo) {
+    setTipo(t);
+    setFile(null);
+    setError(null);
+    setDone(false);
+  }
 
   async function handleProcess() {
     if (!file) return;
@@ -74,6 +98,7 @@ export default function EtiquetasMlPage() {
     try {
       const form = new FormData();
       form.append("file", file.file);
+      form.append("tipo", tipo);
 
       const res = await fetch("/api/etiquetas-ml", { method: "POST", body: form });
 
@@ -97,7 +122,8 @@ export default function EtiquetasMlPage() {
       const dd = String(hoy.getDate()).padStart(2, "0");
       const mm = String(hoy.getMonth() + 1).padStart(2, "0");
       const aa = String(hoy.getFullYear()).slice(2);
-      a.download = `etiquetas_ml_${dd}-${mm}-${aa}.pdf`;
+      const tipoArchivo = tipo === "producto" ? "producto" : "envio";
+      a.download = `etiquetas_ml_${tipoArchivo}_${dd}-${mm}-${aa}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
       setDone(true);
@@ -135,16 +161,49 @@ export default function EtiquetasMlPage() {
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>
             Etiquetas ML (ZPL → PDF)
           </h1>
-          <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
+          <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
             Convertí el ZIP o TXT de etiquetas ZPL de Mercado Libre a un PDF listo para tu impresora térmica.
           </p>
+
+          {/* ── Selector de tipo ── */}
+          <div style={{
+            display: "inline-flex",
+            background: "var(--bg-secondary)",
+            border: "1px solid var(--border-color)",
+            borderRadius: "var(--radius)",
+            padding: "3px",
+            marginBottom: "2rem",
+            gap: "2px",
+          }}>
+            {(["envio", "producto"] as Tipo[]).map(t => (
+              <button
+                key={t}
+                onClick={() => cambiarTipo(t)}
+                style={{
+                  background: tipo === t ? "var(--primary-color)" : "transparent",
+                  color: tipo === t ? "#fff" : "var(--text-muted)",
+                  border: "none",
+                  borderRadius: "calc(var(--radius) - 2px)",
+                  padding: "0.4rem 1.1rem",
+                  cursor: "pointer",
+                  fontWeight: tipo === t ? 600 : 400,
+                  fontSize: "0.875rem",
+                  transition: "all 0.15s",
+                  display: "flex", alignItems: "center", gap: "0.45rem",
+                }}
+              >
+                <i className={TIPO_CONFIG[t].icon} />
+                {TIPO_CONFIG[t].label}
+              </button>
+            ))}
+          </div>
 
           {/* ── PASO 1 ─────────────────────────────────────────── */}
           <div className="sf-section-title">
             <div className="sf-step-badge pending">1</div>
             <div>
               <h2>Subir archivo</h2>
-              <p>ZIP o TXT con las etiquetas ZPL exportadas de Mercado Libre</p>
+              <p>{TIPO_CONFIG[tipo].stepDesc}</p>
             </div>
           </div>
 
@@ -168,7 +227,7 @@ export default function EtiquetasMlPage() {
             </div>
             <div>
               <h2>Generar PDF</h2>
-              <p>Se descargará un PDF de 4×6&quot; con una etiqueta por página y el SKU incluido</p>
+              <p>{TIPO_CONFIG[tipo].resultDesc}</p>
             </div>
           </div>
 

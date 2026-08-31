@@ -40,6 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# python
+__pycache__/
+*.pyc
+
 # datos de usuarios y tiendas (generados en runtime, NO subir al repo)
 users.json
 stores_*.json
