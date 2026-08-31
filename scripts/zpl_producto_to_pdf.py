@@ -41,7 +41,7 @@ PT_PER_DOT = 72.0 / DPI
 # ancho se usa completo (el label ya sale renderizado a los 4" de ancho).
 ROW_H_DOTS = 200
 ROWS_PER_PAGE = 5
-ROW_GAP_PT = 4
+ROW_GAP_PT = 14  # separación entre filas — con menos quedaban casi pegadas
 
 RENDER_DELAY_S = 0.3       # pausa entre etiquetas para no superar el rate limit
 MAX_RETRIES = 5
