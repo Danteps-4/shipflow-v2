@@ -63,6 +63,20 @@ def split_labels(zpl_text: str) -> list:
     return [l for l in labels if len(l) > 20 and "^FO" in l]
 
 
+# Ojo: NO tocar el ancho de módulo (^BY) — con 9 caracteres alfanuméricos
+# el código ya usa casi todo el ancho de su columna (410 dots); pasar de
+# 2 a 3 lo desborda contra la columna de al lado. El alto tampoco tiene
+# mucho margen: medido sobre el render real, el hueco entre el código y
+# el texto "KZPU28352" de abajo es de solo 8 dots — +2 es lo más que se
+# puede subir sin que se vean pegados.
+def enlarge_barcode(zpl: str) -> str:
+    def repl(m):
+        module_w = int(m.group(1))
+        height = int(m.group(2)) + 2
+        return f"^BY{module_w},,0^BCN,{height},N,N"
+    return re.sub(r"\^BY(\d+),,0\^BCN,(\d+),N,N", repl, zpl)
+
+
 def render_zpl_to_png(zpl: str) -> bytes:
     req = urllib.request.Request(
         LABELARY_URL,
@@ -141,7 +155,7 @@ def main():
     for i, zpl in enumerate(labels):
         if i > 0:
             time.sleep(RENDER_DELAY_S)
-        png_bytes = render_zpl_to_png(zpl)
+        png_bytes = render_zpl_to_png(enlarge_barcode(zpl))
         row_images.append(crop_row(png_bytes))
 
     pdf_bytes = build_pdf(row_images)
