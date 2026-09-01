@@ -6,7 +6,6 @@ import {
 import {
   TransferenciaBancaria, actualizarResultadoMatching, marcarError, registrarAuditoria,
 } from "./conciliacionTransferenciasDb";
-import { enviarMensajeTelegram } from "./telegramClient";
 
 function toleranciaCents(): number {
   return Number(process.env.PAYMENT_AMOUNT_TOLERANCE_CENTS ?? "100");
@@ -14,10 +13,6 @@ function toleranciaCents(): number {
 
 function ventanaDias(): number {
   return Number(process.env.PAYMENT_MATCH_LOOKBACK_DAYS ?? "7");
-}
-
-function fmtPesos(cents: number): string {
-  return (cents / 100).toLocaleString("es-AR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 // Corre el motor de conciliación para una transferencia ya guardada:
@@ -80,33 +75,9 @@ export async function procesarTransferencia(transferencia: TransferenciaBancaria
   await registrarAuditoria(transferencia.id, `nivel_${decision.nivel.toLowerCase()}`, {
     pedido: sel?.candidate.orderNumber ?? null,
   });
-
-  await avisarPorTelegram(transferencia, decision.nivel, sel);
 }
 
 function backoffMs(retryCount: number): number {
   const pasos = [60_000, 5 * 60_000, 15 * 60_000];
   return pasos[Math.min(retryCount, pasos.length - 1)];
-}
-
-async function avisarPorTelegram(
-  t: TransferenciaBancaria, nivel: string, sel: CandidateMatch | null,
-): Promise<void> {
-  const chatId = t.telegram_chat_id ?? process.env.TELEGRAM_PAYMENT_CHAT_ID;
-  if (!chatId) return;
-  const monto = fmtPesos(Number(t.amount_cents));
-  const dniFmt = t.detected_dni ?? "sin detectar";
-
-  if (nivel === "AUTO_MATCHED" && sel) {
-    const pedidoMonto = fmtPesos(sel.candidate.totalCents);
-    const diferencia = fmtPesos(Math.abs(sel.candidate.totalCents - Number(t.amount_cents)));
-    await enviarMensajeTelegram(chatId,
-      `✅ TRANSFERENCIA MATCHEADA\nPedido: #${sel.candidate.orderNumber}\nCliente: ${t.sender_name}\nTransferencia: $${monto}\nPedido: $${pedidoMonto}\nDiferencia: $${diferencia}\nDNI: ${dniFmt}\n\nQueda pendiente confirmarlo en Tiendanube.`);
-  } else if (nivel === "REQUIRES_REVIEW") {
-    await enviarMensajeTelegram(chatId,
-      `⚠️ REQUIERE REVISIÓN\nTransferencia: $${monto}\nCliente: ${t.sender_name}\nDNI: ${dniFmt}\n\nRevisar en ShipFlow.`);
-  } else if (nivel === "UNMATCHED") {
-    await enviarMensajeTelegram(chatId,
-      `❓ TRANSFERENCIA SIN PEDIDO\nMonto: $${monto}\nCliente: ${t.sender_name}\nDNI: ${dniFmt}\n\nNo se encontró ningún pedido pendiente compatible.`);
-  }
 }
