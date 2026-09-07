@@ -40,9 +40,13 @@ export async function destroyAsset(publicId: string, resourceType: "image" | "vi
 // `format` es importante para recursos "raw": sin él, Cloudinary le pone un
 // public_id random SIN extensión, y el navegador no tiene forma de saber
 // que es un PDF (lo descarga como blob sin nombre ni formato).
+// Se usa upload_chunked_stream (subida en partes) en vez de upload_stream: un
+// PDF de etiquetas con muchas páginas puede pesar más de los ~10MB que
+// Cloudinary acepta en una subida "raw" de una sola vez, y con eso fallaba
+// silenciosamente (o con "Error al subir el archivo" en la subida manual).
 export function uploadBuffer(buffer: Buffer, folder: string, format: string): Promise<{ url: string; publicId: string }> {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
+    const stream = cloudinary.uploader.upload_chunked_stream(
       { folder, resource_type: "raw", format },
       (err, result) => {
         if (err || !result) { reject(err ?? new Error("Cloudinary upload failed")); return; }

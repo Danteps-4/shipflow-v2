@@ -62,18 +62,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Falta indicar para qué es (Tienda Nube o Mercado Libre)" }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito", "pdf");
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito", "pdf");
 
-  await initDepositoTables();
-  const etiqueta = await createEtiquetaDeposito(storeId, {
-    origen: origenForm as OrigenEtiquetaDeposito,
-    titulo: tituloForm || file.name,
-    url,
-    publicId,
-    createdBy: guard.user.name,
-  });
-  return NextResponse.json({ etiqueta });
+    await initDepositoTables();
+    const etiqueta = await createEtiquetaDeposito(storeId, {
+      origen: origenForm as OrigenEtiquetaDeposito,
+      titulo: tituloForm || file.name,
+      url,
+      publicId,
+      createdBy: guard.user.name,
+    });
+    return NextResponse.json({ etiqueta });
+  } catch (e) {
+    console.error("[deposito] error al subir el archivo:", e);
+    return NextResponse.json({ error: `No se pudo subir el archivo: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
+  }
 }
 
 // Body: { id } marca una etiqueta como impresa (sale del listado principal).
