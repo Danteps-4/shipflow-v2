@@ -73,16 +73,46 @@ export default function DepositoPage() {
     return () => clearInterval(id);
   }, [fetchEtiquetas]);
 
+  // El archivo se sube directo del navegador a Cloudinary (firmado por
+  // /api/deposito/upload-signature) y recién después se avisa a nuestra API
+  // con el resultado — así el PDF pesado nunca pasa por Railway, que daba un
+  // error falso en el cliente con archivos grandes aunque el envío terminara
+  // bien del otro lado.
   async function handleSubirManual(file: File) {
     if (!origenManual) return;
     setSubiendo(true);
     setError(null);
     try {
+      const firmaRes = await fetch("/api/deposito/upload-signature", { method: "POST" });
+      if (!firmaRes.ok) throw new Error("No se pudo firmar la subida");
+      const { timestamp, signature, apiKey, cloudName } = await firmaRes.json();
+
       const form = new FormData();
       form.append("file", file);
-      form.append("origen", origenManual);
-      if (tituloManual.trim()) form.append("titulo", tituloManual.trim());
-      const res = await fetch("/api/deposito", { method: "POST", body: form });
+      form.append("api_key", apiKey);
+      form.append("timestamp", String(timestamp));
+      form.append("signature", signature);
+      form.append("folder", "shipflow-deposito");
+
+      // resource_type "raw" a propósito (no "auto"): un PDF de muchas páginas
+      // como este, "auto" lo clasifica como "image" en vez de "raw", lo que
+      // rompería el borrado (destroyAsset se llama siempre con "raw" para
+      // estas etiquetas) y desalinearía la URL con el resto del módulo.
+      const uploadRes = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`, { method: "POST", body: form });
+      if (!uploadRes.ok) throw new Error("Error al subir el archivo a Cloudinary");
+      const uploadData = await uploadRes.json();
+
+      const res = await fetch("/api/deposito", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: uploadData.secure_url,
+          publicId: uploadData.public_id,
+          origen: origenManual,
+          titulo: tituloManual.trim(),
+          nombreArchivo: file.name,
+        }),
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? "Error al subir el archivo");

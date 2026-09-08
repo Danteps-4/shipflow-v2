@@ -8,7 +8,7 @@ import {
 } from "@/lib/depositoDb";
 
 const ORIGENES_VALIDOS: OrigenEtiquetaDeposito[] = ["tienda_nube", "mercado_libre"];
-import { uploadBuffer, destroyAsset } from "@/lib/cloudinary";
+import { destroyAsset } from "@/lib/cloudinary";
 
 export const runtime = "nodejs";
 
@@ -35,8 +35,11 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ etiquetas });
 }
 
-// Subida manual: alguien ya tiene un PDF de etiquetas generado por afuera
-// (o quiere sumar algo puntual) y lo sube directo para que depósito lo vea.
+// Subida manual: el navegador sube el PDF directo a Cloudinary (firmado vía
+// /api/deposito/upload-signature) y esta ruta solo recibe el resultado
+// ({url, publicId}) para crear la fila — el archivo pesado nunca pasa por
+// nuestro propio servidor/Railway, que mostraba un error falso en el cliente
+// con archivos grandes aunque la subida terminara bien del otro lado.
 export async function POST(req: NextRequest) {
   const guard = await requireModule(req, "deposito", "/deposito");
   if (!guard.ok) return guard.response;
@@ -44,40 +47,33 @@ export async function POST(req: NextRequest) {
   const storeId = await getStoreId(req);
   if (!storeId) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  let formData: FormData;
+  let body: { url?: string; publicId?: string; titulo?: string; origen?: string; nombreArchivo?: string };
   try {
-    formData = await req.formData();
+    body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Error al leer el archivo enviado" }, { status: 400 });
+    return NextResponse.json({ error: "Error al leer los datos enviados" }, { status: 400 });
   }
 
-  const file = formData.get("file") as File | null;
-  const tituloForm = (formData.get("titulo") as string | null)?.trim();
-  const origenForm = formData.get("origen") as string | null;
-  if (!file) return NextResponse.json({ error: "Falta el archivo PDF" }, { status: 400 });
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-    return NextResponse.json({ error: "El archivo tiene que ser un PDF" }, { status: 400 });
-  }
+  const { url, publicId, origen: origenForm, nombreArchivo } = body;
+  const tituloForm = body.titulo?.trim();
+  if (!url || !publicId) return NextResponse.json({ error: "Falta la subida del archivo" }, { status: 400 });
   if (!origenForm || !ORIGENES_VALIDOS.includes(origenForm as OrigenEtiquetaDeposito)) {
     return NextResponse.json({ error: "Falta indicar para qué es (Tienda Nube o Mercado Libre)" }, { status: 400 });
   }
 
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const { url, publicId } = await uploadBuffer(buffer, "shipflow-deposito", "pdf");
-
     await initDepositoTables();
     const etiqueta = await createEtiquetaDeposito(storeId, {
       origen: origenForm as OrigenEtiquetaDeposito,
-      titulo: tituloForm || file.name,
+      titulo: tituloForm || nombreArchivo || "Etiquetas",
       url,
       publicId,
       createdBy: guard.user.name,
     });
     return NextResponse.json({ etiqueta });
   } catch (e) {
-    console.error("[deposito] error al subir el archivo:", e);
-    return NextResponse.json({ error: `No se pudo subir el archivo: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
+    console.error("[deposito] error al crear la etiqueta:", e);
+    return NextResponse.json({ error: `No se pudo guardar el archivo: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 });
   }
 }
 
