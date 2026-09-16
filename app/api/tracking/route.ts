@@ -7,6 +7,7 @@ import os from "os";
 import fs from "fs";
 import { initCambiosTables, getCambioById, setTrackingCambio } from "@/lib/cambiosDb";
 import { initTicketsTables, getTicketsByNumeroPedido, setPedidoTracking, addHistorial } from "@/lib/ticketsDb";
+import { initDespachoTables, upsertEnvioTracking } from "@/lib/despachoDb";
 
 export const runtime = "nodejs";
 
@@ -145,6 +146,17 @@ export async function POST(req: NextRequest) {
   const { entries }: { entries: TrackingEntry[] } = await req.json();
   const results: TrackingResult[] = [];
   const storeIdStr = String(tokens.user_id);
+  await initDespachoTables();
+
+  // Registra el tracking en el reverse-index de Despacho (tracking → pedido)
+  // apenas se confirma por cualquiera de los 3 caminos de abajo. Nunca debe
+  // romper el flujo de carga de tracking que ya funciona: se traga cualquier
+  // error propio.
+  const registrarEnDespacho = (numeroOrden: string, tracking: string) =>
+    upsertEnvioTracking({
+      storeId: storeIdStr, numeroOrden, trackingNumber: tracking,
+      carrier: "andreani", createdBy: guard.user.name,
+    }).catch(() => {});
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const DELAY_MS = 600; // TN rate limit: ~2 req/s, usamos 600 ms entre pedidos
@@ -169,6 +181,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
         await setTrackingCambio(storeIdStr, cambioId, entry.tracking);
+        await registrarEnDespacho(entry.order, entry.tracking);
         if (cambio.ticket_caso_id) {
           await initTicketsTables();
           await addHistorial(
@@ -192,6 +205,7 @@ export async function POST(req: NextRequest) {
       const { status, body } = await patchTracking(tokens.user_id, tokens.access_token, realId, fulfillmentId, entry.tracking);
 
       if (status === 200 || status === 201) {
+        await registrarEnDespacho(entry.order, entry.tracking);
         results.push({ ...entry, status: "success" });
       } else {
         results.push({ ...entry, status: "error", detail: `HTTP ${status}: ${body}` });
@@ -213,6 +227,7 @@ export async function POST(req: NextRequest) {
               guard.user.name, { tracking: entry.tracking },
             );
           }
+          await registrarEnDespacho(entry.order, entry.tracking);
           results.push({ ...entry, status: "success" });
           continue;
         }

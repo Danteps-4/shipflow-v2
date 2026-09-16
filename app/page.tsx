@@ -176,6 +176,20 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Despacho",
+    module: "despacho" as ModuleKey,
+    tools: [
+      {
+        href: "/despacho",
+        icon: "fas fa-barcode",
+        color: "#22c55e",
+        title: "Despacho (Escaneo)",
+        description: "Escaneá la etiqueta de Andreani antes de que el paquete salga del depósito para confirmar el despacho con trazabilidad completa.",
+        tags: ["Código de barras", "Trazabilidad", "Andreani"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

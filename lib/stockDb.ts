@@ -194,6 +194,21 @@ export async function getStock(storeId: string): Promise<StockItem[]> {
   return rows as StockItem[];
 }
 
+// Lectura puntual de un subconjunto de SKUs, usada por Despacho para mostrar
+// el stock actual en la tarjeta de confirmación ("Stock disponible") — no
+// escribe nada, el descuento real ya pasó en deducirStock() al momento del
+// pago, ver lib/despachoDb.ts.
+export async function getStockPorSkus(storeId: string, skus: string[]): Promise<StockItem[]> {
+  if (!skus.length) return [];
+  const sql = getDb();
+  const rows = await sql`
+    SELECT sku, nombre, cantidad, destacado, importado, updated_at
+    FROM stock
+    WHERE store_id = ${storeId} AND sku = ANY(${skus})
+  `;
+  return rows as StockItem[];
+}
+
 export async function setDestacado(storeId: string, sku: string, destacado: boolean): Promise<void> {
   const sql = getDb();
   await sql`
