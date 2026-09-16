@@ -140,7 +140,8 @@ export default function DespachoPage() {
   async function enviarCodigo(valorCrudo: string) {
     const value = valorCrudo.trim();
     setCodigo("");
-    if (!value || scanning) { enfocar(); return; }
+    enfocar();
+    if (!value) return;
     setScanning(true);
     setErrorRed(null);
     try {
@@ -223,6 +224,7 @@ export default function DespachoPage() {
           <form onSubmit={handleSubmit} style={{ marginBottom: "1.5rem" }}>
             <label style={{ display: "block", fontSize: "0.85rem", fontWeight: 700, color: "var(--text-muted)", marginBottom: "0.5rem", textAlign: "center" }}>
               ESCANEÁ EL PRÓXIMO PAQUETE
+              {scanning && <i className="fas fa-spinner fa-spin" style={{ marginLeft: "0.5rem" }} />}
             </label>
             <input
               ref={inputRef}
@@ -232,7 +234,6 @@ export default function DespachoPage() {
               onChange={e => setCodigo(e.target.value)}
               onKeyDown={handleKeyDown}
               onBlur={enfocar}
-              disabled={scanning}
               className="sf-input"
               placeholder="Esperando escaneo..."
               style={{
