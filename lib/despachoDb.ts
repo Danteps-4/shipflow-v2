@@ -3,6 +3,7 @@ import { getTnConexion } from "./mlDb";
 import { getCambioById, initCambiosTables } from "./cambiosDb";
 import { getTicketsByNumeroPedido, getTicketById, initTicketsTables } from "./ticketsDb";
 import { convertTnOrders } from "./convertTnOrders";
+import { deducirStock, getStockPorSkus, initStockTables, DeducirItem } from "./stockDb";
 import type { TnOrder, ProductoOrden } from "@/types/orders";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -470,7 +471,33 @@ export async function procesarEscaneo(codigoRaw: string, scannedBy: string): Pro
     };
   }
 
-  const { getStockPorSkus } = await import("./stockDb");
+  // El escaneo es el único momento donde ShipFlow descuenta stock: acá es
+  // donde el producto físicamente sale del depósito, sin margen de error (a
+  // diferencia del pago, que podía descontar stock de un pedido que después
+  // se cancelaba o nunca llegaba a despacharse). El pedido YA quedó
+  // confirmado como despachado en el paso anterior (el claim atómico) — si
+  // el descuento de stock fallara acá, no se revierte el despacho (el
+  // paquete ya salió físicamente, es un hecho), solo se loguea el error para
+  // revisar el stock a mano.
+  try {
+    await initStockTables();
+    if (pedido.origenTipo === "cambio") {
+      const item: DeducirItem = {
+        sku: pedido.productos[0].sku, nombre: pedido.productos[0].nombre, cantidad: pedido.productos[0].cantidad,
+        motivo: `Despacho Cambio ${envio.numero_orden}`, numeroOrden: envio.numero_orden,
+      };
+      await deducirStock(envio.store_id, [item], "tiendanube", "ajuste");
+    } else {
+      const items: DeducirItem[] = pedido.productos.map(p => ({
+        sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
+        motivo: `Venta TN #${envio.numero_orden} (despacho)`, numeroOrden: envio.numero_orden,
+      }));
+      await deducirStock(envio.store_id, items, "tiendanube", "venta");
+    }
+  } catch (e) {
+    console.error("[despacho] error al descontar stock en el escaneo:", e);
+  }
+
   const stock = await getStockPorSkus(envio.store_id, pedido.productos.map(p => p.sku));
 
   return { ok: true, scan: claim.scan, pedido, stock };

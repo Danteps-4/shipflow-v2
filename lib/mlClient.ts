@@ -65,7 +65,11 @@ export async function resolveSku(
 }
 
 // Convierte una orden de Mercado Libre en las líneas de descuento que
-// espera deducirStock() (mismo formato que ya usa Tienda Nube).
+// espera deducirStock() (mismo formato que ya usa Tienda Nube). Sin
+// llamadores hoy: ML no descuenta stock automáticamente (ver
+// app/api/webhooks/mercadolibre/route.ts) hasta que tenga su propio paso de
+// confirmación de despacho — se deja esta función lista para ese momento en
+// vez de borrarla y tener que rehacerla.
 export async function extractDeducirItems(
   storeId: string, accessToken: string, order: MlOrder,
 ): Promise<DeducirItem[]> {

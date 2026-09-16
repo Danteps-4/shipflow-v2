@@ -11,18 +11,10 @@ interface StatusResponse {
   noTnStore?: boolean;
 }
 
-interface SyncResult {
-  ordenes: number;
-  lineasProcesadas: number;
-  insuficiente: { sku: string; nombre: string; disponible: number; solicitado: number }[];
-}
-
 export default function MercadoLibrePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,7 +26,7 @@ export default function MercadoLibrePage() {
   }, []);
 
   async function handleDisconnect() {
-    if (!confirm("¿Desconectar la cuenta de Mercado Libre? Dejará de descontarse stock automáticamente por ventas de ML.")) return;
+    if (!confirm("¿Desconectar la cuenta de Mercado Libre?")) return;
     setError(null);
     try {
       const res = await fetch("/api/mercadolibre/disconnect", { method: "POST" });
@@ -43,22 +35,6 @@ export default function MercadoLibrePage() {
       setStatus({ connected: false });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Error desconocido al desconectar");
-    }
-  }
-
-  async function handleSync() {
-    setSyncing(true);
-    setError(null);
-    setSyncResult(null);
-    try {
-      const res = await fetch("/api/mercadolibre/sync", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Error al sincronizar");
-      setSyncResult(data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setSyncing(false);
     }
   }
 
@@ -85,8 +61,7 @@ export default function MercadoLibrePage() {
             Conectar Mercado Libre
           </h1>
           <p style={{ color: "var(--text-muted)", marginBottom: "2rem", fontSize: "0.9rem" }}>
-            Vinculá tu cuenta de vendedor para que cada venta paga descuente stock automáticamente,
-            en tiempo real, con el mismo criterio que Tienda Nube.
+            Vinculá tu cuenta de vendedor para ver los pedidos de Mercado Libre y generar sus etiquetas.
           </p>
 
           {error && (
@@ -107,37 +82,12 @@ export default function MercadoLibrePage() {
             <>
               <div className="sf-alert sf-alert-ok" style={{ marginBottom: "1.5rem" }}>
                 <i className="fas fa-circle-check" style={{ flexShrink: 0 }} />
-                <span>Conectado como <strong>{status.nickname}</strong>. Las ventas pagas descuentan stock automáticamente.</span>
+                <span>Conectado como <strong>{status.nickname}</strong>.</span>
               </div>
 
               <a href="/mercadolibre/pedidos" className="sf-btn sf-btn-secondary" style={{ textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.4rem", marginBottom: "1.5rem" }}>
                 <i className="fas fa-receipt" /> Ver pedidos de Mercado Libre
               </a>
-
-              <div className="sf-section-title">
-                <div className="sf-step-badge"><i className="fas fa-rotate" style={{ fontSize: "0.65rem" }} /></div>
-                <div>
-                  <h2>Sincronizar pedidos recientes</h2>
-                  <p>Trae las ventas pagas de los últimos 7 días y recalcula el stock — útil si algún webhook no llegó. Reprocesar pedidos ya descontados no duplica el descuento.</p>
-                </div>
-              </div>
-
-              <button className="sf-btn" onClick={handleSync} disabled={syncing} style={{ marginBottom: "1rem" }}>
-                {syncing
-                  ? <><i className="fas fa-spinner fa-spin" /> Sincronizando...</>
-                  : <><i className="fas fa-rotate" /> Sincronizar ahora</>
-                }
-              </button>
-
-              {syncResult && (
-                <div className="sf-alert sf-alert-ok" style={{ marginBottom: "1rem" }}>
-                  <i className="fas fa-circle-check" style={{ flexShrink: 0 }} />
-                  <span>
-                    {syncResult.ordenes} pedidos revisados, {syncResult.lineasProcesadas} líneas descontadas.
-                    {syncResult.insuficiente.length > 0 && ` ${syncResult.insuficiente.length} SKU con stock insuficiente.`}
-                  </span>
-                </div>
-              )}
 
               <div>
                 <button

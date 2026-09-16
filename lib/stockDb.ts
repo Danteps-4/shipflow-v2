@@ -195,9 +195,8 @@ export async function getStock(storeId: string): Promise<StockItem[]> {
 }
 
 // Lectura puntual de un subconjunto de SKUs, usada por Despacho para mostrar
-// el stock actual en la tarjeta de confirmación ("Stock disponible") — no
-// escribe nada, el descuento real ya pasó en deducirStock() al momento del
-// pago, ver lib/despachoDb.ts.
+// el stock actual en la tarjeta de confirmación ("Stock disponible") después
+// de descontarlo — ver procesarEscaneo() en lib/despachoDb.ts.
 export async function getStockPorSkus(storeId: string, skus: string[]): Promise<StockItem[]> {
   if (!skus.length) return [];
   const sql = getDb();
@@ -297,6 +296,7 @@ export async function deducirStock(
   storeId: string,
   items: DeducirItem[],
   canal: Canal = "tiendanube",
+  tipo: TipoMovimiento = "venta",
 ): Promise<DeducirResult> {
   if (!items.length) return { insuficiente: [], omitidos: 0 };
 
@@ -384,7 +384,7 @@ export async function deducirStock(
     `;
     await sql`
       INSERT INTO movimientos (store_id, sku, cantidad, motivo, canal, tipo, created_at)
-      VALUES (${storeId}, ${sku}, ${-v.cantidad}, ${motivo}, ${canal}, 'venta', NOW())
+      VALUES (${storeId}, ${sku}, ${-v.cantidad}, ${motivo}, ${canal}, ${tipo}, NOW())
     `;
   }
 
