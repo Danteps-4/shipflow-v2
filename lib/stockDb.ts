@@ -49,7 +49,14 @@ export interface DeducirResult {
 
 // ─── Init + migración ────────────────────────────────────────────────────────
 
+// Se llama en CADA escaneo de Despacho (hot path): sin este guard son 14
+// idas y vueltas a Neon solo para reconfirmar algo que no cambia entre
+// requests — el proceso de Railway queda vivo entre uno y otro, así que
+// alcanza con crear/migrar una vez por arranque del servidor.
+let stockInicializado = false;
+
 export async function initStockTables(): Promise<void> {
+  if (stockInicializado) return;
   const sql = getDb();
 
   // Migración: user_id → store_id si existe la columna vieja
@@ -179,6 +186,8 @@ export async function initStockTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS stock_reposiciones_store_sku
     ON stock_reposiciones (store_id, sku)
   `;
+
+  stockInicializado = true;
 }
 
 // ─── Stock ────────────────────────────────────────────────────────────────────

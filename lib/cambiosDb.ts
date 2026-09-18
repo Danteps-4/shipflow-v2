@@ -51,7 +51,13 @@ export interface Cambio {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
+// Guard igual al de initDespachoTables/initStockTables — se llama en cada
+// escaneo de Despacho cuando el pedido es un Cambio, sin necesidad de
+// reconfirmar el esquema en cada request dentro del mismo proceso.
+let cambiosInicializado = false;
+
 export async function initCambiosTables(): Promise<void> {
+  if (cambiosInicializado) return;
   const sql = getDb();
 
   await sql`
@@ -102,6 +108,8 @@ export async function initCambiosTables(): Promise<void> {
   // app/api/cambios/route.ts), así que estas columnas no se usan más.
   await sql`ALTER TABLE cambios DROP COLUMN IF EXISTS costo`;
   await sql`ALTER TABLE cambios DROP COLUMN IF EXISTS gasto_id`;
+
+  cambiosInicializado = true;
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────

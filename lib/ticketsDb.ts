@@ -188,7 +188,13 @@ export interface TicketResumenCliente {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
+// Guard igual al de initDespachoTables/initStockTables — se llama en cada
+// escaneo de Despacho cuando el pedido viene de un Ticket, sin necesidad de
+// reconfirmar el esquema (bastante largo, este) en cada request.
+let ticketsInicializado = false;
+
 export async function initTicketsTables(): Promise<void> {
+  if (ticketsInicializado) return;
   const sql = getDb();
 
   await sql`
@@ -339,6 +345,8 @@ export async function initTicketsTables(): Promise<void> {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS caso_historial_caso ON caso_historial (caso_id, created_at)`;
+
+  ticketsInicializado = true;
 }
 
 // ─── Historial ──────────────────────────────────────────────────────────────

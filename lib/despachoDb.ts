@@ -88,7 +88,14 @@ const ERROR_MESSAGES: Record<ErrorCodeScan, string> = {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
+// Se llama en CADA escaneo (ruta caliente): sin este guard, son 9 idas y
+// vueltas a Neon solo para confirmar "sí, ya existen" — con el proceso de
+// Railway quedando vivo entre requests, alcanza con crear/migrar una vez por
+// arranque. Cada init*Tables() del hot path de despacho tiene el mismo guard.
+let despachoInicializado = false;
+
 export async function initDespachoTables(): Promise<void> {
+  if (despachoInicializado) return;
   const sql = getDb();
 
   // Reverse-index tracking_number → pedido. Se llena desde /api/tracking en
@@ -163,6 +170,8 @@ export async function initDespachoTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS dispatch_scans_store_orden_idx
     ON dispatch_scans (store_id, numero_orden)
   `;
+
+  despachoInicializado = true;
 }
 
 // ─── envios_tracking ─────────────────────────────────────────────────────────
