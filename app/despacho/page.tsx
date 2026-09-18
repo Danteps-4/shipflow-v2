@@ -318,20 +318,31 @@ export default function DespachoPage() {
             </button>
             {pendientesOpen && (
               <div style={{ padding: "0.75rem 1rem" }}>
-                {!comparacion?.pendientes.length ? (
-                  <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>No hay etiquetas pendientes de escanear.</p>
+                {!comparacion?.generadas.length ? (
+                  <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>Todavía no se generó ninguna etiqueta hoy.</p>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
                     <table className="sf-table">
-                      <thead><tr><th>Pedido</th><th>Tracking</th><th>Generado</th></tr></thead>
+                      <thead><tr><th>Pedido</th><th>Tracking</th><th>Generado</th><th>Estado</th></tr></thead>
                       <tbody>
-                        {comparacion.pendientes.map(p => (
-                          <tr key={p.id}>
-                            <td>{p.numero_orden}</td>
-                            <td>{p.tracking_number}</td>
-                            <td>{fmtHora(p.created_at)}</td>
-                          </tr>
-                        ))}
+                        {(() => {
+                          const pendientesIds = new Set((comparacion.pendientes ?? []).map(p => p.id));
+                          return comparacion.generadas.map(g => {
+                            const pendiente = pendientesIds.has(g.id);
+                            return (
+                              <tr key={g.id} style={pendiente ? { background: "rgba(239,68,68,0.08)" } : undefined}>
+                                <td>{g.numero_orden}</td>
+                                <td>{g.tracking_number}</td>
+                                <td>{fmtHora(g.created_at)}</td>
+                                <td>
+                                  {pendiente
+                                    ? <span className="sf-badge-error"><i className="fas fa-triangle-exclamation" style={{ marginRight: "0.3rem" }} />Pendiente</span>
+                                    : <span className="sf-badge-ok"><i className="fas fa-circle-check" style={{ marginRight: "0.3rem" }} />Escaneado</span>}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
                       </tbody>
                     </table>
                   </div>
