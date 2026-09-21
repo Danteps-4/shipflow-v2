@@ -29,6 +29,9 @@ export interface EnvioTracking {
   carrier: string;
   created_by: string;
   created_at: string;
+  // Foto de los productos al momento de generar el tracking. null en filas
+  // viejas (previas a esta columna) o cuando no se pudieron resolver.
+  productos: ProductoOrden[] | null;
 }
 
 // Shape unificado sin importar de qué rama vino (tienda_nube / cambio / ticket).
@@ -126,6 +129,13 @@ export async function initDespachoTables(): Promise<void> {
     CREATE INDEX IF NOT EXISTS envios_tracking_created_at_idx
     ON envios_tracking (created_at DESC)
   `;
+  // Foto de los productos del pedido en el momento de generar el tracking
+  // (mismo criterio que metadata en dispatch_scans) — permite armar el
+  // resumen "esperado vs escaneado" por SKU sin volver a pedirle los datos
+  // a Tienda Nube fila por fila. Nullable: filas viejas no la tienen.
+  await sql`
+    ALTER TABLE envios_tracking ADD COLUMN IF NOT EXISTS productos JSONB
+  `;
 
   // Log de cada intento de escaneo en el puesto de despacho, éxito y error.
   // metadata guarda una foto del pedido en el momento del escaneo (cliente,
@@ -186,14 +196,17 @@ export async function upsertEnvioTracking(data: {
   trackingNumber: string;
   carrier?: string;
   createdBy: string;
+  productos?: ProductoOrden[];
 }): Promise<void> {
   const sql = getDb();
   const carrier = data.carrier ?? DEFAULT_CARRIER;
+  const productosJson = data.productos ? JSON.stringify(data.productos) : null;
   await sql`
-    INSERT INTO envios_tracking (store_id, numero_orden, tracking_number, carrier, created_by)
-    VALUES (${data.storeId}, ${data.numeroOrden}, ${data.trackingNumber}, ${carrier}, ${data.createdBy})
+    INSERT INTO envios_tracking (store_id, numero_orden, tracking_number, carrier, created_by, productos)
+    VALUES (${data.storeId}, ${data.numeroOrden}, ${data.trackingNumber}, ${carrier}, ${data.createdBy}, ${productosJson}::jsonb)
     ON CONFLICT (carrier, tracking_number) DO UPDATE SET
-      store_id = ${data.storeId}, numero_orden = ${data.numeroOrden}, created_by = ${data.createdBy}
+      store_id = ${data.storeId}, numero_orden = ${data.numeroOrden}, created_by = ${data.createdBy},
+      productos = COALESCE(${productosJson}::jsonb, envios_tracking.productos)
   `;
 }
 
@@ -236,6 +249,54 @@ export async function getPendientesDeEscaneo(fecha?: string): Promise<EnvioTrack
     ORDER BY et.created_at DESC
   `;
   return rows as EnvioTracking[];
+}
+
+export interface ResumenStockSku {
+  sku: string;
+  nombre: string;
+  esperado: number;
+  escaneado: number;
+}
+
+// Resumen "esperado vs escaneado" por SKU para hoy. "Esperado" sale de la
+// foto de productos guardada en envios_tracking al generar cada tracking
+// (todas las etiquetas del día, escaneadas o no); "escaneado" sale de la
+// foto guardada en dispatch_scans.metadata al confirmar cada escaneo. Ambas
+// ya están guardadas de antes — no hace falta volver a pedirle nada a
+// Tienda Nube/Cambios/Tickets para armar este resumen.
+export async function getResumenStockHoy(fecha?: string): Promise<ResumenStockSku[]> {
+  const sql = getDb();
+  const { desde, hasta } = rangoDelDia(fecha);
+  const rows = await sql`
+    WITH esperado AS (
+      SELECT
+        (elem->>'sku') AS sku,
+        (elem->>'nombre') AS nombre,
+        SUM((elem->>'cantidad')::int) AS cantidad
+      FROM envios_tracking et,
+           jsonb_array_elements(COALESCE(et.productos, '[]'::jsonb)) AS elem
+      WHERE et.created_at >= ${desde}::date AND et.created_at < (${hasta}::date + INTERVAL '1 day')
+      GROUP BY sku, nombre
+    ),
+    escaneado AS (
+      SELECT
+        (elem->>'sku') AS sku,
+        SUM((elem->>'cantidad')::int) AS cantidad
+      FROM dispatch_scans ds,
+           jsonb_array_elements(COALESCE(ds.metadata->'productos', '[]'::jsonb)) AS elem
+      WHERE ds.status = 'success'
+        AND ds.created_at >= ${desde}::date AND ds.created_at < (${hasta}::date + INTERVAL '1 day')
+      GROUP BY sku
+    )
+    SELECT
+      e.sku AS sku, e.nombre AS nombre,
+      e.cantidad::int AS esperado, COALESCE(s.cantidad, 0)::int AS escaneado
+    FROM esperado e
+    LEFT JOIN escaneado s ON s.sku = e.sku
+    WHERE e.sku IS NOT NULL AND e.sku <> ''
+    ORDER BY e.nombre
+  ` as ResumenStockSku[];
+  return rows;
 }
 
 // ─── Resolución de pedido (numero_orden → datos completos) ──────────────────

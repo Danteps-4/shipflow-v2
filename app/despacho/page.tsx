@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, FormEvent, KeyboardEvent } fr
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 import type {
-  ScanOutcome, ContadoresDia, DispatchScan, EnvioTracking, HistorialFiltros, ErrorCodeScan,
+  ScanOutcome, ContadoresDia, DispatchScan, EnvioTracking, HistorialFiltros, ErrorCodeScan, ResumenStockSku,
 } from "@/lib/despachoDb";
 
 const ERROR_TITULOS: Record<ErrorCodeScan, string> = {
@@ -73,8 +73,9 @@ export default function DespachoPage() {
   const [errorRed, setErrorRed]       = useState<string | null>(null);
 
   const [contadores, setContadores]   = useState<ContadoresDia | null>(null);
-  const [comparacion, setComparacion] = useState<{ generadas: EnvioTracking[]; pendientes: EnvioTracking[] } | null>(null);
+  const [comparacion, setComparacion] = useState<{ generadas: EnvioTracking[]; pendientes: EnvioTracking[]; resumenStock: ResumenStockSku[] } | null>(null);
   const [pendientesOpen, setPendientesOpen] = useState(false);
+  const [resumenOpen, setResumenOpen] = useState(false);
 
   const [historialOpen, setHistorialOpen]     = useState(false);
   const [historial, setHistorial]             = useState<DispatchScan[]>([]);
@@ -366,6 +367,51 @@ export default function DespachoPage() {
                             );
                           });
                         })()}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Resumen de stock por producto ── */}
+          <div style={{ border: "1px solid var(--border-color)", borderRadius: "var(--radius)", marginBottom: "1rem" }}>
+            <button
+              onClick={() => setResumenOpen(o => !o)}
+              className="sf-btn sf-btn-secondary"
+              style={{ width: "100%", justifyContent: "space-between", border: "none" }}
+            >
+              <span>
+                <i className="fas fa-boxes-stacked" style={{ marginRight: "0.5rem" }} />
+                Resumen de stock por producto
+              </span>
+              <i className={`fas fa-chevron-${resumenOpen ? "up" : "down"}`} />
+            </button>
+            {resumenOpen && (
+              <div style={{ padding: "0.75rem 1rem" }}>
+                {!comparacion?.resumenStock.length ? (
+                  <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                    Todavía no hay productos para resumir hoy (las etiquetas generadas antes de este cambio no tienen esta información).
+                  </p>
+                ) : (
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="sf-table">
+                      <thead><tr><th>Producto</th><th>SKU</th><th>Escaneado</th><th>Esperado</th></tr></thead>
+                      <tbody>
+                        {comparacion.resumenStock.map(r => {
+                          const completo = r.escaneado >= r.esperado;
+                          return (
+                            <tr key={r.sku} style={{ background: completo ? "rgba(16,185,129,0.06)" : "rgba(239,68,68,0.08)" }}>
+                              <td>{r.nombre}</td>
+                              <td style={{ fontFamily: "monospace", fontSize: "0.8rem" }}>{r.sku}</td>
+                              <td style={{ color: completo ? "var(--success-color)" : "var(--error-color)", fontWeight: 700 }}>
+                                {r.escaneado}
+                              </td>
+                              <td>{r.esperado}</td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

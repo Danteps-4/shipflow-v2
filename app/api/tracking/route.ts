@@ -8,6 +8,7 @@ import fs from "fs";
 import { initCambiosTables, getCambioById, setTrackingCambio } from "@/lib/cambiosDb";
 import { initTicketsTables, getTicketsByNumeroPedido, setPedidoTracking, addHistorial } from "@/lib/ticketsDb";
 import { initDespachoTables, upsertEnvioTracking } from "@/lib/despachoDb";
+import type { ProductoOrden, TnProduct } from "@/types/orders";
 
 export const runtime = "nodejs";
 
@@ -36,7 +37,25 @@ async function lookupRealId(storeId: number, token: string, orderNumber: string)
   return data[0].id;
 }
 
-async function getFulfillmentId(storeId: number, token: string, realId: number): Promise<string> {
+// Mismo criterio de extracción que convertTnOrders.ts, para que el resumen
+// de stock por SKU en /despacho use los mismos SKU/nombres que el resto de
+// ShipFlow.
+function extraerProductos(products: TnProduct[] | undefined): ProductoOrden[] {
+  return (products ?? [])
+    .filter(p => p.sku)
+    .map(p => ({
+      sku: p.sku!.trim().toUpperCase(),
+      nombre: p.variant_name ? `${p.name} - ${p.variant_name}` : p.name,
+      cantidad: p.quantity,
+    }));
+}
+
+// De paso trae los productos del pedido (para el resumen de stock de
+// Despacho) del mismo pedido que ya hay que pedirle a Tienda Nube para
+// sacar el fulfillment — no es un llamado extra a la API.
+async function getFulfillmentId(
+  storeId: number, token: string, realId: number,
+): Promise<{ fulfillmentId: string; productos: ProductoOrden[] }> {
   const url = `https://api.tiendanube.com/v1/${storeId}/orders/${realId}`;
   const res = await fetch(url, { headers: tnHeaders(token) });
   if (!res.ok) throw new Error(`Get order failed: ${res.status}`);
@@ -46,7 +65,7 @@ async function getFulfillmentId(storeId: number, token: string, realId: number):
   const f0 = fulfillments[0];
   const fId = typeof f0 === "string" ? f0 : (f0 as Record<string, unknown>).id as string;
   if (!fId) throw new Error("Missing fulfillment id");
-  return String(fId);
+  return { fulfillmentId: String(fId), productos: extraerProductos(order.products) };
 }
 
 async function patchTracking(
@@ -152,10 +171,10 @@ export async function POST(req: NextRequest) {
   // apenas se confirma por cualquiera de los 3 caminos de abajo. Nunca debe
   // romper el flujo de carga de tracking que ya funciona: se traga cualquier
   // error propio.
-  const registrarEnDespacho = (numeroOrden: string, tracking: string) =>
+  const registrarEnDespacho = (numeroOrden: string, tracking: string, productos?: ProductoOrden[]) =>
     upsertEnvioTracking({
       storeId: storeIdStr, numeroOrden, trackingNumber: tracking,
-      carrier: "andreani", createdBy: guard.user.name,
+      carrier: "andreani", createdBy: guard.user.name, productos,
     }).catch(() => {});
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -181,7 +200,8 @@ export async function POST(req: NextRequest) {
           continue;
         }
         await setTrackingCambio(storeIdStr, cambioId, entry.tracking);
-        await registrarEnDespacho(entry.order, entry.tracking);
+        const productosCambio: ProductoOrden[] = cambio.sku ? [{ sku: cambio.sku, nombre: cambio.sku, cantidad: 1 }] : [];
+        await registrarEnDespacho(entry.order, entry.tracking, productosCambio);
         if (cambio.ticket_caso_id) {
           await initTicketsTables();
           await addHistorial(
@@ -198,14 +218,14 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const realId        = await lookupRealId(tokens.user_id, tokens.access_token, entry.order);
+      const realId = await lookupRealId(tokens.user_id, tokens.access_token, entry.order);
       await sleep(DELAY_MS);
-      const fulfillmentId = await getFulfillmentId(tokens.user_id, tokens.access_token, realId);
+      const { fulfillmentId, productos } = await getFulfillmentId(tokens.user_id, tokens.access_token, realId);
       await sleep(DELAY_MS);
       const { status, body } = await patchTracking(tokens.user_id, tokens.access_token, realId, fulfillmentId, entry.tracking);
 
       if (status === 200 || status === 201) {
-        await registrarEnDespacho(entry.order, entry.tracking);
+        await registrarEnDespacho(entry.order, entry.tracking, productos);
         results.push({ ...entry, status: "success" });
       } else {
         results.push({ ...entry, status: "error", detail: `HTTP ${status}: ${body}` });
