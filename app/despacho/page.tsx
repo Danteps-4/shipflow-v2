@@ -26,10 +26,13 @@ function fmtHora(iso: string) {
   });
 }
 
-// Dos tonos ascendentes cortos y agudos = éxito. Dos tonos graves
-// descendentes = error. Deliberadamente distintos entre sí (y del sonido de
-// DepositoNotifier) para reconocerlos de oído sin mirar la pantalla,
-// escaneando a repetición.
+// Tres sonidos bien distinguibles de oído sin mirar la pantalla (y distintos
+// del de DepositoNotifier), escaneando a repetición:
+// - Éxito: dos tonos ascendentes cortos y agudos.
+// - Error genérico: dos tonos graves descendentes.
+// - Duplicado (ya despachado): tres beeps cortos a la misma altura — el
+//   patrón rítmico (3 golpes iguales) se distingue más rápido de oído que
+//   una diferencia sutil de tono, que es fácil de confundir con el error.
 function playTone(pares: [number, number, number][]) {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -50,8 +53,9 @@ function playTone(pares: [number, number, number][]) {
     for (const [freq, start, duration] of pares) beep(freq, start, duration);
   } catch {}
 }
-const playSuccessSound = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]]);
-const playErrorSound   = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]]);
+const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]]);
+const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]]);
+const playDuplicadoSound = () => playTone([[600, 0, 0.09], [600, 0.13, 0.09], [600, 0.26, 0.09]]);
 
 export default function DespachoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -126,7 +130,9 @@ export default function DespachoPage() {
 
   useEffect(() => {
     if (!resultado) return;
-    if (resultado.ok) playSuccessSound(); else playErrorSound();
+    if (resultado.ok) playSuccessSound();
+    else if (resultado.errorCode === "ALREADY_DISPATCHED") playDuplicadoSound();
+    else playErrorSound();
     if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current);
     resultTimeoutRef.current = setTimeout(() => setResultado(null), RESULT_TIMEOUT_MS);
     return () => { if (resultTimeoutRef.current) clearTimeout(resultTimeoutRef.current); };
