@@ -27,23 +27,28 @@ function fmtHora(iso: string) {
 }
 
 // Tres sonidos bien distinguibles de oído sin mirar la pantalla (y distintos
-// del de DepositoNotifier), escaneando a repetición:
-// - Éxito: dos tonos ascendentes cortos y agudos.
-// - Error genérico: dos tonos graves descendentes.
-// - Duplicado (ya despachado): tres beeps cortos a la misma altura — el
-//   patrón rítmico (3 golpes iguales) se distingue más rápido de oído que
-//   una diferencia sutil de tono, que es fácil de confundir con el error.
-function playTone(pares: [number, number, number][]) {
+// del de DepositoNotifier), escaneando a repetición en un depósito con
+// ruido de fondo (montacargas, ventiladores, gente hablando):
+// - Éxito: dos tonos ascendentes cortos y agudos (sinusoide, volumen normal).
+// - Error genérico: dos tonos graves descendentes (sinusoide, volumen normal).
+// - Duplicado (ya despachado): sirena de dos tonos alternados en onda
+//   cuadrada, mucho más fuerte que las otras dos — la onda cuadrada tiene
+//   más armónicos que una sinusoide, así que corta mejor el ruido de fondo
+//   en vez de perderse entre él, y el patrón de sirena no se puede confundir
+//   con el chime melódico de éxito/error.
+function playTone(pares: [number, number, number][], opts?: { type?: OscillatorType; peakGain?: number }) {
   try {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = new AudioCtx();
+    const type = opts?.type ?? "sine";
+    const peakGain = opts?.peakGain ?? 0.35;
     const beep = (freq: number, start: number, duration: number) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.type = "sine";
+      osc.type = type;
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
-      gain.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(peakGain, ctx.currentTime + start + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -55,7 +60,10 @@ function playTone(pares: [number, number, number][]) {
 }
 const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]]);
 const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]]);
-const playDuplicadoSound = () => playTone([[700, 0, 0.08], [700, 0.16, 0.08], [700, 0.32, 0.08]]);
+const playDuplicadoSound = () => playTone(
+  [[900, 0, 0.1], [650, 0.18, 0.1], [900, 0.36, 0.1], [650, 0.54, 0.1]],
+  { type: "square", peakGain: 0.75 },
+);
 
 export default function DespachoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
