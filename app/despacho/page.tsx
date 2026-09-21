@@ -58,8 +58,8 @@ function playTone(pares: [number, number, number][], opts?: { type?: OscillatorT
     for (const [freq, start, duration] of pares) beep(freq, start, duration);
   } catch {}
 }
-const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]]);
-const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]]);
+const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]], { peakGain: 0.6 });
+const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]], { peakGain: 0.6 });
 const playDuplicadoSound = () => playTone(
   [[900, 0, 0.1], [650, 0.18, 0.1], [900, 0.36, 0.1], [650, 0.54, 0.1]],
   { type: "square", peakGain: 0.75 },
@@ -265,19 +265,27 @@ export default function DespachoPage() {
           )}
 
           {/* ── Panel de resultado grande ── */}
-          {resultado && (
+          {resultado && (() => {
+            // Duplicado (ya despachado) se marca aparte en naranja — no es un
+            // error real del pedido como los demás (cancelado, sin pago, etc.),
+            // solo un aviso de que ese paquete ya salió antes.
+            const esDuplicado = !resultado.ok && resultado.errorCode === "ALREADY_DISPATCHED";
+            const color = resultado.ok ? "var(--success-color)" : esDuplicado ? "#f59e0b" : "var(--error-color)";
+            const bg = resultado.ok ? "rgba(16,185,129,0.12)" : esDuplicado ? "rgba(245,158,11,0.12)" : "rgba(239,68,68,0.12)";
+            const icon = resultado.ok ? "fa-circle-check" : esDuplicado ? "fa-clone" : "fa-circle-xmark";
+            return (
             <div
               style={{
                 borderRadius: "var(--radius)", padding: "1.5rem", marginBottom: "1.5rem",
-                background: resultado.ok ? "rgba(16,185,129,0.12)" : "rgba(239,68,68,0.12)",
-                border: `2px solid ${resultado.ok ? "var(--success-color)" : "var(--error-color)"}`,
+                background: bg,
+                border: `2px solid ${color}`,
               }}
             >
               <div style={{
                 display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.75rem",
-                color: resultado.ok ? "var(--success-color)" : "var(--error-color)",
+                color,
               }}>
-                <i className={`fas ${resultado.ok ? "fa-circle-check" : "fa-circle-xmark"}`} style={{ fontSize: "1.75rem" }} />
+                <i className={`fas ${icon}`} style={{ fontSize: "1.75rem" }} />
                 <span style={{ fontSize: "1.5rem", fontWeight: 800 }}>
                   {resultado.ok ? "DESPACHO CONFIRMADO" : ERROR_TITULOS[resultado.errorCode]}
                 </span>
@@ -315,7 +323,8 @@ export default function DespachoPage() {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {/* ── Pendientes ── */}
           <div style={{ border: "1px solid var(--border-color)", borderRadius: "var(--radius)", marginBottom: "1rem" }}>
