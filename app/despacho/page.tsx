@@ -55,7 +55,7 @@ function playTone(pares: [number, number, number][]) {
 }
 const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]]);
 const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]]);
-const playDuplicadoSound = () => playTone([[600, 0, 0.09], [600, 0.13, 0.09], [600, 0.26, 0.09]]);
+const playDuplicadoSound = () => playTone([[700, 0, 0.08], [700, 0.16, 0.08], [700, 0.32, 0.08]]);
 
 export default function DespachoPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
