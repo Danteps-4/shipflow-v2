@@ -58,8 +58,8 @@ function playTone(pares: [number, number, number][], opts?: { type?: OscillatorT
     for (const [freq, start, duration] of pares) beep(freq, start, duration);
   } catch {}
 }
-const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]], { peakGain: 0.85 });
-const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]], { peakGain: 0.85 });
+const playSuccessSound   = () => playTone([[880, 0, 0.11], [1320, 0.12, 0.18]], { peakGain: 1 });
+const playErrorSound     = () => playTone([[220, 0, 0.16], [160, 0.17, 0.28]], { peakGain: 1 });
 const playDuplicadoSound = () => playTone(
   [[900, 0, 0.1], [650, 0.18, 0.1], [900, 0.36, 0.1], [650, 0.54, 0.1]],
   { type: "square", peakGain: 1 },
