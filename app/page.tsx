@@ -190,6 +190,28 @@ const TOOL_GROUPS = [
       },
     ],
   },
+  {
+    label: "Importaciones",
+    module: "importaciones" as ModuleKey,
+    tools: [
+      {
+        href: "/importaciones",
+        icon: "fas fa-ship",
+        color: "#0ea5e9",
+        title: "Compras a China (Ledger)",
+        description: "Registro de compras a proveedores de China: tracking, productos esperados y costos/aduana de cada envío.",
+        tags: ["Compras", "Aduana", "China"],
+      },
+      {
+        href: "/importaciones/recepcion",
+        icon: "fas fa-box-open",
+        color: "#0ea5e9",
+        title: "Recepción (Escaneo)",
+        description: "Escaneá el tracking de cada caja física al recibirla en el depósito para confirmar contenido y sumar al stock.",
+        tags: ["Código de barras", "Stock", "Depósito"],
+      },
+    ],
+  },
 ];
 
 export default function HomePage() {

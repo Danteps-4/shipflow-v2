@@ -116,6 +116,14 @@ export const NAV_GROUPS: Apartado[] = [
       { href: "/despacho", icon: "fas fa-barcode", label: "Despacho (Escaneo)" },
     ],
   },
+  {
+    label: "Importaciones",
+    module: "importaciones",
+    subApartados: [
+      { href: "/importaciones", icon: "fas fa-ship", label: "Compras a China (Ledger)" },
+      { href: "/importaciones/recepcion", icon: "fas fa-box-open", label: "Recepción (Escaneo)" },
+    ],
+  },
 ];
 
 export const ALL_HREFS: string[] = NAV_GROUPS.flatMap((g) => g.subApartados.map((s) => s.href));
