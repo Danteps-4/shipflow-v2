@@ -1,8 +1,10 @@
 import { getDb } from "./db";
-import { getTnConexion } from "./mlDb";
+import { getTnConexion, getMlConexionByStoreId } from "./mlDb";
 import { getCambioById, initCambiosTables } from "./cambiosDb";
 import { getTicketsByNumeroPedido, getTicketById, initTicketsTables } from "./ticketsDb";
 import { convertTnOrders } from "./convertTnOrders";
+import { getValidMlAccessToken } from "./mlTokens";
+import { fetchMlOrder, extractDeducirItems } from "./mlClient";
 import { deducirStock, getStockPorSkus, initStockTables, DeducirItem } from "./stockDb";
 import type { TnOrder, ProductoOrden } from "@/types/orders";
 
@@ -10,7 +12,7 @@ import type { TnOrder, ProductoOrden } from "@/types/orders";
 
 export const DEFAULT_CARRIER = "andreani";
 
-export type OrigenPedido = "tienda_nube" | "cambio" | "ticket";
+export type OrigenPedido = "tienda_nube" | "cambio" | "ticket" | "mercado_libre";
 export type EstadoScan = "success" | "error";
 
 export type ErrorCodeScan =
@@ -32,6 +34,12 @@ export interface EnvioTracking {
   // Foto de los productos al momento de generar el tracking. null en filas
   // viejas (previas a esta columna) o cuando no se pudieron resolver.
   productos: ProductoOrden[] | null;
+  // Segundo código válido para el mismo envío (ej. Mercado Libre imprime dos
+  // barcodes por etiqueta: el shipment_id propio y el tracking del correo
+  // real que lo lleva — cualquiera de los dos puede terminar siendo el que
+  // el operario escanea). null cuando no aplica (ej. Andreani, un solo
+  // código por etiqueta).
+  tracking_alias: string | null;
 }
 
 // Shape unificado sin importar de qué rama vino (tienda_nube / cambio / ticket).
@@ -84,7 +92,7 @@ const ERROR_MESSAGES: Record<ErrorCodeScan, string> = {
   NOT_FOUND:              "No encontramos ningún pedido asociado a este código.",
   ORDER_LOOKUP_FAILED:    "El código está registrado pero no pudimos recuperar los datos del pedido.",
   CANCELLED:              "Este paquete no debe salir del depósito.",
-  PAYMENT_NOT_CONFIRMED:  "Tienda Nube todavía no confirmó el pago de este pedido.",
+  PAYMENT_NOT_CONFIRMED:  "Todavía no se confirmó el pago de este pedido.",
   NO_PRODUCTS:            "Este pedido no tiene productos asociados.",
   ALREADY_DISPATCHED:     "Este envío fue escaneado anteriormente.",
 };
@@ -135,6 +143,17 @@ export async function initDespachoTables(): Promise<void> {
   // a Tienda Nube fila por fila. Nullable: filas viejas no la tienen.
   await sql`
     ALTER TABLE envios_tracking ADD COLUMN IF NOT EXISTS productos JSONB
+  `;
+  // Ver el comentario de tracking_alias en la interfaz EnvioTracking — no
+  // cuenta como "otra etiqueta generada" (getEtiquetasGeneradasHoy/
+  // getResumenStockHoy solo miran tracking_number/productos), es puramente
+  // un segundo código de búsqueda para el mismo envío.
+  await sql`
+    ALTER TABLE envios_tracking ADD COLUMN IF NOT EXISTS tracking_alias TEXT
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS envios_tracking_carrier_alias_uidx
+    ON envios_tracking (carrier, tracking_alias) WHERE tracking_alias IS NOT NULL
   `;
 
   // Log de cada intento de escaneo en el puesto de despacho, éxito y error.
@@ -194,6 +213,7 @@ export async function upsertEnvioTracking(data: {
   storeId: string;
   numeroOrden: string;
   trackingNumber: string;
+  trackingAlias?: string | null;
   carrier?: string;
   createdBy: string;
   productos?: ProductoOrden[];
@@ -201,21 +221,28 @@ export async function upsertEnvioTracking(data: {
   const sql = getDb();
   const carrier = data.carrier ?? DEFAULT_CARRIER;
   const productosJson = data.productos ? JSON.stringify(data.productos) : null;
+  const alias = data.trackingAlias ?? null;
   await sql`
-    INSERT INTO envios_tracking (store_id, numero_orden, tracking_number, carrier, created_by, productos)
-    VALUES (${data.storeId}, ${data.numeroOrden}, ${data.trackingNumber}, ${carrier}, ${data.createdBy}, ${productosJson}::jsonb)
+    INSERT INTO envios_tracking (store_id, numero_orden, tracking_number, tracking_alias, carrier, created_by, productos)
+    VALUES (${data.storeId}, ${data.numeroOrden}, ${data.trackingNumber}, ${alias}, ${carrier}, ${data.createdBy}, ${productosJson}::jsonb)
     ON CONFLICT (carrier, tracking_number) DO UPDATE SET
       store_id = ${data.storeId}, numero_orden = ${data.numeroOrden}, created_by = ${data.createdBy},
+      tracking_alias = COALESCE(${alias}, envios_tracking.tracking_alias),
       productos = COALESCE(${productosJson}::jsonb, envios_tracking.productos)
   `;
 }
 
-export async function getEnvioTrackingByTracking(
-  trackingNumber: string, carrier: string = DEFAULT_CARRIER,
-): Promise<EnvioTracking | null> {
+// Busca por el código tal cual se escaneó, sin asumir de antemano de qué
+// transportista es (antes solo miraba carrier="andreani") — matchea tanto
+// el tracking_number principal como el tracking_alias (ver comentario en
+// EnvioTracking), de cualquier carrier. El carrier real de la fila
+// encontrada es la fuente de verdad para todo lo que sigue en el escaneo.
+export async function getEnvioTrackingByTracking(trackingNumber: string): Promise<EnvioTracking | null> {
   const sql = getDb();
   const rows = await sql`
-    SELECT * FROM envios_tracking WHERE carrier = ${carrier} AND tracking_number = ${trackingNumber}
+    SELECT * FROM envios_tracking
+    WHERE tracking_number = ${trackingNumber} OR tracking_alias = ${trackingNumber}
+    ORDER BY created_at DESC LIMIT 1
   ` as EnvioTracking[];
   return rows[0] ?? null;
 }
@@ -299,6 +326,61 @@ export async function getResumenStockHoy(fecha?: string): Promise<ResumenStockSk
   return rows;
 }
 
+// ─── Captura de envíos de Mercado Libre (equivalente a /api/tracking) ──────
+// A diferencia de Andreani, ML no tiene un paso de "subir tracking" propio:
+// el shipment_id y el tracking del correo real ya están impresos en la
+// etiqueta ZPL desde que se genera (ver scripts/zpl_to_pdf.py, que ahora
+// además de renderizar el PDF devuelve esta lista, extraída del JSON del QR
+// de cada etiqueta). Este es el único momento donde ShipFlow se entera de
+// que existe ese envío, así que es el lugar correcto para poblar
+// envios_tracking — mismo criterio que /api/tracking usa para Andreani.
+export interface EnvioMlDetectado {
+  shipment_id: string;
+  carrier_tracking: string | null;
+}
+
+async function fetchShipmentOrderId(accessToken: string, shipmentId: string): Promise<string | null> {
+  const res = await fetch(`https://api.mercadolibre.com/shipments/${shipmentId}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.order_id ? String(data.order_id) : null;
+}
+
+// Best-effort por diseño (igual que copiarADeposito en las rutas de
+// etiquetas): un envío que no se pudo resolver no debe romper la descarga
+// del PDF, solo se loguea y ese envío en particular no queda escaneable
+// hasta que se corrija a mano o se reintente.
+export async function registrarEnviosMlDesdeEtiquetas(
+  storeId: string, envios: EnvioMlDetectado[], createdBy: string,
+): Promise<void> {
+  if (!envios.length) return;
+  const conexion = await getMlConexionByStoreId(storeId);
+  if (!conexion) return;
+  const accessToken = await getValidMlAccessToken(storeId);
+  if (!accessToken) return;
+
+  for (const envio of envios) {
+    try {
+      const orderId = await fetchShipmentOrderId(accessToken, envio.shipment_id);
+      if (!orderId) continue;
+
+      const order = await fetchMlOrder(accessToken, orderId);
+      const items = await extractDeducirItems(storeId, accessToken, order);
+      const productos: ProductoOrden[] = items.map(i => ({ sku: i.sku, nombre: i.nombre, cantidad: i.cantidad }));
+
+      await upsertEnvioTracking({
+        storeId, numeroOrden: orderId, trackingNumber: envio.shipment_id,
+        trackingAlias: envio.carrier_tracking, carrier: "mercadolibre", createdBy, productos,
+      });
+    } catch (e) {
+      console.error(`[despacho] no se pudo registrar el envío ML ${envio.shipment_id}:`, e);
+    }
+  }
+}
+
 // ─── Resolución de pedido (numero_orden → datos completos) ──────────────────
 // Reusable a futuro por picking/packing: a diferencia de procesarEscaneo, esta
 // función no depende de que exista un tracking, solo de (storeId, numeroOrden).
@@ -318,8 +400,41 @@ async function fetchTnOrderByNumero(
 }
 
 export async function resolvePedidoPorNumeroOrden(
-  storeId: string, numeroOrden: string,
+  storeId: string, numeroOrden: string, carrier: string = DEFAULT_CARRIER,
 ): Promise<PedidoParaEscaneo | null> {
+  // Rama Mercado Libre: numeroOrden acá es el order_id real de ML (no el
+  // "Pack ID"/"Venta ID" que imprime la etiqueta — ese no es resolvible por
+  // API, se descarta al capturar el envío, ver registrarEnviosMlDesdeEtiquetas).
+  if (carrier === "mercadolibre") {
+    const conexion = await getMlConexionByStoreId(storeId);
+    if (!conexion) return null;
+    const accessToken = await getValidMlAccessToken(storeId);
+    if (!accessToken) return null;
+
+    let order;
+    try {
+      order = await fetchMlOrder(accessToken, numeroOrden);
+    } catch {
+      return null;
+    }
+
+    const items = await extractDeducirItems(storeId, accessToken, order);
+    const productos: ProductoOrden[] = items.map(i => ({ sku: i.sku, nombre: i.nombre, cantidad: i.cantidad }));
+    const clienteNombre =
+      [order.buyer?.first_name, order.buyer?.last_name].filter(Boolean).join(" ") || order.buyer?.nickname || "";
+
+    return {
+      origenTipo: "mercado_libre",
+      storeId,
+      numeroOrden,
+      clienteNombre,
+      medioEnvio: "Mercado Libre",
+      productos,
+      cancelado: order.status === "cancelled",
+      pagoConfirmado: order.status === "paid",
+    };
+  }
+
   // Rama 1: envío CAMBIO-{id} (reposición manual, módulo Cambios) — no tiene
   // concepto de cancelación ni de payment_status (no es una venta).
   const cambioMatch = numeroOrden.match(/^CAMBIO-(\d+)$/i);
@@ -454,30 +569,43 @@ export async function registrarEscaneoError(data: {
 // toda la validación, resolución del pedido, y el claim atómico anti-doble-
 // despacho.
 export async function procesarEscaneo(codigoRaw: string, scannedBy: string): Promise<ScanOutcome> {
-  const codigo = codigoRaw.trim();
-  const carrier = DEFAULT_CARRIER;
+  const codigoEscaneado = codigoRaw.trim();
 
-  const envio = await getEnvioTrackingByTracking(codigo, carrier);
+  // Busca sin asumir de antemano el carrier (antes solo miraba "andreani") —
+  // matchea tracking_number O tracking_alias de cualquier carrier. Ver
+  // comentario en getEnvioTrackingByTracking.
+  const envio = await getEnvioTrackingByTracking(codigoEscaneado);
   if (!envio) {
+    // Acá no hay forma de saber el carrier real (el código ni siquiera
+    // matcheó nada) — se registra con el default solo para no dejar la
+    // columna vacía, es un dato puramente informativo en este caso.
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, errorCode: "NOT_FOUND",
+      trackingNumber: codigoEscaneado, carrier: DEFAULT_CARRIER, errorCode: "NOT_FOUND",
       errorMessage: ERROR_MESSAGES.NOT_FOUND, scannedBy,
     });
     return { ok: false, errorCode: "NOT_FOUND", message: ERROR_MESSAGES.NOT_FOUND, scan };
   }
+
+  const carrier = envio.carrier;
+  // Clave canónica para dispatch_scans: SIEMPRE el tracking_number principal
+  // de la fila encontrada, nunca el string crudo que se tipeó — si el
+  // envío tiene un alias (ver Mercado Libre) y hoy se escanea uno de los dos
+  // códigos y mañana el otro, tienen que resolver al mismo despacho único.
+  const trackingNumber = envio.tracking_number;
 
   // Chequeo temprano (evita trabajo de más si ya se sabe que está despachado);
   // la garantía real contra la carrera de concurrencia está en el claim
   // atómico del paso final, no acá.
   const yaDespachado = await getDb()`
     SELECT * FROM dispatch_scans
-    WHERE carrier = ${carrier} AND tracking_number = ${codigo} AND status = 'success'
+    WHERE carrier = ${carrier} AND tracking_number = ${trackingNumber} AND status = 'success'
     ORDER BY created_at ASC LIMIT 1
   ` as DispatchScan[];
   if (yaDespachado[0]) {
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+      trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
       errorCode: "ALREADY_DISPATCHED", errorMessage: ERROR_MESSAGES.ALREADY_DISPATCHED, scannedBy,
+      metadata: { codigoEscaneado },
     });
     return {
       ok: false, errorCode: "ALREADY_DISPATCHED", message: ERROR_MESSAGES.ALREADY_DISPATCHED, scan,
@@ -485,55 +613,56 @@ export async function procesarEscaneo(codigoRaw: string, scannedBy: string): Pro
     };
   }
 
-  const pedido = await resolvePedidoPorNumeroOrden(envio.store_id, envio.numero_orden);
+  const pedido = await resolvePedidoPorNumeroOrden(envio.store_id, envio.numero_orden, carrier);
   if (!pedido) {
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+      trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
       errorCode: "ORDER_LOOKUP_FAILED", errorMessage: ERROR_MESSAGES.ORDER_LOOKUP_FAILED, scannedBy,
+      metadata: { codigoEscaneado },
     });
     return { ok: false, errorCode: "ORDER_LOOKUP_FAILED", message: ERROR_MESSAGES.ORDER_LOOKUP_FAILED, scan };
   }
 
   if (pedido.cancelado) {
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+      trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
       origenTipo: pedido.origenTipo, errorCode: "CANCELLED", errorMessage: ERROR_MESSAGES.CANCELLED,
-      clienteNombre: pedido.clienteNombre, scannedBy,
+      clienteNombre: pedido.clienteNombre, scannedBy, metadata: { codigoEscaneado },
     });
     return { ok: false, errorCode: "CANCELLED", message: ERROR_MESSAGES.CANCELLED, scan, pedido };
   }
 
   if (!pedido.pagoConfirmado) {
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+      trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
       origenTipo: pedido.origenTipo, errorCode: "PAYMENT_NOT_CONFIRMED", errorMessage: ERROR_MESSAGES.PAYMENT_NOT_CONFIRMED,
-      clienteNombre: pedido.clienteNombre, scannedBy,
+      clienteNombre: pedido.clienteNombre, scannedBy, metadata: { codigoEscaneado },
     });
     return { ok: false, errorCode: "PAYMENT_NOT_CONFIRMED", message: ERROR_MESSAGES.PAYMENT_NOT_CONFIRMED, scan, pedido };
   }
 
   if (pedido.productos.length === 0) {
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+      trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
       origenTipo: pedido.origenTipo, errorCode: "NO_PRODUCTS", errorMessage: ERROR_MESSAGES.NO_PRODUCTS,
-      clienteNombre: pedido.clienteNombre, scannedBy,
+      clienteNombre: pedido.clienteNombre, scannedBy, metadata: { codigoEscaneado },
     });
     return { ok: false, errorCode: "NO_PRODUCTS", message: ERROR_MESSAGES.NO_PRODUCTS, scan, pedido };
   }
 
   const claim = await registrarEscaneoExitoso({
-    trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+    trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
     origenTipo: pedido.origenTipo, clienteNombre: pedido.clienteNombre,
-    metadata: { productos: pedido.productos, medioEnvio: pedido.medioEnvio, storeName: pedido.storeName ?? null },
+    metadata: { productos: pedido.productos, medioEnvio: pedido.medioEnvio, storeName: pedido.storeName ?? null, codigoEscaneado },
     scannedBy,
   });
 
   if (!claim.claimed) {
     // Perdió la carrera contra otro escaneo simultáneo del mismo tracking.
     const scan = await registrarEscaneoError({
-      trackingNumber: codigo, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
+      trackingNumber, carrier, storeId: envio.store_id, numeroOrden: envio.numero_orden,
       origenTipo: pedido.origenTipo, errorCode: "ALREADY_DISPATCHED", errorMessage: ERROR_MESSAGES.ALREADY_DISPATCHED,
-      clienteNombre: pedido.clienteNombre, scannedBy,
+      clienteNombre: pedido.clienteNombre, scannedBy, metadata: { codigoEscaneado },
     });
     return {
       ok: false, errorCode: "ALREADY_DISPATCHED", message: ERROR_MESSAGES.ALREADY_DISPATCHED, scan, pedido,
@@ -557,6 +686,12 @@ export async function procesarEscaneo(codigoRaw: string, scannedBy: string): Pro
         motivo: `Despacho Cambio ${envio.numero_orden}`, numeroOrden: envio.numero_orden,
       };
       await deducirStock(envio.store_id, [item], "tiendanube", "ajuste");
+    } else if (pedido.origenTipo === "mercado_libre") {
+      const items: DeducirItem[] = pedido.productos.map(p => ({
+        sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
+        motivo: `Venta ML #${envio.numero_orden} (despacho)`, numeroOrden: envio.numero_orden,
+      }));
+      await deducirStock(envio.store_id, items, "mercadolibre", "venta");
     } else {
       const items: DeducirItem[] = pedido.productos.map(p => ({
         sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,

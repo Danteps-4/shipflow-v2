@@ -5,6 +5,7 @@ import { requireModule } from "@/lib/permissions";
 import { readTokens } from "@/lib/tnTokens";
 import { initDepositoTables, createEtiquetaDeposito } from "@/lib/depositoDb";
 import { uploadBuffer } from "@/lib/cloudinary";
+import { initDespachoTables, registrarEnviosMlDesdeEtiquetas, EnvioMlDetectado } from "@/lib/despachoDb";
 
 export const runtime = "nodejs";
 
@@ -121,9 +122,38 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const resultBuffer = Buffer.from(b64Result, "base64");
+  // Solo "envio" trae, además del PDF, la lista de envíos detectados en las
+  // etiquetas (zpl_to_pdf.py devuelve {pdf_b64, envios} en vez de un base64
+  // crudo) — "producto" no tiene relación con tracking, ver el propio script.
+  let pdfB64 = b64Result;
+  let enviosDetectados: EnvioMlDetectado[] = [];
+  if (tipo === "envio") {
+    try {
+      const parsed = JSON.parse(b64Result) as { pdf_b64: string; envios: EnvioMlDetectado[] };
+      pdfB64 = parsed.pdf_b64;
+      enviosDetectados = parsed.envios ?? [];
+    } catch (e) {
+      console.error("[etiquetas-ml] no se pudo parsear la salida del script:", e);
+      return NextResponse.json({ error: "Respuesta inesperada del script de conversión" }, { status: 500 });
+    }
+  }
+
+  const resultBuffer = Buffer.from(pdfB64, "base64");
 
   await copiarADeposito(guard.user.id, guard.user.name, resultBuffer, tipo);
+
+  // Registro best-effort del reverse-index tracking→pedido para Despacho
+  // (mismo criterio que /api/tracking usa para Andreani) — nunca debe
+  // romper la descarga principal del PDF.
+  if (tipo === "envio" && enviosDetectados.length > 0) {
+    const tokens = readTokens(guard.user.id);
+    if (tokens) {
+      const storeId = String(tokens.user_id);
+      initDespachoTables()
+        .then(() => registrarEnviosMlDesdeEtiquetas(storeId, enviosDetectados, guard.user.name))
+        .catch(e => console.error("[etiquetas-ml] no se pudieron registrar los envíos para Despacho:", e));
+    }
+  }
 
   const filename = tipo === "producto" ? "etiquetas_producto_ml.pdf" : "etiquetas_ml.pdf";
   return new NextResponse(resultBuffer, {

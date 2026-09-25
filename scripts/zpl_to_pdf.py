@@ -56,6 +56,30 @@ def extract_sku(zpl: str) -> str:
     return re.sub(r"_([0-9A-Fa-f]{2})", lambda x: chr(int(x.group(1), 16)), raw)
 
 
+# El QR de cada etiqueta (^BQN...) trae, en texto plano, un JSON con los dos
+# identificadores reales del envío: "id" es el shipment_id de Mercado Envíos
+# (resolvible vía GET /shipments/{id} → order_id) y "carrier_data" es
+# "TRACKING|TIPO_ENTREGA|CP|" — el primer campo es el tracking del correo
+# real (Correo Argentino, OCA, etc., varía por envío). Se usa este JSON en
+# vez de intentar inferir cuál de los dos códigos de barras de la etiqueta
+# es cuál por posición/alto — mismo dato, mucho más confiable porque ya
+# viene con los campos nombrados.
+def extract_shipment_data(zpl: str):
+    m = re.search(r"\^FDLA,(\{.*?\})\^FS", zpl)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+    except ValueError:
+        return None
+    shipment_id = data.get("id")
+    carrier_data = data.get("carrier_data") or ""
+    carrier_tracking = carrier_data.split("|")[0].strip() or None
+    if not shipment_id:
+        return None
+    return {"shipment_id": str(shipment_id), "carrier_tracking": carrier_tracking}
+
+
 def strip_troquel(zpl: str) -> str:
     idx = zpl.find("^LH0,410")
     if idx == -1:
@@ -118,15 +142,20 @@ def main():
         sys.exit(1)
 
     png_images = []
+    envios = []
     for i, zpl in enumerate(labels):
         if i > 0:
             time.sleep(RENDER_DELAY_S)
         sku = extract_sku(zpl)
         zpl_final = inject_sku(strip_troquel(zpl), sku)
         png_images.append(render_zpl_to_png(zpl_final))
+        shipment = extract_shipment_data(zpl)
+        if shipment:
+            envios.append(shipment)
 
     pdf_bytes = build_pdf(png_images)
-    sys.stdout.write(base64.b64encode(pdf_bytes).decode("utf-8"))
+    result = {"pdf_b64": base64.b64encode(pdf_bytes).decode("utf-8"), "envios": envios}
+    sys.stdout.write(json.dumps(result))
 
 
 if __name__ == "__main__":
