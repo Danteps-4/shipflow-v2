@@ -56,6 +56,26 @@ function fmtMoneda(n: number | null): string {
   return n.toLocaleString("es-AR", { maximumFractionDigits: 2 });
 }
 
+// Días en tránsito (llegada - compra). Réplica exacta de la regla de colores
+// del Excel original (verificada contra las 122 compras reales, 0 excepciones):
+// VERDE = tiene tracking Y llegó con tránsito positivo. AMARILLO = cualquier
+// otro caso (sin tracking, todavía no llegó, o llegó el mismo día/antes de
+// la fecha de compra registrada — señal de dato para revisar).
+function calcDias(c: Compra): number | null {
+  if (!c.fecha_llegada_real) return null;
+  const compra = new Date(c.fecha_compra).getTime();
+  const llegada = new Date(c.fecha_llegada_real).getTime();
+  return Math.round((llegada - compra) / 86400000);
+}
+
+function getRowColor(c: Compra): { bg: string; border: string } {
+  const dias = calcDias(c);
+  const verde = !!c.tracking_number && dias !== null && dias > 0;
+  return verde
+    ? { bg: "rgba(34,197,94,0.13)", border: "rgba(34,197,94,0.4)" }
+    : { bg: "rgba(234,179,8,0.13)", border: "rgba(234,179,8,0.4)" };
+}
+
 export default function ImportacionesPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [compras, setCompras] = useState<Compra[]>([]);
@@ -68,7 +88,6 @@ export default function ImportacionesPage() {
   const [hasta, setHasta] = useState("");
   const [soloPendientes, setSoloPendientes] = useState(false);
 
-  const [expandedId, setExpandedId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
 
   // Modal alta
@@ -239,81 +258,89 @@ export default function ImportacionesPage() {
               <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>No hay compras cargadas</p>
             </div>
           ) : (
-            <div className="sf-table-wrap">
-              <table className="sf-table">
-                <thead>
-                  <tr>
-                    <th>Compra</th>
-                    <th>Tracking</th>
-                    <th>Productos</th>
-                    <th>Llegada</th>
-                    <th style={{ textAlign: "right" }}>Total ARS</th>
-                    <th style={{ width: "1px" }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {compras.map((c, i) => {
-                    const completa = c.lineas.every(l => l.cantidad_recibida >= l.cantidad_esperada);
-                    return (
-                      <>
-                        <tr key={c.id} className={i % 2 === 0 ? "row-even" : "row-odd"}>
-                          <td style={{ whiteSpace: "nowrap" }}>{fmtFecha(c.fecha_compra)}</td>
-                          <td style={{ fontFamily: "monospace" }}>{c.tracking_number ?? <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin tracking</span>}</td>
-                          <td>
-                            <button
-                              onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
-                              style={{ background: "none", border: "none", color: "var(--primary-color)", cursor: "pointer", fontSize: "0.82rem" }}
-                            >
-                              {c.lineas.length} línea{c.lineas.length !== 1 ? "s" : ""}
-                              {completa
-                                ? <span className="sf-badge sf-badge-ok" style={{ marginLeft: "0.4rem" }}>Completa</span>
-                                : <span className="sf-badge" style={{ marginLeft: "0.4rem", background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Pendiente</span>}
-                              <i className={`fas fa-chevron-${expandedId === c.id ? "up" : "down"}`} style={{ marginLeft: "0.4rem", fontSize: "0.7rem" }} />
-                            </button>
+            <>
+              <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", marginBottom: "0.6rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "rgba(34,197,94,0.5)", border: "1px solid rgba(34,197,94,0.8)", marginRight: "0.4rem", verticalAlign: "middle" }} />Llegó a tiempo (con tracking)</span>
+                <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "rgba(234,179,8,0.5)", border: "1px solid rgba(234,179,8,0.8)", marginRight: "0.4rem", verticalAlign: "middle" }} />Pendiente, sin tracking, o fecha a revisar</span>
+              </div>
+              <div className="sf-table-wrap">
+                <table className="sf-table">
+                  <thead>
+                    <tr>
+                      <th>Compra</th>
+                      <th>Tracking</th>
+                      <th style={{ textAlign: "right" }}>Cant.</th>
+                      <th>Producto</th>
+                      <th style={{ textAlign: "right" }}>DAP</th>
+                      <th style={{ textAlign: "right" }}>Pagué</th>
+                      <th style={{ textAlign: "right" }}>Precio USD</th>
+                      <th style={{ textAlign: "right" }}>Declaro</th>
+                      <th style={{ textAlign: "right" }}>Impuestos</th>
+                      <th style={{ textAlign: "right" }}>Total ARS</th>
+                      <th>Llegada</th>
+                      <th style={{ textAlign: "right" }}>Días</th>
+                      <th>Estado</th>
+                      <th style={{ width: "1px" }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compras.map(c => {
+                      const completa = c.lineas.every(l => l.cantidad_recibida >= l.cantidad_esperada);
+                      const dias = calcDias(c);
+                      const color = getRowColor(c);
+                      const rowSpan = c.lineas.length;
+                      const tdBase: React.CSSProperties = { backgroundColor: color.bg, borderLeft: `3px solid ${color.border}` };
+                      return c.lineas.map((l, j) => (
+                        <tr key={l.id}>
+                          {j === 0 && (
+                            <>
+                              <td style={{ ...tdBase, whiteSpace: "nowrap" }} rowSpan={rowSpan}>{fmtFecha(c.fecha_compra)}</td>
+                              <td style={{ ...tdBase, fontFamily: "monospace" }} rowSpan={rowSpan}>
+                                {c.tracking_number ?? <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin tracking</span>}
+                              </td>
+                            </>
+                          )}
+                          <td style={{ backgroundColor: color.bg, textAlign: "right", fontWeight: 600 }}>{l.cantidad_esperada}</td>
+                          <td style={{ backgroundColor: color.bg }}>
+                            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{l.sku}</span>
+                            {l.nombre && <span style={{ color: "var(--text-muted)", marginLeft: "0.4rem" }}>{l.nombre}</span>}
+                            <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: l.cantidad_recibida >= l.cantidad_esperada ? "var(--success-color)" : "#f59e0b" }}>
+                              ({l.cantidad_recibida}/{l.cantidad_esperada} recibido)
+                            </span>
                           </td>
-                          <td style={{ fontSize: "0.8rem" }}>
-                            {c.fecha_llegada_real ? <span style={{ color: "var(--success-color)" }}>{fmtFecha(c.fecha_llegada_real)}</span>
-                              : <span style={{ color: "var(--text-muted)" }}>Est. {fmtFecha(c.fecha_llegada_estimada)}</span>}
-                          </td>
-                          <td style={{ textAlign: "right" }}>{fmtMoneda(c.total_ars)}</td>
-                          <td>
-                            <button className="sf-btn-edit" onClick={() => setDeleteConfirm(c.id)} title="Borrar">
-                              <i className="fas fa-trash" />
-                            </button>
-                          </td>
+                          {j === 0 && (
+                            <>
+                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.dap)}</td>
+                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.pague)}</td>
+                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.precio_usd)}</td>
+                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.declaro)}</td>
+                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.impuestos)}</td>
+                              <td style={{ ...tdBase, textAlign: "right", fontWeight: 600 }} rowSpan={rowSpan}>{fmtMoneda(c.total_ars)}</td>
+                              <td style={{ ...tdBase, fontSize: "0.8rem" }} rowSpan={rowSpan}>
+                                {c.fecha_llegada_real
+                                  ? <span style={{ color: "var(--success-color)" }}>{fmtFecha(c.fecha_llegada_real)}</span>
+                                  : <span style={{ color: "var(--text-muted)" }}>Est. {fmtFecha(c.fecha_llegada_estimada)}</span>}
+                              </td>
+                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{dias ?? "—"}</td>
+                              <td style={tdBase} rowSpan={rowSpan}>
+                                {completa
+                                  ? <span className="sf-badge sf-badge-ok">Completa</span>
+                                  : <span className="sf-badge" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Pendiente</span>}
+                              </td>
+                              <td style={tdBase} rowSpan={rowSpan}>
+                                <button className="sf-btn-edit" onClick={() => setDeleteConfirm(c.id)} title="Borrar">
+                                  <i className="fas fa-trash" />
+                                </button>
+                              </td>
+                            </>
+                          )}
                         </tr>
-                        {expandedId === c.id && (
-                          <tr key={`${c.id}-detalle`} className={i % 2 === 0 ? "row-even" : "row-odd"}>
-                            <td colSpan={6} style={{ paddingTop: 0 }}>
-                              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem", paddingBottom: "0.75rem" }}>
-                                {c.lineas.map(l => (
-                                  <div key={l.id} style={{ display: "flex", alignItems: "center", gap: "0.6rem", fontSize: "0.82rem" }}>
-                                    <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{l.sku}</span>
-                                    <span style={{ color: "var(--text-muted)" }}>{l.nombre}</span>
-                                    <span style={{ marginLeft: "auto", fontWeight: 700, color: l.cantidad_recibida >= l.cantidad_esperada ? "var(--success-color)" : "#f59e0b" }}>
-                                      {l.cantidad_recibida} / {l.cantidad_esperada}
-                                    </span>
-                                    {l.unidades_por_caja && <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>({l.unidades_por_caja}/caja)</span>}
-                                  </div>
-                                ))}
-                                <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.4rem" }}>
-                                  <span>DAP: {fmtMoneda(c.dap)}</span>
-                                  <span>Pagué: {fmtMoneda(c.pague)}</span>
-                                  <span>Precio USD: {fmtMoneda(c.precio_usd)}</span>
-                                  <span>Declaro: {fmtMoneda(c.declaro)}</span>
-                                  <span>Impuestos: {fmtMoneda(c.impuestos)}</span>
-                                  {c.nota && <span>Nota: {c.nota}</span>}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                      ));
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </main>
