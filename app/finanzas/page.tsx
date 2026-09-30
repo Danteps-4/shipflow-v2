@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
@@ -160,6 +160,25 @@ export default function FinanzasPage() {
   const [subModal, setSubModal]       = useState<Partial<Suscripcion> | null>(null);
   const [subForm, setSubForm]         = useState(EMPTY_SUB);
   const [savingS, setSavingS]         = useState(false);
+
+  // Al cerrarse cualquier modal, el input/botón enfocado dentro de él se
+  // desmonta — el navegador mueve el foco a <body> y de paso hace scroll al
+  // principio de la página. Guardamos la posición de scroll de cuando se
+  // abrió el modal y la restauramos apenas se cierra, para que editar un
+  // gasto no te devuelva siempre arriba de la lista.
+  const anyModalOpen = gastoNegocioModal !== null || gastoPersonalModal !== null || subModal !== null || catModalOpen;
+  const scrollYRef = useRef(0);
+  const modalWasOpenRef = useRef(false);
+  useEffect(() => {
+    if (anyModalOpen) {
+      scrollYRef.current = window.scrollY;
+      modalWasOpenRef.current = true;
+    } else if (modalWasOpenRef.current) {
+      modalWasOpenRef.current = false;
+      const y = scrollYRef.current;
+      requestAnimationFrame(() => window.scrollTo(0, y));
+    }
+  }, [anyModalOpen]);
 
   // ── Carga inicial ────────────────────────────────────────────────────────────
 
