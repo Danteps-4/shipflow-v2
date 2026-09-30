@@ -476,18 +476,22 @@ export async function updateCategoriaGastoNegocio(id: number, nombre: string, co
   return rows[0];
 }
 
-// No se permite borrar una categoría que todavía tiene gastos cargados con
-// ella (evita que esos gastos queden con una categoría "fantasma" sin
-// dueño) — el usuario primero tiene que reasignarlos o borrarlos a mano.
-export async function deleteCategoriaGastoNegocio(id: number): Promise<{ ok: true } | { ok: false; enUso: number }> {
+// `categoria` en gastos_negocio es TEXT libre, no FK: borrar una categoría
+// que todavía tenía gastos cargados no los rompe ni los borra, simplemente
+// deja de aparecer en la lista para elegir en gastos nuevos (los gastos
+// viejos conservan el nombre de texto que ya tenían).
+export async function deleteCategoriaGastoNegocio(id: number): Promise<{ ok: true }> {
   const sql = getDb();
-  const catRows = await sql`SELECT nombre FROM categorias_gasto_negocio WHERE id = ${id}` as { nombre: string }[];
-  if (!catRows[0]) return { ok: true };
-
-  const enUsoRows = await sql`SELECT COUNT(*) AS n FROM gastos_negocio WHERE categoria = ${catRows[0].nombre}` as { n: number }[];
-  const enUso = Number(enUsoRows[0].n);
-  if (enUso > 0) return { ok: false, enUso };
-
   await sql`DELETE FROM categorias_gasto_negocio WHERE id = ${id}`;
   return { ok: true };
+}
+
+// Reordena todas las categorías según el array de ids recibido (el orden de
+// la lista es el orden final). Se usa desde los botones subir/bajar del
+// modal de "Gestionar categorías".
+export async function reorderCategoriasGastoNegocio(ids: number[]): Promise<void> {
+  const sql = getDb();
+  for (let i = 0; i < ids.length; i++) {
+    await sql`UPDATE categorias_gasto_negocio SET orden = ${i} WHERE id = ${ids[i]}`;
+  }
 }

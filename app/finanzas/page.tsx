@@ -349,17 +349,39 @@ export default function FinanzasPage() {
     } finally { setSavingCat(false); }
   }
 
-  async function removeCategoria(id: number) {
-    if (!confirm("¿Eliminar esta categoría?")) return;
+  async function removeCategoria(c: CategoriaGastoNegocio) {
+    const enUso = gastosNegocio.filter((g) => g.categoria === c.nombre).length;
+    const msg = enUso > 0
+      ? `¿Eliminar "${c.nombre}"? Hay ${enUso} gasto${enUso !== 1 ? "s" : ""} ya cargado${enUso !== 1 ? "s" : ""} con esta categoría — van a mantener el nombre, pero ya no vas a poder elegirla para gastos nuevos.`
+      : `¿Eliminar "${c.nombre}"?`;
+    if (!confirm(msg)) return;
     setCatError(null);
     const r = await fetch("/api/finanzas/categorias", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id: c.id }),
     });
     const data = await r.json();
     if (!r.ok) { setCatError(data.error ?? "Error al borrar"); return; }
     await fetchCategorias();
+  }
+
+  // Sube/baja una categoría un lugar dentro de la lista y persiste el orden
+  // nuevo de todas (el backend guarda `orden` como índice secuencial).
+  async function moveCategoria(id: number, direction: "up" | "down") {
+    const idx = categorias.findIndex((c) => c.id === id);
+    const swapWith = direction === "up" ? idx - 1 : idx + 1;
+    if (idx === -1 || swapWith < 0 || swapWith >= categorias.length) return;
+
+    const reordered = [...categorias];
+    [reordered[idx], reordered[swapWith]] = [reordered[swapWith], reordered[idx]];
+    setCategorias(reordered);
+
+    await fetch("/api/finanzas/categorias/reorder", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: reordered.map((c) => c.id) }),
+    });
   }
 
   // ── Gastos personales CRUD ───────────────────────────────────────────────────
@@ -1174,7 +1196,7 @@ export default function FinanzasPage() {
                 </div>
               )}
 
-              {categorias.map((c) => (
+              {categorias.map((c, i) => (
                 <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   {catEditId === c.id ? (
                     <>
@@ -1201,12 +1223,28 @@ export default function FinanzasPage() {
                     </>
                   ) : (
                     <>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                        <button
+                          className="sf-icon-btn" title="Subir" disabled={i === 0}
+                          style={{ height: 16, padding: 0, opacity: i === 0 ? 0.3 : 1 }}
+                          onClick={() => moveCategoria(c.id, "up")}
+                        >
+                          <i className="fas fa-caret-up" />
+                        </button>
+                        <button
+                          className="sf-icon-btn" title="Bajar" disabled={i === categorias.length - 1}
+                          style={{ height: 16, padding: 0, opacity: i === categorias.length - 1 ? 0.3 : 1 }}
+                          onClick={() => moveCategoria(c.id, "down")}
+                        >
+                          <i className="fas fa-caret-down" />
+                        </button>
+                      </div>
                       <span style={{ display: "inline-block", width: 18, height: 18, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
                       <span style={{ flex: 1, fontSize: "0.88rem" }}>{c.nombre}</span>
                       <button className="sf-icon-btn" title="Editar" onClick={() => startEditCategoria(c)}>
                         <i className="fas fa-pen" />
                       </button>
-                      <button className="sf-icon-btn danger" title="Eliminar" onClick={() => removeCategoria(c.id)}>
+                      <button className="sf-icon-btn danger" title="Eliminar" onClick={() => removeCategoria(c)}>
                         <i className="fas fa-trash" />
                       </button>
                     </>

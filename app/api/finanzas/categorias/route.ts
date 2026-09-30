@@ -72,9 +72,6 @@ export async function DELETE(req: NextRequest) {
   if (!id) return NextResponse.json({ error: "Falta id" }, { status: 400 });
 
   await initFinanzasTables();
-  const result = await deleteCategoriaGastoNegocio(Number(id));
-  if (!result.ok) {
-    return NextResponse.json({ error: `No se puede borrar: hay ${result.enUso} gasto${result.enUso !== 1 ? "s" : ""} con esta categoría. Reasignalos o borralos primero.` }, { status: 409 });
-  }
+  await deleteCategoriaGastoNegocio(Number(id));
   return NextResponse.json({ ok: true });
 }
