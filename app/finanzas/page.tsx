@@ -7,26 +7,18 @@ import Sidebar from "@/components/Sidebar";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
-const CATEGORIAS_NEGOCIO = [
-  "Videos",
-  "Guiones",
-  "Redes sociales",
-  "Imágenes",
-  "Servidor",
-  "AT cliente",
-  "Finanzas",
-  "Google ADS",
-  "Profit",
-  "Envíos",
-  "Otros",
-] as const;
-type CategoriaNegocio = (typeof CATEGORIAS_NEGOCIO)[number];
+interface CategoriaGastoNegocio {
+  id: number;
+  nombre: string;
+  color: string;
+  orden: number;
+}
 
 interface GastoNegocio {
   id: number;
   fecha: string;
   persona: string | null;
-  categoria: CategoriaNegocio;
+  categoria: string;
   detalle: string | null;
   cantidad: number | null;
   monto: number;
@@ -59,7 +51,7 @@ interface Suscripcion {
 type Tab = "negocio" | "personal" | "suscripciones";
 
 const EMPTY_GASTO_NEGOCIO = {
-  fecha: today(), persona: "", categoria: "Otros" as CategoriaNegocio, detalle: "", cantidad: "", monto: "", pagado: false,
+  fecha: today(), persona: "", categoria: "Otros", detalle: "", cantidad: "", monto: "", pagado: false,
 };
 const EMPTY_GASTO_PERSONAL = { fecha: today(), descripcion: "", monto: "" };
 const EMPTY_SUB = { nombre: "", monto: "", frecuencia: "mensual" as "mensual" | "anual", fecha_prox_pago: today(), vigenteDesde: today() };
@@ -120,6 +112,11 @@ function sumarMeses(mes: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
+const PALETA_COLORES = [
+  "#3b82f6", "#a78bfa", "#ec4899", "#f59e0b", "#10b981",
+  "#06b6d4", "#84cc16", "#ef4444", "#eab308", "#0ea5e9", "#6b7280",
+];
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function FinanzasPage() {
@@ -132,8 +129,19 @@ export default function FinanzasPage() {
   const [gastoNegocioModal, setGastoNegocioModal] = useState<Partial<GastoNegocio> | null>(null);
   const [gastoNegocioForm, setGastoNegocioForm]   = useState(EMPTY_GASTO_NEGOCIO);
   const [savingGN, setSavingGN]             = useState(false);
-  const [filterCatNegocio, setFilterCatNegocio] = useState<CategoriaNegocio | "">("");
+  const [filterCatNegocio, setFilterCatNegocio] = useState<string>("");
   const [togglingPagadoId, setTogglingPagadoId] = useState<number | null>(null);
+
+  // Categorías de gastos del negocio (administrables desde la UI)
+  const [categorias, setCategorias]         = useState<CategoriaGastoNegocio[]>([]);
+  const [catModalOpen, setCatModalOpen]     = useState(false);
+  const [catNuevoNombre, setCatNuevoNombre] = useState("");
+  const [catNuevoColor, setCatNuevoColor]   = useState(PALETA_COLORES[0]);
+  const [catError, setCatError]             = useState<string | null>(null);
+  const [savingCat, setSavingCat]           = useState(false);
+  const [catEditId, setCatEditId]           = useState<number | null>(null);
+  const [catEditNombre, setCatEditNombre]   = useState("");
+  const [catEditColor, setCatEditColor]     = useState("");
 
   // Mes que se está viendo/completando, compartido por ambas pestañas de
   // gastos y por las cards de resumen. "" = todos los meses.
@@ -159,7 +167,15 @@ export default function FinanzasPage() {
     fetchGastosNegocio();
     fetchGastosPersonales();
     fetchSubs();
+    fetchCategorias();
   }, []);
+
+  async function fetchCategorias() {
+    try {
+      const r = await fetch("/api/finanzas/categorias");
+      if (r.ok) setCategorias((await r.json()).categorias ?? []);
+    } catch { /* ignore */ }
+  }
 
   async function fetchGastosNegocio() {
     setLoadingGN(true);
@@ -259,6 +275,72 @@ export default function FinanzasPage() {
       body: JSON.stringify({ id }),
     });
     await fetchGastosNegocio();
+  }
+
+  // ── Categorías CRUD ──────────────────────────────────────────────────────────
+
+  function openCatModal() {
+    setCatError(null);
+    setCatNuevoNombre("");
+    setCatNuevoColor(PALETA_COLORES[categorias.length % PALETA_COLORES.length]);
+    setCatEditId(null);
+    setCatModalOpen(true);
+  }
+
+  async function addCategoria() {
+    if (!catNuevoNombre.trim()) return;
+    setCatError(null);
+    setSavingCat(true);
+    try {
+      const r = await fetch("/api/finanzas/categorias", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre: catNuevoNombre.trim(), color: catNuevoColor }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setCatError(data.error ?? "Error al crear"); return; }
+      setCatNuevoNombre("");
+      setCatNuevoColor(PALETA_COLORES[(categorias.length + 1) % PALETA_COLORES.length]);
+      await fetchCategorias();
+    } finally { setSavingCat(false); }
+  }
+
+  function startEditCategoria(c: CategoriaGastoNegocio) {
+    setCatEditId(c.id);
+    setCatEditNombre(c.nombre);
+    setCatEditColor(c.color);
+    setCatError(null);
+  }
+
+  async function saveEditCategoria() {
+    if (catEditId === null || !catEditNombre.trim()) return;
+    setCatError(null);
+    setSavingCat(true);
+    try {
+      const r = await fetch("/api/finanzas/categorias", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: catEditId, nombre: catEditNombre.trim(), color: catEditColor }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setCatError(data.error ?? "Error al guardar"); return; }
+      setCatEditId(null);
+      await fetchCategorias();
+      await fetchGastosNegocio(); // por si se renombró: refleja el nombre nuevo en los gastos ya cargados
+    } finally { setSavingCat(false); }
+  }
+
+  async function removeCategoria(id: number) {
+    if (!confirm("¿Eliminar esta categoría?")) return;
+    setCatError(null);
+    const r = await fetch("/api/finanzas/categorias", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    const data = await r.json();
+    if (!r.ok) { setCatError(data.error ?? "Error al borrar"); return; }
+    await fetchCategorias();
   }
 
   // ── Gastos personales CRUD ───────────────────────────────────────────────────
@@ -385,6 +467,20 @@ export default function FinanzasPage() {
 
   const gastosPersonalesFiltered = gastosPersonales.filter((g) => enMes(g.fecha, mesSeleccionado));
 
+  function colorDeCategoria(nombre: string): string {
+    return categorias.find((c) => c.nombre === nombre)?.color ?? "#6b7280";
+  }
+
+  // Desglose por categoría del mes seleccionado, para el gráfico de barras.
+  const desglosePorCategoria = categorias
+    .map((c) => ({
+      ...c,
+      total: gastosNegocioMes.filter((g) => g.categoria === c.nombre).reduce((s, g) => s + Number(g.monto), 0),
+    }))
+    .filter((c) => c.total > 0)
+    .sort((a, b) => b.total - a.total);
+  const maxCategoriaTotal = Math.max(1, ...desglosePorCategoria.map((c) => c.total));
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -473,18 +569,47 @@ export default function FinanzasPage() {
               label="Costo total"
               value={fmtMoney(totalGastosNegocioMes + totalGastosPersonalesMes + totalSubsMes)}
               sub="Negocio + personal + suscripciones"
+              destacada
             />
           </div>
+
+          {/* ── Desglose por categoría (gastos del negocio del mes) ────────── */}
+          {desglosePorCategoria.length > 0 && (
+            <div style={{
+              background: "rgba(15,23,42,0.5)", border: "1px solid var(--border-color)",
+              borderRadius: "var(--radius)", padding: "1.25rem", marginBottom: "2rem",
+            }}>
+              <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "1rem" }}>
+                Gastos del negocio por categoría · {fmtMes(mesSeleccionado)}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                {desglosePorCategoria.map((c) => (
+                  <div key={c.id} style={{ display: "grid", gridTemplateColumns: "140px 1fr 110px", gap: "0.75rem", alignItems: "center" }}>
+                    <span style={{ fontSize: "0.82rem", color: "var(--text-color)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: c.color, marginRight: "0.5rem" }} />
+                      {c.nombre}
+                    </span>
+                    <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                      <div style={{ width: `${(c.total / maxCategoriaTotal) * 100}%`, height: "100%", background: c.color, borderRadius: 4 }} />
+                    </div>
+                    <span style={{ fontSize: "0.82rem", fontFamily: "monospace", textAlign: "right", color: "var(--text-muted)" }}>
+                      {fmtMoney(c.total)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Tabs ──────────────────────────────────────────────────────── */}
           <div className="sf-tabs" style={{ marginBottom: "1.5rem" }}>
             <button className={`sf-tab ${tab === "negocio" ? "active" : ""}`} onClick={() => setTab("negocio")}>
               <i className="fas fa-briefcase" /> Gastos del negocio
-              <span className="sf-tab-badge">{gastosNegocio.length}</span>
+              <span className="sf-tab-badge" title={`${mesSeleccionado ? fmtMes(mesSeleccionado) : "todos los meses"}`}>{gastosNegocioMes.length}</span>
             </button>
             <button className={`sf-tab ${tab === "personal" ? "active" : ""}`} onClick={() => setTab("personal")}>
               <i className="fas fa-user" /> Gastos personales
-              <span className="sf-tab-badge">{gastosPersonales.length}</span>
+              <span className="sf-tab-badge" title={`${mesSeleccionado ? fmtMes(mesSeleccionado) : "todos los meses"}`}>{gastosPersonalesMes.length}</span>
             </button>
             <button className={`sf-tab ${tab === "suscripciones" ? "active" : ""}`} onClick={() => setTab("suscripciones")}>
               <i className="fas fa-rotate" /> Suscripciones
@@ -503,11 +628,14 @@ export default function FinanzasPage() {
                   className="sf-input"
                   style={{ maxWidth: 200 }}
                   value={filterCatNegocio}
-                  onChange={(e) => setFilterCatNegocio(e.target.value as CategoriaNegocio | "")}
+                  onChange={(e) => setFilterCatNegocio(e.target.value)}
                 >
                   <option value="">Todas las categorías</option>
-                  {CATEGORIAS_NEGOCIO.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {categorias.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
+                <button className="sf-btn sf-btn-secondary" onClick={openCatModal}>
+                  <i className="fas fa-tags" /> Gestionar categorías
+                </button>
               </div>
 
               {loadingGN ? (
@@ -537,7 +665,7 @@ export default function FinanzasPage() {
                           <td style={{ whiteSpace: "nowrap", color: "var(--text-muted)", fontSize: "0.85rem" }}>{fmtDate(g.fecha)}</td>
                           <td>{g.persona || <span style={{ color: "var(--text-muted)" }}>—</span>}</td>
                           <td>
-                            <span className="sf-badge" style={{ background: catColorNegocio(g.categoria) + "22", color: catColorNegocio(g.categoria), border: `1px solid ${catColorNegocio(g.categoria)}44` }}>
+                            <span className="sf-badge" style={{ background: colorDeCategoria(g.categoria) + "22", color: colorDeCategoria(g.categoria), border: `1px solid ${colorDeCategoria(g.categoria)}44` }}>
                               {g.categoria}
                             </span>
                           </td>
@@ -792,9 +920,9 @@ export default function FinanzasPage() {
                 <select
                   className="sf-input"
                   value={gastoNegocioForm.categoria}
-                  onChange={(e) => setGastoNegocioForm(f => ({ ...f, categoria: e.target.value as CategoriaNegocio }))}
+                  onChange={(e) => setGastoNegocioForm(f => ({ ...f, categoria: e.target.value }))}
                 >
-                  {CATEGORIAS_NEGOCIO.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {categorias.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
               </label>
               <label className="sf-label">
@@ -1005,25 +1133,118 @@ export default function FinanzasPage() {
           </div>
         </>
       )}
+
+      {/* ── Modal Gestionar categorías ────────────────────────────────────────── */}
+      {catModalOpen && (
+        <>
+          <div className="sf-modal-backdrop" onClick={() => setCatModalOpen(false)} />
+          <div className="sf-modal" role="dialog" aria-modal="true" style={{ width: "min(520px, calc(100vw - 2rem))" }}>
+            <div className="sf-modal-header">
+              <h3 className="sf-modal-title">
+                <i className="fas fa-tags" style={{ color: "#3b82f6" }} />
+                Categorías de gastos del negocio
+              </h3>
+              <button className="sf-close-btn" onClick={() => setCatModalOpen(false)}>
+                <i className="fas fa-times" />
+              </button>
+            </div>
+            <div className="sf-modal-body" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              {catError && (
+                <div style={{ fontSize: "0.8rem", color: "var(--error-color)", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius)", padding: "0.5rem 0.75rem" }}>
+                  {catError}
+                </div>
+              )}
+
+              {categorias.map((c) => (
+                <div key={c.id} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                  {catEditId === c.id ? (
+                    <>
+                      <input
+                        type="color"
+                        value={catEditColor}
+                        onChange={(e) => setCatEditColor(e.target.value)}
+                        style={{ width: 32, height: 32, padding: 0, border: "none", borderRadius: "var(--radius)", cursor: "pointer", flexShrink: 0 }}
+                      />
+                      <input
+                        className="sf-input"
+                        style={{ flex: 1 }}
+                        value={catEditNombre}
+                        onChange={(e) => setCatEditNombre(e.target.value)}
+                        autoFocus
+                        onKeyDown={(e) => e.key === "Enter" && saveEditCategoria()}
+                      />
+                      <button className="sf-icon-btn" title="Guardar" onClick={saveEditCategoria} disabled={savingCat}>
+                        <i className="fas fa-check" />
+                      </button>
+                      <button className="sf-icon-btn" title="Cancelar" onClick={() => setCatEditId(null)}>
+                        <i className="fas fa-times" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span style={{ display: "inline-block", width: 18, height: 18, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
+                      <span style={{ flex: 1, fontSize: "0.88rem" }}>{c.nombre}</span>
+                      <button className="sf-icon-btn" title="Editar" onClick={() => startEditCategoria(c)}>
+                        <i className="fas fa-pen" />
+                      </button>
+                      <button className="sf-icon-btn danger" title="Eliminar" onClick={() => removeCategoria(c.id)}>
+                        <i className="fas fa-trash" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              ))}
+
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.5rem", paddingTop: "0.75rem", borderTop: "1px solid var(--border-color)" }}>
+                <input
+                  type="color"
+                  value={catNuevoColor}
+                  onChange={(e) => setCatNuevoColor(e.target.value)}
+                  style={{ width: 32, height: 32, padding: 0, border: "none", borderRadius: "var(--radius)", cursor: "pointer", flexShrink: 0 }}
+                />
+                <input
+                  className="sf-input"
+                  style={{ flex: 1 }}
+                  placeholder="Nueva categoría..."
+                  value={catNuevoNombre}
+                  onChange={(e) => setCatNuevoNombre(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addCategoria()}
+                />
+                <button className="sf-btn" onClick={addCategoria} disabled={savingCat || !catNuevoNombre.trim()}>
+                  <i className="fas fa-plus" />
+                </button>
+              </div>
+            </div>
+            <div className="sf-modal-footer">
+              <button className="sf-btn sf-btn-secondary" onClick={() => setCatModalOpen(false)}>Cerrar</button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Helpers de UI ────────────────────────────────────────────────────────────
 
-function StatCard({ icon, color, label, value, sub }: { icon: string; color: string; label: string; value: string; sub: string }) {
+function StatCard({ icon, color, label, value, sub, destacada }: { icon: string; color: string; label: string; value: string; sub: string; destacada?: boolean }) {
   return (
     <div style={{
-      background: "rgba(15,23,42,0.5)",
-      border: "1px solid var(--border-color)",
+      background: destacada
+        ? `linear-gradient(135deg, ${color}18, rgba(15,23,42,0.5))`
+        : "rgba(15,23,42,0.5)",
+      border: `1px solid ${destacada ? color + "44" : "var(--border-color)"}`,
+      borderLeft: `3px solid ${color}`,
       borderRadius: "var(--radius)",
       padding: "1.25rem",
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.75rem" }}>
-        <i className={icon} style={{ color, fontSize: "1rem" }} />
+        <div style={{ width: 30, height: 30, borderRadius: "50%", background: color + "22", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <i className={icon} style={{ color, fontSize: "0.85rem" }} />
+        </div>
         <span style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</span>
       </div>
-      <div style={{ fontSize: "1.5rem", fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: "1.6rem", fontWeight: 700, color, lineHeight: 1 }}>{value}</div>
       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.35rem" }}>{sub}</div>
     </div>
   );
@@ -1036,21 +1257,4 @@ function EmptyState({ icon, text }: { icon: string; text: string }) {
       <p style={{ fontSize: "0.9rem" }}>{text}</p>
     </div>
   );
-}
-
-const CAT_COLORS_NEGOCIO: Record<string, string> = {
-  "Videos":         "#3b82f6",
-  "Guiones":        "#a78bfa",
-  "Redes sociales": "#ec4899",
-  "Imágenes":       "#f59e0b",
-  "Servidor":       "#10b981",
-  "AT cliente":     "#06b6d4",
-  "Finanzas":       "#84cc16",
-  "Google ADS":     "#ef4444",
-  "Profit":         "#eab308",
-  "Otros":          "#6b7280",
-};
-
-function catColorNegocio(cat: string) {
-  return CAT_COLORS_NEGOCIO[cat] ?? "#6b7280";
 }

@@ -2,29 +2,36 @@ import { getDb } from "./db";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-// Gastos del negocio: se cargan por persona/categoría/detalle, como en el
-// excel. Son de la cuenta en general, no de una tienda en particular.
-export const CATEGORIAS_GASTO_NEGOCIO = [
-  "Videos",
-  "Guiones",
-  "Redes sociales",
-  "Imágenes",
-  "Servidor",
-  "AT cliente",
-  "Finanzas",
-  "Google ADS",
-  "Profit",
-  "Envíos",
-  "Otros",
-] as const;
+// Categorías de gastos del negocio: antes era una lista fija en código, ahora
+// se administran desde la UI (alta/rename/recolor/baja) y se guardan en su
+// propia tabla. `categoria` en gastos_negocio sigue siendo TEXT libre (no FK)
+// para no tener que migrar filas viejas si se borra una categoría.
+const CATEGORIAS_SEED: { nombre: string; color: string }[] = [
+  { nombre: "Videos", color: "#3b82f6" },
+  { nombre: "Guiones", color: "#a78bfa" },
+  { nombre: "Redes sociales", color: "#ec4899" },
+  { nombre: "Imágenes", color: "#f59e0b" },
+  { nombre: "Servidor", color: "#10b981" },
+  { nombre: "AT cliente", color: "#06b6d4" },
+  { nombre: "Finanzas", color: "#84cc16" },
+  { nombre: "Google ADS", color: "#ef4444" },
+  { nombre: "Profit", color: "#eab308" },
+  { nombre: "Envíos", color: "#0ea5e9" },
+  { nombre: "Otros", color: "#6b7280" },
+];
 
-export type CategoriaGastoNegocio = (typeof CATEGORIAS_GASTO_NEGOCIO)[number];
+export interface CategoriaGastoNegocio {
+  id: number;
+  nombre: string;
+  color: string;
+  orden: number;
+}
 
 export interface GastoNegocio {
   id: number;
   fecha: string; // ISO date string YYYY-MM-DD
   persona: string | null;
-  categoria: CategoriaGastoNegocio;
+  categoria: string;
   detalle: string | null;
   cantidad: number | null;
   monto: number;
@@ -72,6 +79,26 @@ export interface Suscripcion {
 
 export async function initFinanzasTables(): Promise<void> {
   const sql = getDb();
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS categorias_gasto_negocio (
+      id         SERIAL PRIMARY KEY,
+      nombre     TEXT NOT NULL UNIQUE,
+      color      TEXT NOT NULL DEFAULT '#6b7280',
+      orden      INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  // Semilla idempotente: si ya existen (instalación vieja, categorías del
+  // usuario), no se pisan ni se duplican.
+  for (let i = 0; i < CATEGORIAS_SEED.length; i++) {
+    const c = CATEGORIAS_SEED[i];
+    await sql`
+      INSERT INTO categorias_gasto_negocio (nombre, color, orden)
+      VALUES (${c.nombre}, ${c.color}, ${i})
+      ON CONFLICT (nombre) DO NOTHING
+    `;
+  }
 
   // Gastos del negocio y gastos personales son de la cuenta en general (no
   // se filtran por tienda): no llevan store_id.
@@ -153,7 +180,7 @@ export async function initFinanzasTables(): Promise<void> {
 // ─── Gastos del negocio ──────────────────────────────────────────────────────
 // Son de la cuenta en general (no de una tienda en particular).
 
-export async function getGastosNegocio(limit = 300): Promise<GastoNegocio[]> {
+export async function getGastosNegocio(limit = 5000): Promise<GastoNegocio[]> {
   const sql = getDb();
   const rows = await sql`
     SELECT id, fecha, persona, categoria, detalle, cantidad, monto, pagado, created_at
@@ -235,7 +262,7 @@ export async function deleteGastoNegocio(id: number): Promise<boolean> {
 
 // ─── Gastos personales ───────────────────────────────────────────────────────
 
-export async function getGastosPersonales(limit = 300): Promise<GastoPersonal[]> {
+export async function getGastosPersonales(limit = 5000): Promise<GastoPersonal[]> {
   const sql = getDb();
   const rows = await sql`
     SELECT id, fecha, descripcion, monto, created_at
@@ -402,4 +429,65 @@ export async function deleteSuscripcion(
     RETURNING id
   ` as { id: number }[];
   return rows.length > 0;
+}
+
+// ─── Categorías de gastos del negocio ───────────────────────────────────────
+
+export async function getCategoriasGastoNegocio(): Promise<CategoriaGastoNegocio[]> {
+  const sql = getDb();
+  const rows = await sql`
+    SELECT id, nombre, color, orden FROM categorias_gasto_negocio
+    ORDER BY orden ASC, nombre ASC
+  `;
+  return rows as CategoriaGastoNegocio[];
+}
+
+export async function createCategoriaGastoNegocio(nombre: string, color: string): Promise<CategoriaGastoNegocio> {
+  const sql = getDb();
+  const maxRows = await sql`SELECT COALESCE(MAX(orden), -1) AS max FROM categorias_gasto_negocio` as { max: number }[];
+  const orden = Number(maxRows[0].max) + 1;
+  const rows = await sql`
+    INSERT INTO categorias_gasto_negocio (nombre, color, orden)
+    VALUES (${nombre}, ${color}, ${orden})
+    RETURNING id, nombre, color, orden
+  ` as CategoriaGastoNegocio[];
+  return rows[0];
+}
+
+// Si se cambia el nombre, actualiza también los gastos existentes que usaban
+// el nombre viejo (categoria es TEXT libre, no FK) para que no queden con una
+// categoría "fantasma" que ya no aparece en la lista.
+export async function updateCategoriaGastoNegocio(id: number, nombre: string, color: string): Promise<CategoriaGastoNegocio | null> {
+  const sql = getDb();
+  const actualRows = await sql`SELECT nombre FROM categorias_gasto_negocio WHERE id = ${id}` as { nombre: string }[];
+  if (!actualRows[0]) return null;
+  const nombreAnterior = actualRows[0].nombre;
+
+  const rows = await sql`
+    UPDATE categorias_gasto_negocio SET nombre = ${nombre}, color = ${color}
+    WHERE id = ${id}
+    RETURNING id, nombre, color, orden
+  ` as CategoriaGastoNegocio[];
+  if (!rows[0]) return null;
+
+  if (nombreAnterior !== nombre) {
+    await sql`UPDATE gastos_negocio SET categoria = ${nombre} WHERE categoria = ${nombreAnterior}`;
+  }
+  return rows[0];
+}
+
+// No se permite borrar una categoría que todavía tiene gastos cargados con
+// ella (evita que esos gastos queden con una categoría "fantasma" sin
+// dueño) — el usuario primero tiene que reasignarlos o borrarlos a mano.
+export async function deleteCategoriaGastoNegocio(id: number): Promise<{ ok: true } | { ok: false; enUso: number }> {
+  const sql = getDb();
+  const catRows = await sql`SELECT nombre FROM categorias_gasto_negocio WHERE id = ${id}` as { nombre: string }[];
+  if (!catRows[0]) return { ok: true };
+
+  const enUsoRows = await sql`SELECT COUNT(*) AS n FROM gastos_negocio WHERE categoria = ${catRows[0].nombre}` as { n: number }[];
+  const enUso = Number(enUsoRows[0].n);
+  if (enUso > 0) return { ok: false, enUso };
+
+  await sql`DELETE FROM categorias_gasto_negocio WHERE id = ${id}`;
+  return { ok: true };
 }
