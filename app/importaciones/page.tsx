@@ -1,210 +1,897 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ClipboardEvent as ReactClipboardEvent, ReactNode } from "react";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
 
-interface LineaCompra {
-  id: number;
+// ─── Tipos ───────────────────────────────────────────────────────────────────
+
+interface Linea {
+  id: number;            // 0 = fila virtual (compra sin productos todavía)
+  compra_id: number;
   sku: string;
   nombre: string;
   cantidad_esperada: number;
   cantidad_recibida: number;
-  unidades_por_caja: number | null;
+  impuestos_pagados: boolean;
 }
 
 interface Compra {
   id: number;
-  fecha_compra: string;
+  fecha_compra: string;           // YYYY-MM-DD
   tracking_number: string | null;
-  fecha_llegada_estimada: string | null;
-  fecha_llegada_real: string | null;
+  fecha_llegada: string | null;   // YYYY-MM-DD
   dap: number | null;
   pague: number | null;
   precio_usd: number | null;
   declaro: number | null;
   impuestos: number | null;
   total_ars: number | null;
-  nota: string;
-  created_by: string;
-  created_at: string;
-  lineas: LineaCompra[];
+  lineas: Linea[];
 }
 
-interface StockItem {
-  sku: string;
-  nombre: string;
-  cantidad: number;
+interface StockItem { sku: string; nombre: string }
+
+type Raw = Record<string, unknown>;
+
+// La API devuelve NUMERIC como string y DATE como timestamp ISO — se
+// normaliza todo acá una sola vez para que el resto trabaje con tipos limpios.
+function toNum(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+function toFecha(v: unknown): string | null {
+  return v ? String(v).slice(0, 10) : null;
+}
+function normLinea(r: Raw): Linea {
+  return {
+    id: Number(r.id), compra_id: Number(r.compra_id),
+    sku: String(r.sku ?? ""), nombre: String(r.nombre ?? ""),
+    cantidad_esperada: Number(r.cantidad_esperada ?? 0), cantidad_recibida: Number(r.cantidad_recibida ?? 0),
+    impuestos_pagados: Boolean(r.impuestos_pagados),
+  };
+}
+function normCompra(r: Raw): Compra {
+  return {
+    id: Number(r.id),
+    fecha_compra: toFecha(r.fecha_compra) ?? "",
+    tracking_number: r.tracking_number ? String(r.tracking_number) : null,
+    fecha_llegada: toFecha(r.fecha_llegada_estimada) ?? toFecha(r.fecha_llegada_real),
+    dap: toNum(r.dap), pague: toNum(r.pague), precio_usd: toNum(r.precio_usd),
+    declaro: toNum(r.declaro), impuestos: toNum(r.impuestos), total_ars: toNum(r.total_ars),
+    lineas: Array.isArray(r.lineas) ? (r.lineas as Raw[]).map(normLinea) : [],
+  };
 }
 
-interface LineaForm {
-  sku: string;
-  nombre: string;
-  cantidadEsperada: string;
-  unidadesPorCaja: string;
+// ─── Columnas ────────────────────────────────────────────────────────────────
+
+type ColKey = "estado" | "fecha" | "tracking" | "cantidad" | "producto" | "dap" | "pague" | "usd" | "declaro" | "impuestos" | "total" | "llegada" | "dias";
+// "linea" = una celda por producto; "compra" = combinada sobre los productos
+// de la compra; "envio" = combinada sobre todas las compras del mismo tracking.
+type Nivel = "linea" | "compra" | "envio";
+type Tipo = "estado" | "fecha" | "texto" | "entero" | "moneda" | "calc";
+
+interface ColDef { key: ColKey; label: string; nivel: Nivel; tipo: Tipo; width: number; align: "left" | "right" | "center" }
+
+const COLS: ColDef[] = [
+  { key: "estado",    label: "",            nivel: "linea",  tipo: "estado", width: 34,  align: "center" },
+  { key: "fecha",     label: "COMPRA",      nivel: "compra", tipo: "fecha",  width: 104, align: "center" },
+  { key: "tracking",  label: "SEGUIMIENTO", nivel: "envio",  tipo: "texto",  width: 128, align: "center" },
+  { key: "cantidad",  label: "CANTIDAD",    nivel: "linea",  tipo: "entero", width: 86,  align: "right" },
+  { key: "producto",  label: "PRODUCTO",    nivel: "linea",  tipo: "texto",  width: 180, align: "left" },
+  { key: "dap",       label: "DAP $",       nivel: "compra", tipo: "moneda", width: 110, align: "right" },
+  { key: "pague",     label: "PAGUÉ",       nivel: "compra", tipo: "moneda", width: 110, align: "right" },
+  { key: "usd",       label: "PRECIO USD",  nivel: "compra", tipo: "moneda", width: 100, align: "right" },
+  { key: "declaro",   label: "DECLARO",     nivel: "compra", tipo: "moneda", width: 100, align: "right" },
+  { key: "impuestos", label: "IMPUESTOS",   nivel: "compra", tipo: "moneda", width: 126, align: "right" },
+  { key: "total",     label: "TOTAL (ARS)", nivel: "compra", tipo: "moneda", width: 140, align: "right" },
+  { key: "llegada",   label: "LLEGADA",     nivel: "compra", tipo: "fecha",  width: 104, align: "center" },
+  { key: "dias",      label: "DÍAS",        nivel: "compra", tipo: "calc",   width: 58,  align: "center" },
+];
+
+const COL_INDEX = Object.fromEntries(COLS.map((c, i) => [c.key, i])) as Record<ColKey, number>;
+const ANCHO_ACCIONES = 56;
+// Con table-layout fixed el ancho total tiene que ser explícito, si no el
+// navegador reparte el sobrante y estira columnas (ej. PRODUCTO).
+const ANCHO_TABLA = COLS.reduce((s, c) => s + c.width, 0) + ANCHO_ACCIONES * 2;
+const editable = (c: ColDef) => c.tipo !== "calc" && c.tipo !== "estado";
+
+// ─── Estado por línea (= color de la fila del Excel) ────────────────────────
+
+type Estado = "en_viaje" | "impuestos" | "llego";
+
+function estadoDe(l: Linea): Estado {
+  if (l.cantidad_esperada > 0 && l.cantidad_recibida >= l.cantidad_esperada) return "llego";
+  if (l.impuestos_pagados) return "impuestos";
+  return "en_viaje";
 }
 
-const LINEA_VACIA: LineaForm = { sku: "", nombre: "", cantidadEsperada: "", unidadesPorCaja: "" };
+const ESTADO_INFO: Record<Estado, { label: string; bg: string; dot: string }> = {
+  en_viaje:  { label: "En viaje",          bg: "rgba(234,179,8,0.18)",  dot: "#eab308" },
+  impuestos: { label: "Impuestos pagados", bg: "rgba(6,182,212,0.20)",  dot: "#06b6d4" },
+  llego:     { label: "Llegó",             bg: "rgba(34,197,94,0.20)",  dot: "#22c55e" },
+};
+
+// ─── Formato y parseo (escritura libre, como en el Excel) ───────────────────
 
 function fmtFecha(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${Number(d)}/${Number(m)}/${y}`;
 }
 
-function fmtMoneda(n: number | null): string {
-  if (n === null || n === undefined) return "—";
-  return n.toLocaleString("es-AR", { maximumFractionDigits: 2 });
+function fmtMoneda(n: number | null, decimales = 2): string {
+  if (n === null) return "";
+  return "$" + n.toLocaleString("es-AR", { minimumFractionDigits: decimales, maximumFractionDigits: 2 });
 }
 
-// Días en tránsito (llegada - compra). Réplica exacta de la regla de colores
-// del Excel original (verificada contra las 122 compras reales, 0 excepciones):
-// VERDE = tiene tracking Y llegó con tránsito positivo. AMARILLO = cualquier
-// otro caso (sin tracking, todavía no llegó, o llegó el mismo día/antes de
-// la fecha de compra registrada — señal de dato para revisar).
-function calcDias(c: Compra): number | null {
-  if (!c.fecha_llegada_real) return null;
-  const compra = new Date(c.fecha_compra).getTime();
-  const llegada = new Date(c.fecha_llegada_real).getTime();
-  return Math.round((llegada - compra) / 86400000);
+function numAEditar(n: number | null): string {
+  return n === null ? "" : String(n).replace(".", ",");
 }
 
-function getRowColor(c: Compra): { bg: string; border: string } {
-  const dias = calcDias(c);
-  const verde = !!c.tracking_number && dias !== null && dias > 0;
-  return verde
-    ? { bg: "rgba(34,197,94,0.13)", border: "rgba(34,197,94,0.4)" }
-    : { bg: "rgba(234,179,8,0.13)", border: "rgba(234,179,8,0.4)" };
+// Acepta "2935", "2.935,50", "2,935.50", "$2,935.00", "1.605" (miles) o
+// "2832.23" (decimal): el último separador decide, y un solo separador
+// seguido de exactamente 3 dígitos se toma como separador de miles.
+// undefined = no es un número válido.
+function parseNumero(raw: string): number | null | undefined {
+  let s = raw.trim().replace(/\$/g, "").replace(/\s/g, "");
+  if (!s) return null;
+  const lastDot = s.lastIndexOf(".");
+  const lastComma = s.lastIndexOf(",");
+  if (lastDot >= 0 && lastComma >= 0) {
+    const dec = lastDot > lastComma ? "." : ",";
+    const miles = dec === "." ? "," : ".";
+    s = s.split(miles).join("").replace(dec, ".");
+  } else if (lastComma >= 0) {
+    const despues = s.length - lastComma - 1;
+    const cantidad = s.split(",").length - 1;
+    s = cantidad === 1 && despues !== 3 ? s.replace(",", ".") : s.split(",").join("");
+  } else if (lastDot >= 0) {
+    const despues = s.length - lastDot - 1;
+    const cantidad = s.split(".").length - 1;
+    if (cantidad > 1 || despues === 3) s = s.split(".").join("");
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
 }
+
+// Acepta "23/9/2026", "23/9/26", "23/9" (año actual), "23-9-2026" o
+// "2026-09-23". undefined = fecha inválida.
+function parseFecha(raw: string): string | null | undefined {
+  const s = raw.trim();
+  if (!s) return null;
+  let y: number, m: number, d: number;
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?$/);
+  if (iso) { y = +iso[1]; m = +iso[2]; d = +iso[3]; }
+  else if (dmy) {
+    d = +dmy[1]; m = +dmy[2];
+    y = dmy[3] ? (dmy[3].length === 2 ? 2000 + +dmy[3] : +dmy[3]) : new Date().getFullYear();
+  } else return undefined;
+  const fecha = new Date(Date.UTC(y, m - 1, d));
+  if (fecha.getUTCFullYear() !== y || fecha.getUTCMonth() !== m - 1 || fecha.getUTCDate() !== d) return undefined;
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function diasEntre(desde: string, hasta: string | null): number | null {
+  if (!desde || !hasta) return null;
+  return Math.round((Date.parse(hasta) - Date.parse(desde)) / 86400000);
+}
+
+const normNombre = (s: string) => s.toUpperCase().replace(/\s+/g, "");
+
+// Mismo mapa que usó el import histórico (scripts/importar-historico-
+// importaciones.ts) — se usa solo si el nombre no aparece ya en compras
+// anteriores ni en el Stock.
+const ALIAS_BASE: Record<string, string> = {
+  "ABS": "ABDOMEN",
+  "ABS+BRAZOS": "ABDOMEN-BRAZOS",
+  "GLUTEOS": "GLUTEOS",
+  "NEGRO": "ADAPTADOR NEGRO",
+  "BLANCO": "ADAPTADOR BLANCO",
+};
+
+// ─── Filas (una por producto, como en el Excel) ─────────────────────────────
+
+interface Fila {
+  compra: Compra;
+  linea: Linea;
+  primeraDeCompra: number;
+  ultimaDeCompra: number;
+  primeraDeEnvio: number;
+  ultimaDeEnvio: number;
+  envio: Compra[];     // todas las compras del mismo tracking
+}
+
+// Las compras con el mismo tracking se agrupan juntas (envío consolidado);
+// los grupos van en orden cronológico, como el Excel (lo más nuevo abajo).
+function armarFilas(compras: Compra[]): Fila[] {
+  const grupos = new Map<string, Compra[]>();
+  for (const c of compras) {
+    const key = c.tracking_number ? `t:${c.tracking_number}` : `c:${c.id}`;
+    const g = grupos.get(key);
+    if (g) g.push(c); else grupos.set(key, [c]);
+  }
+  const orden = (a: Compra, b: Compra) => a.fecha_compra.localeCompare(b.fecha_compra) || a.id - b.id;
+  const envios = Array.from(grupos.values()).map(g => g.sort(orden)).sort((a, b) => orden(a[0], b[0]));
+
+  const filas: Fila[] = [];
+  for (const envio of envios) {
+    const inicioEnvio = filas.length;
+    for (const compra of envio) {
+      const inicioCompra = filas.length;
+      const lineas = compra.lineas.length > 0
+        ? [...compra.lineas].sort((a, b) => a.id - b.id)
+        : [{ id: 0, compra_id: compra.id, sku: "", nombre: "", cantidad_esperada: 0, cantidad_recibida: 0, impuestos_pagados: false }];
+      for (const linea of lineas) {
+        filas.push({ compra, linea, primeraDeCompra: inicioCompra, ultimaDeCompra: -1, primeraDeEnvio: inicioEnvio, ultimaDeEnvio: -1, envio });
+      }
+      for (let i = inicioCompra; i < filas.length; i++) filas[i].ultimaDeCompra = filas.length - 1;
+    }
+    for (let i = inicioEnvio; i < filas.length; i++) filas[i].ultimaDeEnvio = filas.length - 1;
+  }
+  return filas;
+}
+
+function anclaDe(filas: Fila[], fila: number, col: number): number {
+  const f = filas[fila];
+  if (!f) return fila;
+  const nivel = COLS[col].nivel;
+  return nivel === "compra" ? f.primeraDeCompra : nivel === "envio" ? f.primeraDeEnvio : fila;
+}
+
+// ─── Página ──────────────────────────────────────────────────────────────────
+
+interface Seleccion { fila: number; col: number }
+interface SeleccionPendiente { lineaId?: number; compraId?: number; col: ColKey }
 
 export default function ImportacionesPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [compras, setCompras] = useState<Compra[]>([]);
+  const [stock, setStock] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [items, setItems] = useState<StockItem[]>([]);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState("");
 
-  const [q, setQ] = useState("");
-  const [desde, setDesde] = useState("");
-  const [hasta, setHasta] = useState("");
-  const [soloPendientes, setSoloPendientes] = useState(false);
+  const [sel, setSel] = useState<Seleccion | null>(null);
+  const [editando, setEditando] = useState<Seleccion | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sugIdx, setSugIdx] = useState(-1);
 
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const editandoRef = useRef<Seleccion | null>(null);
+  // Espejo sincrónico de `draft`: al tipear rápido, el Enter puede llegar
+  // antes de que React re-renderice, y el `draft` del closure quedaría viejo.
+  const draftRef = useRef("");
+  const pendienteRef = useRef<SeleccionPendiente | null>(null);
+  const scrolledInicialRef = useRef(false);
 
-  // Modal alta
-  const [modalOpen, setModalOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    fechaCompra: "", trackingNumber: "", fechaLlegadaEstimada: "",
-    dap: "", pague: "", precioUsd: "", declaro: "", impuestos: "", totalArs: "", nota: "",
-  });
-  const [lineas, setLineas] = useState<LineaForm[]>([{ ...LINEA_VACIA }]);
-  const [activeSkuRow, setActiveSkuRow] = useState<number | null>(null);
-
+  // ── Carga ──
   const fetchCompras = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
-      const params = new URLSearchParams();
-      if (q) params.set("q", q);
-      if (desde) params.set("desde", desde);
-      if (hasta) params.set("hasta", hasta);
-      if (soloPendientes) params.set("soloPendientes", "true");
-      const res = await fetch(`/api/importaciones/compras?${params.toString()}`);
-      if (res.status === 401 || res.status === 403) { setError("No tenés acceso a este módulo."); return; }
-      if (!res.ok) throw new Error("Error al cargar");
-      const { compras } = await res.json();
-      setCompras(compras ?? []);
+      const res = await fetch("/api/importaciones/compras");
+      if (res.status === 401 || res.status === 403) { setErrorCarga("No tenés acceso a este módulo."); return; }
+      if (!res.ok) throw new Error("Error al cargar las compras");
+      const data = await res.json();
+      setCompras((data.compras ?? []).map(normCompra));
+      setErrorCarga(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Error desconocido");
+      setErrorCarga(e instanceof Error ? e.message : "Error desconocido");
     } finally {
       setLoading(false);
     }
-  }, [q, desde, hasta, soloPendientes]);
+  }, []);
 
   useEffect(() => { fetchCompras(); }, [fetchCompras]);
 
   useEffect(() => {
-    fetch("/api/stock").then(r => r.ok ? r.json() : null).then(data => {
-      if (data?.items) setItems(data.items);
+    fetch("/api/stock").then(r => (r.ok ? r.json() : null)).then(data => {
+      if (data?.items) setStock(data.items.map((i: Raw) => ({ sku: String(i.sku), nombre: String(i.nombre ?? "") })));
     }).catch(() => {});
   }, []);
 
-  function getSkuSuggestions(value: string): StockItem[] {
-    const v = value.trim().toLowerCase();
-    if (!v) return items.slice(0, 10);
-    return items.filter(it => it.sku.toLowerCase().includes(v) || it.nombre.toLowerCase().includes(v)).slice(0, 8);
-  }
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 7000);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
-  function openNuevo() {
-    setForm({ fechaCompra: new Date().toISOString().slice(0, 10), trackingNumber: "", fechaLlegadaEstimada: "", dap: "", pague: "", precioUsd: "", declaro: "", impuestos: "", totalArs: "", nota: "" });
-    setLineas([{ ...LINEA_VACIA }]);
-    setFormError(null);
-    setModalOpen(true);
-  }
+  // ── Filas visibles (con búsqueda) ──
+  const comprasVisibles = useMemo(() => {
+    const q = busqueda.trim().toUpperCase();
+    if (!q) return compras;
+    return compras.filter(c =>
+      (c.tracking_number ?? "").toUpperCase().includes(q) ||
+      c.lineas.some(l => l.nombre.toUpperCase().includes(q) || l.sku.toUpperCase().includes(q)),
+    );
+  }, [compras, busqueda]);
 
-  function updateLinea(i: number, field: keyof LineaForm, value: string) {
-    setLineas(prev => prev.map((l, idx) => idx === i ? { ...l, [field]: field === "sku" ? value.toUpperCase() : value } : l));
-  }
+  const filas = useMemo(() => armarFilas(comprasVisibles), [comprasVisibles]);
 
-  function addLineaRow() { setLineas(prev => [...prev, { ...LINEA_VACIA }]); }
-  function removeLineaRow(i: number) { setLineas(prev => prev.filter((_, idx) => idx !== i)); }
+  // ── Producto: nombres libres → SKU ──
+  const stockSkus = useMemo(() => new Set(stock.map(s => s.sku.toUpperCase())), [stock]);
 
-  function numOrNull(s: string): number | null {
-    const n = parseFloat(s.replace(",", "."));
-    return isNaN(n) ? null : n;
-  }
-
-  async function handleSave() {
-    setFormError(null);
-    if (!form.fechaCompra) {
-      setFormError("Falta fecha de compra");
-      return;
+  // Lo que ya se escribió antes en compras anteriores manda (ej. "ALMOHADA 2"
+  // → ALMOHADA-2): así el mismo nombre de siempre cae siempre en el mismo SKU.
+  const aliasAprendidos = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of compras) for (const l of c.lineas) {
+      if (l.nombre && l.sku) m.set(normNombre(l.nombre), l.sku);
     }
-    const lineasValidas = lineas.filter(l => l.sku.trim() && parseInt(l.cantidadEsperada) > 0);
-    if (lineasValidas.length === 0) {
-      setFormError("Agregá al menos un producto con cantidad");
-      return;
+    return m;
+  }, [compras]);
+
+  const resolverProducto = useCallback((texto: string): { sku: string; nombre: string } => {
+    const t = texto.trim();
+    if (!t) return { sku: "", nombre: "" };
+    const up = t.toUpperCase();
+    if (stockSkus.has(up)) return { sku: up, nombre: t };
+    const key = normNombre(t);
+    const aprendido = aliasAprendidos.get(key);
+    if (aprendido) return { sku: aprendido, nombre: t };
+    const porNombre = stock.find(s => normNombre(s.nombre) === key);
+    if (porNombre) return { sku: porNombre.sku.toUpperCase(), nombre: t };
+    if (ALIAS_BASE[key]) return { sku: ALIAS_BASE[key], nombre: t };
+    return { sku: up.replace(/\s+/g, "-"), nombre: t };
+  }, [stockSkus, aliasAprendidos, stock]);
+
+  const sugerencias = useMemo(() => {
+    if (!editando || COLS[editando.col].key !== "producto") return [];
+    const q = draft.trim().toUpperCase();
+    const vistos = new Set<string>();
+    const lista: { texto: string; sku: string }[] = [];
+    const agregar = (texto: string, sku: string) => {
+      const k = `${normNombre(texto)}|${sku}`;
+      if (vistos.has(k)) return;
+      vistos.add(k);
+      lista.push({ texto, sku });
+    };
+    for (const c of compras) for (const l of c.lineas) if (l.nombre && l.sku && l.nombre.length <= 30) agregar(l.nombre, l.sku);
+    for (const s of stock) agregar(s.sku, s.sku);
+    return lista
+      .filter(s => !q || s.texto.toUpperCase().includes(q) || s.sku.includes(q))
+      .slice(0, 8);
+  }, [editando, draft, compras, stock]);
+
+  // ── Selección: scroll + selección pendiente después de crear filas ──
+  useEffect(() => {
+    const p = pendienteRef.current;
+    if (!p) return;
+    const fila = filas.findIndex(f => (p.lineaId !== undefined ? f.linea.id === p.lineaId : f.compra.id === p.compraId));
+    if (fila >= 0) {
+      pendienteRef.current = null;
+      setSel({ fila: anclaDe(filas, fila, COL_INDEX[p.col]), col: COL_INDEX[p.col] });
+      gridRef.current?.focus();
     }
-    setSaving(true);
+  }, [filas]);
+
+  useEffect(() => {
+    if (!sel) return;
+    const el = gridRef.current?.querySelector(`[data-cell="${sel.fila}-${sel.col}"]`);
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [sel]);
+
+  // Arranca abajo de todo, como al abrir el Excel en la última compra.
+  useEffect(() => {
+    if (scrolledInicialRef.current || filas.length === 0 || !gridRef.current) return;
+    scrolledInicialRef.current = true;
+    gridRef.current.scrollTop = gridRef.current.scrollHeight;
+  }, [filas]);
+
+  // ── Valores de celda ──
+  function valorParaEditar(f: Fila, col: ColDef): string {
+    const c = f.compra, l = f.linea;
+    switch (col.key) {
+      case "fecha":     return fmtFecha(c.fecha_compra);
+      case "tracking":  return c.tracking_number ?? "";
+      case "cantidad":  return l.cantidad_esperada ? String(l.cantidad_esperada) : "";
+      case "producto":  return l.nombre || l.sku;
+      case "dap":       return numAEditar(c.dap);
+      case "pague":     return numAEditar(c.pague);
+      case "usd":       return numAEditar(c.precio_usd);
+      case "declaro":   return numAEditar(c.declaro);
+      case "impuestos": return numAEditar(c.impuestos);
+      case "total":     return numAEditar(c.total_ars);
+      case "llegada":   return fmtFecha(c.fecha_llegada);
+      default:          return "";
+    }
+  }
+
+  function totalSegunFormula(c: Compra): number | null {
+    if (c.precio_usd === null || c.pague === null) return null;
+    return (c.impuestos ?? 0) + c.precio_usd * c.pague;
+  }
+
+  // Chequeos en vivo — "error" se pinta en rojo, "aviso" en ámbar.
+  function problemaDe(f: Fila, col: ColDef): { nivel: "error" | "aviso"; texto: string } | null {
+    const c = f.compra, l = f.linea;
+    switch (col.key) {
+      case "producto":
+        if (!l.sku) return { nivel: "error", texto: "Falta el producto" };
+        if (stockSkus.size > 0 && !stockSkus.has(l.sku.toUpperCase())) {
+          return { nivel: "aviso", texto: `"${l.sku}" no existe en Stock — se va a crear cuando se reciba` };
+        }
+        return null;
+      case "cantidad":
+        return l.cantidad_esperada <= 0 ? { nivel: "error", texto: "Falta la cantidad" } : null;
+      case "total": {
+        const esperado = totalSegunFormula(c);
+        if (c.total_ars === null || esperado === null) return null;
+        return Math.abs(c.total_ars - esperado) > 1
+          ? { nivel: "aviso", texto: `No coincide con IMPUESTOS + PRECIO USD × PAGUÉ = ${fmtMoneda(esperado)}` }
+          : null;
+      }
+      case "llegada": {
+        const dias = diasEntre(c.fecha_compra, c.fecha_llegada);
+        return dias !== null && dias < 0 ? { nivel: "aviso", texto: "La llegada es anterior a la fecha de compra" } : null;
+      }
+      default:
+        return null;
+    }
+  }
+
+  function contenidoDe(f: Fila, col: ColDef): ReactNode {
+    const c = f.compra, l = f.linea;
+    switch (col.key) {
+      case "estado": {
+        const e = ESTADO_INFO[estadoDe(l)];
+        return <span style={{ display: "inline-block", width: 11, height: 11, borderRadius: "50%", background: e.dot, boxShadow: "0 0 0 2px rgba(0,0,0,0.25)" }} />;
+      }
+      case "fecha":     return fmtFecha(c.fecha_compra);
+      case "tracking":  return c.tracking_number ?? "";
+      case "cantidad":  return l.cantidad_esperada ? l.cantidad_esperada : "";
+      case "producto": {
+        const texto = l.nombre || l.sku;
+        const muestraSku = l.sku && normNombre(l.nombre) !== normNombre(l.sku);
+        return (
+          <>
+            {texto}
+            {muestraSku && <span style={{ color: "var(--text-muted)", fontSize: "0.7rem", marginLeft: "0.4rem", fontFamily: "monospace" }}>{l.sku}</span>}
+          </>
+        );
+      }
+      case "dap":       return fmtMoneda(c.dap);
+      case "pague":     return fmtMoneda(c.pague);
+      case "usd":       return fmtMoneda(c.precio_usd, 0);
+      case "declaro":   return fmtMoneda(c.declaro);
+      case "impuestos": return fmtMoneda(c.impuestos);
+      case "total":     return fmtMoneda(c.total_ars);
+      case "llegada":   return fmtFecha(c.fecha_llegada);
+      case "dias":      return diasEntre(c.fecha_compra, c.fecha_llegada) ?? "";
+    }
+  }
+
+  // ── Guardado (optimista: se ve al instante, se guarda por atrás) ──
+  async function llamar(url: string, method: string, body?: unknown) {
+    const res = await fetch(url, {
+      method, headers: { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? "No se pudo guardar");
+    return data;
+  }
+
+  function actualizarCompraLocal(id: number, cambio: Partial<Compra>) {
+    setCompras(prev => prev.map(c => (c.id === id ? { ...c, ...cambio } : c)));
+  }
+
+  function actualizarLineaLocal(compraId: number, lineaId: number, cambio: Partial<Linea>) {
+    setCompras(prev => prev.map(c => c.id !== compraId ? c : {
+      ...c, lineas: c.lineas.map(l => (l.id === lineaId ? { ...l, ...cambio } : l)),
+    }));
+  }
+
+  async function guardar(promesa: Promise<unknown>) {
     try {
-      const res = await fetch("/api/importaciones/compras", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fechaCompra: form.fechaCompra, trackingNumber: form.trackingNumber.trim() || null,
-          fechaLlegadaEstimada: form.fechaLlegadaEstimada || null,
-          dap: numOrNull(form.dap), pague: numOrNull(form.pague), precioUsd: numOrNull(form.precioUsd),
-          declaro: numOrNull(form.declaro), impuestos: numOrNull(form.impuestos), totalArs: numOrNull(form.totalArs),
-          nota: form.nota,
-          lineas: lineasValidas.map(l => ({
-            sku: l.sku.trim(), nombre: l.nombre.trim() || undefined,
-            cantidadEsperada: parseInt(l.cantidadEsperada), unidadesPorCaja: l.unidadesPorCaja ? parseInt(l.unidadesPorCaja) : null,
-          })),
-        }),
+      await promesa;
+    } catch (e: unknown) {
+      setAviso(e instanceof Error ? e.message : "No se pudo guardar");
+      fetchCompras();
+    }
+  }
+
+  async function guardarLinea(f: Fila, cambio: { sku?: string; nombre?: string; cantidadEsperada?: number; impuestosPagados?: boolean }) {
+    const local: Partial<Linea> = {};
+    if (cambio.sku !== undefined) local.sku = cambio.sku;
+    if (cambio.nombre !== undefined) local.nombre = cambio.nombre;
+    if (cambio.cantidadEsperada !== undefined) local.cantidad_esperada = cambio.cantidadEsperada;
+    if (cambio.impuestosPagados !== undefined) local.impuestos_pagados = cambio.impuestosPagados;
+
+    // Fila virtual (compra sin productos): la primera edición crea el producto.
+    if (f.linea.id === 0) {
+      try {
+        const data = await llamar(`/api/importaciones/compras/${f.compra.id}/lineas`, "POST", cambio);
+        const nueva = normLinea(data.linea);
+        setCompras(prev => prev.map(c => (c.id === f.compra.id ? { ...c, lineas: [...c.lineas, nueva] } : c)));
+      } catch (e: unknown) {
+        setAviso(e instanceof Error ? e.message : "No se pudo guardar");
+      }
+      return;
+    }
+    actualizarLineaLocal(f.compra.id, f.linea.id, local);
+    await guardar(llamar(`/api/importaciones/lineas/${f.linea.id}`, "PATCH", cambio));
+  }
+
+  async function confirmarValor(f: Fila, col: ColDef, texto: string) {
+    const c = f.compra;
+    const anterior = valorParaEditar(f, col);
+    if (texto.trim() === anterior.trim()) return;
+
+    switch (col.key) {
+      case "fecha":
+      case "llegada": {
+        const fecha = parseFecha(texto);
+        if (fecha === undefined) { setAviso(`Fecha inválida en ${col.label}: "${texto}". Usá por ejemplo 23/9/2026.`); return; }
+        if (col.key === "fecha") {
+          if (!fecha) { setAviso("La fecha de compra no puede quedar vacía"); return; }
+          actualizarCompraLocal(c.id, { fecha_compra: fecha });
+          await guardar(llamar(`/api/importaciones/compras/${c.id}`, "PATCH", { fechaCompra: fecha }));
+        } else {
+          actualizarCompraLocal(c.id, { fecha_llegada: fecha });
+          await guardar(llamar(`/api/importaciones/compras/${c.id}`, "PATCH", { fechaLlegadaEstimada: fecha }));
+        }
+        return;
+      }
+      case "tracking": {
+        // Celda combinada: renombra el tracking de todas las compras del envío.
+        const tracking = texto.trim().replace(/\s+/g, "") || null;
+        const ids = f.envio.map(x => x.id);
+        setCompras(prev => prev.map(x => (ids.includes(x.id) ? { ...x, tracking_number: tracking } : x)));
+        await guardar(Promise.all(ids.map(id => llamar(`/api/importaciones/compras/${id}`, "PATCH", { trackingNumber: tracking }))));
+        return;
+      }
+      case "dap": case "pague": case "usd": case "declaro": case "impuestos": case "total": {
+        const n = parseNumero(texto);
+        if (n === undefined) { setAviso(`Número inválido en ${col.label}: "${texto}"`); return; }
+        const campoLocal = { dap: "dap", pague: "pague", usd: "precio_usd", declaro: "declaro", impuestos: "impuestos", total: "total_ars" }[col.key] as keyof Compra;
+        const campoApi = { dap: "dap", pague: "pague", usd: "precioUsd", declaro: "declaro", impuestos: "impuestos", total: "totalArs" }[col.key];
+        actualizarCompraLocal(c.id, { [campoLocal]: n } as Partial<Compra>);
+        await guardar(llamar(`/api/importaciones/compras/${c.id}`, "PATCH", { [campoApi]: n }));
+        return;
+      }
+      case "cantidad": {
+        const n = parseNumero(texto);
+        if (n === undefined || (n !== null && (!Number.isInteger(n) || n < 0))) {
+          setAviso(`La cantidad tiene que ser un número entero: "${texto}"`); return;
+        }
+        await guardarLinea(f, { cantidadEsperada: n ?? 0 });
+        return;
+      }
+      case "producto": {
+        const { sku, nombre } = resolverProducto(texto);
+        await guardarLinea(f, { sku, nombre });
+        return;
+      }
+    }
+  }
+
+  async function toggleImpuestos(f: Fila) {
+    if (estadoDe(f.linea) === "llego") {
+      setAviso(`Ya llegó (recibido ${f.linea.cantidad_recibida}/${f.linea.cantidad_esperada}) — el verde lo pone el escaneo en Recepción.`);
+      return;
+    }
+    await guardarLinea(f, { impuestosPagados: !f.linea.impuestos_pagados });
+  }
+
+  // ── Edición ──
+  function cambiarDraft(valor: string) {
+    draftRef.current = valor;
+    setDraft(valor);
+  }
+
+  function empezarEdicion(s: Seleccion, valorInicial?: string) {
+    const col = COLS[s.col];
+    if (!editable(col)) return;
+    const f = filas[s.fila];
+    if (!f) return;
+    editandoRef.current = s;
+    setEditando(s);
+    cambiarDraft(valorInicial ?? valorParaEditar(f, col));
+    setSugIdx(-1);
+  }
+
+  // refocus = false cuando se sale de la celda por un click afuera de la
+  // grilla (ej. el buscador): no hay que robarle el foco a lo que se clickeó.
+  function terminarEdicion(confirmar: boolean, mover?: { dFila: number; dCol: number }, valor?: string, refocus = true) {
+    const s = editandoRef.current;
+    if (!s) return;
+    editandoRef.current = null;
+    setEditando(null);
+    const f = filas[s.fila];
+    if (confirmar && f) confirmarValor(f, COLS[s.col], valor ?? draftRef.current);
+    if (mover) moverDesde(s, mover.dFila, mover.dCol);
+    if (refocus) gridRef.current?.focus();
+  }
+
+  function moverDesde(desde: Seleccion, dFila: number, dCol: number) {
+    if (filas.length === 0) return;
+    const col = Math.max(0, Math.min(COLS.length - 1, desde.col + dCol));
+    let fila = desde.fila;
+    if (dFila !== 0) {
+      const f = filas[fila];
+      const nivel = COLS[col].nivel;
+      if (dFila > 0) fila = nivel === "linea" ? fila + 1 : nivel === "compra" ? f.ultimaDeCompra + 1 : f.ultimaDeEnvio + 1;
+      else fila = nivel === "linea" ? fila - 1 : nivel === "compra" ? f.primeraDeCompra - 1 : f.primeraDeEnvio - 1;
+      fila = Math.max(0, Math.min(filas.length - 1, fila));
+    }
+    setSel({ fila: anclaDe(filas, fila, col), col });
+  }
+
+  function onGridKeyDown(e: ReactKeyboardEvent<HTMLDivElement>) {
+    // Ya se pidió editar pero el input todavía no tomó el foco (tipeo
+    // rápido): las teclas llegan acá en vez de al input. Se las pasa al
+    // editor en vez de perderlas.
+    if (editandoRef.current) {
+      manejarTeclaEdicion(e);
+      if (!e.defaultPrevented && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        cambiarDraft(draftRef.current + e.key);
+      } else if (!e.defaultPrevented && e.key === "Backspace") {
+        e.preventDefault();
+        cambiarDraft(draftRef.current.slice(0, -1));
+      }
+      return;
+    }
+    if (!sel) return;
+    const f = filas[sel.fila];
+    const col = COLS[sel.col];
+    if (!f) return;
+    const k = e.key;
+
+    if (k === "ArrowDown") { e.preventDefault(); moverDesde(sel, 1, 0); return; }
+    if (k === "ArrowUp") { e.preventDefault(); moverDesde(sel, -1, 0); return; }
+    if (k === "ArrowRight") { e.preventDefault(); moverDesde(sel, 0, 1); return; }
+    if (k === "ArrowLeft") { e.preventDefault(); moverDesde(sel, 0, -1); return; }
+    if (k === "Tab") { e.preventDefault(); moverDesde(sel, 0, e.shiftKey ? -1 : 1); return; }
+
+    if (col.tipo === "estado") {
+      if (k === "Enter" || k === " ") { e.preventDefault(); toggleImpuestos(f); }
+      return;
+    }
+    if (k === "Enter" || k === "F2") { e.preventDefault(); empezarEdicion(sel); return; }
+    if (k === "Delete" || k === "Backspace") {
+      e.preventDefault();
+      if (editable(col) && col.key !== "fecha") confirmarValor(f, col, "");
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === "c") {
+      navigator.clipboard?.writeText(valorParaEditar(f, col)).catch(() => {});
+      return;
+    }
+    // Escribir encima de una celda la reemplaza, como en Excel.
+    if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      empezarEdicion(sel, k);
+    }
+  }
+
+  function onGridPaste(e: ReactClipboardEvent<HTMLDivElement>) {
+    if (editandoRef.current || !sel) return;
+    const texto = e.clipboardData.getData("text/plain");
+    const partes = texto.replace(/\r?\n$/, "").split(/\t|\r?\n/);
+    e.preventDefault();
+    if (partes.length > 1) {
+      setAviso("Por ahora se pega de a una celda por vez.");
+      return;
+    }
+    const f = filas[sel.fila];
+    const col = COLS[sel.col];
+    if (f && editable(col)) confirmarValor(f, col, texto.trim());
+  }
+
+  function onEditorKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    // Sin esto, el Enter que confirma la celda burbujea a la grilla (que para
+    // ese momento ya no está en modo edición) y abre la celda de abajo.
+    e.stopPropagation();
+    manejarTeclaEdicion(e);
+  }
+
+  // Teclas especiales durante la edición (Enter/Tab/Esc y flechas de las
+  // sugerencias de producto), vengan del input o de la grilla.
+  function manejarTeclaEdicion(e: ReactKeyboardEvent<HTMLElement>) {
+    const s = editandoRef.current;
+    const esProducto = s !== null && COLS[s.col].key === "producto";
+    if (esProducto && sugerencias.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      setSugIdx(i => {
+        const n = sugerencias.length;
+        return e.key === "ArrowDown" ? (i + 1) % n : (i - 1 + n) % n;
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Error al guardar");
-      setModalOpen(false);
-      await fetchCompras();
-    } catch (e: unknown) {
-      setFormError(e instanceof Error ? e.message : "Error desconocido");
-    } finally {
-      setSaving(false);
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const elegida = esProducto && sugIdx >= 0 ? sugerencias[sugIdx]?.texto : undefined;
+      terminarEdicion(true, { dFila: 1, dCol: 0 }, elegida);
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      terminarEdicion(true, { dFila: 0, dCol: e.shiftKey ? -1 : 1 });
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      terminarEdicion(false);
     }
   }
 
-  async function handleDelete(id: number) {
+  // ── Filas: agregar / borrar ──
+  async function nuevaCompra() {
     try {
-      const res = await fetch(`/api/importaciones/compras/${id}`, { method: "DELETE" });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Error al borrar");
-      setCompras(prev => prev.filter(c => c.id !== id));
+      const hoy = new Date();
+      const fechaCompra = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+      const data = await llamar("/api/importaciones/compras", "POST", { fechaCompra });
+      const compra = normCompra(data.compra);
+      setBusqueda("");
+      pendienteRef.current = { compraId: compra.id, col: "cantidad" };
+      setCompras(prev => [...prev, compra]);
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Error al borrar");
-    } finally {
-      setDeleteConfirm(null);
+      setAviso(e instanceof Error ? e.message : "No se pudo crear la compra");
     }
   }
+
+  async function agregarProducto(f: Fila) {
+    try {
+      const data = await llamar(`/api/importaciones/compras/${f.compra.id}/lineas`, "POST", {});
+      const linea = normLinea(data.linea);
+      pendienteRef.current = { lineaId: linea.id, col: "cantidad" };
+      setCompras(prev => prev.map(c => (c.id === f.compra.id ? { ...c, lineas: [...c.lineas, linea] } : c)));
+    } catch (e: unknown) {
+      setAviso(e instanceof Error ? e.message : "No se pudo agregar el producto");
+    }
+  }
+
+  async function borrarProducto(f: Fila) {
+    if (f.linea.id === 0) return;
+    if (!confirm(`¿Borrar "${f.linea.nombre || f.linea.sku || "este producto"}" de la compra del ${fmtFecha(f.compra.fecha_compra)}?`)) return;
+    try {
+      await llamar(`/api/importaciones/lineas/${f.linea.id}`, "DELETE");
+      setCompras(prev => prev.map(c => (c.id === f.compra.id ? { ...c, lineas: c.lineas.filter(l => l.id !== f.linea.id) } : c)));
+      setSel(null);
+    } catch (e: unknown) {
+      setAviso(e instanceof Error ? e.message : "No se pudo borrar");
+    }
+  }
+
+  async function borrarCompra(f: Fila) {
+    if (!confirm(`¿Borrar la compra del ${fmtFecha(f.compra.fecha_compra)} con todos sus productos? No se puede deshacer.`)) return;
+    try {
+      await llamar(`/api/importaciones/compras/${f.compra.id}`, "DELETE");
+      setCompras(prev => prev.filter(c => c.id !== f.compra.id));
+      setSel(null);
+    } catch (e: unknown) {
+      setAviso(e instanceof Error ? e.message : "No se pudo borrar");
+    }
+  }
+
+  async function sacarDelEnvio(f: Fila) {
+    if (!confirm(`¿Sacar la compra del ${fmtFecha(f.compra.fecha_compra)} del envío ${f.compra.tracking_number}? Queda sin tracking.`)) return;
+    actualizarCompraLocal(f.compra.id, { tracking_number: null });
+    await guardar(llamar(`/api/importaciones/compras/${f.compra.id}`, "PATCH", { trackingNumber: null }));
+  }
+
+  // ── Resumen ──
+  const resumen = useMemo(() => {
+    const r: Record<Estado, number> = { en_viaje: 0, impuestos: 0, llego: 0 };
+    for (const c of compras) for (const l of c.lineas) r[estadoDe(l)] += 1;
+    return r;
+  }, [compras]);
+
+  // ── Render ──
+  const celdaBase: CSSProperties = {
+    border: "1px solid var(--border-color)", padding: "0 6px", height: 30,
+    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+    position: "relative", cursor: "cell", fontSize: "0.82rem",
+  };
+
+  function renderCelda(f: Fila, i: number, colIdx: number) {
+    const col = COLS[colIdx];
+    if (col.nivel === "compra" && i !== f.primeraDeCompra) return null;
+    if (col.nivel === "envio" && i !== f.primeraDeEnvio) return null;
+
+    const rowSpan = col.nivel === "compra" ? f.ultimaDeCompra - f.primeraDeCompra + 1
+      : col.nivel === "envio" ? f.ultimaDeEnvio - f.primeraDeEnvio + 1 : 1;
+    // Las celdas combinadas toman el color de su primer producto, como en el Excel.
+    const lineaColor = col.nivel === "linea" ? f.linea
+      : col.nivel === "compra" ? filas[f.primeraDeCompra].linea : filas[f.primeraDeEnvio].linea;
+    const bg = ESTADO_INFO[estadoDe(lineaColor)].bg;
+
+    const seleccionada = sel !== null && sel.col === colIdx && anclaDe(filas, sel.fila, colIdx) === i;
+    const enEdicion = editando !== null && editando.col === colIdx && anclaDe(filas, editando.fila, colIdx) === i;
+    const problema = problemaDe(f, col);
+
+    const style: CSSProperties = {
+      ...celdaBase, textAlign: col.align, background: bg,
+      fontWeight: col.key === "total" ? 700 : col.key === "tracking" ? 600 : undefined,
+      fontFamily: col.key === "tracking" ? "monospace" : undefined,
+      boxShadow: seleccionada
+        ? "inset 0 0 0 2px var(--primary-color)"
+        : problema ? `inset 0 0 0 2px ${problema.nivel === "error" ? "rgba(239,68,68,0.85)" : "rgba(245,158,11,0.75)"}` : undefined,
+    };
+
+    let titulo: string | undefined = problema?.texto;
+    if (col.key === "estado") {
+      const e = estadoDe(f.linea);
+      titulo = `${ESTADO_INFO[e].label} — recibido ${f.linea.cantidad_recibida}/${f.linea.cantidad_esperada}` +
+        (e === "llego" ? "" : ". Click para marcar/desmarcar impuestos pagados.");
+    }
+
+    return (
+      <td
+        key={col.key}
+        rowSpan={rowSpan}
+        data-cell={`${i}-${colIdx}`}
+        style={style}
+        title={titulo}
+        onMouseDown={(ev) => {
+          if (enEdicion) return;
+          ev.preventDefault();
+          if (editandoRef.current) terminarEdicion(true);
+          setSel({ fila: i, col: colIdx });
+          gridRef.current?.focus();
+        }}
+        onClick={() => { if (col.tipo === "estado") toggleImpuestos(f); }}
+        onDoubleClick={() => empezarEdicion({ fila: i, col: colIdx })}
+      >
+        {enEdicion ? (
+          <>
+            <input
+              autoFocus
+              value={draft}
+              onChange={ev => { cambiarDraft(ev.target.value); setSugIdx(-1); }}
+              onKeyDown={onEditorKeyDown}
+              onBlur={() => terminarEdicion(true, undefined, undefined, false)}
+              onFocus={ev => { const n = ev.target.value.length; ev.target.setSelectionRange(n, n); }}
+              style={{
+                position: "absolute", inset: 0, width: "100%", height: "100%", border: "2px solid var(--primary-color)",
+                background: "var(--surface-color)", color: "var(--text-color)", padding: "0 5px",
+                fontSize: "0.82rem", textAlign: col.align, outline: "none", boxSizing: "border-box",
+              }}
+            />
+            {col.key === "producto" && sugerencias.length > 0 && (
+              <div style={{
+                position: "absolute", top: "100%", left: 0, minWidth: 260, zIndex: 50,
+                background: "var(--surface-color)", border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius)", boxShadow: "0 8px 20px rgba(0,0,0,0.45)",
+              }}>
+                {sugerencias.map((s, idx) => (
+                  <div
+                    key={`${s.texto}|${s.sku}`}
+                    onMouseDown={ev => { ev.preventDefault(); terminarEdicion(true, undefined, s.texto); }}
+                    style={{
+                      padding: "0.35rem 0.6rem", cursor: "pointer", fontSize: "0.8rem", display: "flex", gap: "0.5rem",
+                      background: idx === sugIdx ? "rgba(59,130,246,0.18)" : "transparent",
+                    }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{s.texto}</span>
+                    {normNombre(s.texto) !== normNombre(s.sku) && (
+                      <span style={{ color: "var(--text-muted)", fontFamily: "monospace", fontSize: "0.72rem" }}>{s.sku}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            {contenidoDe(f, col)}
+            {problema && (
+              <i
+                className="fas fa-triangle-exclamation"
+                style={{ position: "absolute", top: 2, right: 3, fontSize: "0.6rem", color: problema.nivel === "error" ? "#ef4444" : "#f59e0b" }}
+              />
+            )}
+          </>
+        )}
+      </td>
+    );
+  }
+
+  const botonIcono: CSSProperties = {
+    background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer",
+    padding: "0.15rem 0.3rem", fontSize: "0.75rem",
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
@@ -220,127 +907,115 @@ export default function ImportacionesPage() {
         </div>
       </header>
 
-      <main className="sf-main">
+      <main className="sf-main" style={{ maxWidth: 1800 }}>
         <div className="sf-container">
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, marginBottom: "0.25rem" }}>Compras a China</h1>
-          <p style={{ color: "var(--text-muted)", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
-            Registro de compras a proveedores: tracking, productos esperados por envío, y costos/aduana. La recepción física se confirma escaneando en{" "}
+          <p style={{ color: "var(--text-muted)", marginBottom: "1rem", fontSize: "0.88rem" }}>
+            Escribí directo en las celdas como en el Excel: Enter o doble click para editar, flechas/Tab para moverte, Esc para cancelar.
+            Las compras con el mismo seguimiento se agrupan solas. La recepción física se confirma en{" "}
             <a href="/importaciones/recepcion" style={{ color: "var(--primary-color)" }}>Recepción (Escaneo)</a>.
           </p>
 
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem", alignItems: "center" }}>
-            <input className="sf-input" style={{ maxWidth: 200 }} placeholder="Buscar tracking..." value={q} onChange={e => setQ(e.target.value)} />
-            <input className="sf-input" style={{ maxWidth: 150 }} type="date" value={desde} onChange={e => setDesde(e.target.value)} title="Desde" />
-            <input className="sf-input" style={{ maxWidth: 150 }} type="date" value={hasta} onChange={e => setHasta(e.target.value)} title="Hasta" />
-            <label style={{ display: "flex", alignItems: "center", gap: "0.35rem", fontSize: "0.85rem", color: "var(--text-muted)" }}>
-              <input type="checkbox" checked={soloPendientes} onChange={e => setSoloPendientes(e.target.checked)} />
-              Solo pendientes
-            </label>
-            <button className="sf-btn" style={{ marginLeft: "auto" }} onClick={openNuevo}>
+          <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.75rem" }}>
+            <input
+              className="sf-input" style={{ maxWidth: 240 }} placeholder="Buscar seguimiento o producto..."
+              value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            />
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.78rem", color: "var(--text-muted)" }}>
+              {(Object.keys(ESTADO_INFO) as Estado[]).map(k => (
+                <span key={k} style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: ESTADO_INFO[k].dot, display: "inline-block" }} />
+                  {ESTADO_INFO[k].label}: <strong style={{ color: "var(--text-color)" }}>{resumen[k]}</strong>
+                </span>
+              ))}
+            </div>
+            <button className="sf-btn" style={{ marginLeft: "auto" }} onClick={nuevaCompra}>
               <i className="fas fa-plus" /> Nueva compra
             </button>
           </div>
 
-          {error && (
-            <div className="sf-alert sf-alert-warning" style={{ marginBottom: "1rem" }}>
+          {aviso && (
+            <div className="sf-alert sf-alert-warning" style={{ marginBottom: "0.75rem" }}>
               <i className="fas fa-circle-exclamation" style={{ flexShrink: 0 }} />
-              <span>{error}</span>
+              <span>{aviso}</span>
             </div>
           )}
 
-          {loading ? (
+          {errorCarga ? (
+            <div className="sf-alert sf-alert-warning"><i className="fas fa-circle-exclamation" /><span>{errorCarga}</span></div>
+          ) : loading ? (
             <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "1rem 0" }}>
               <i className="fas fa-spinner fa-spin" style={{ marginRight: "0.5rem" }} />Cargando...
             </div>
-          ) : !error && compras.length === 0 ? (
-            <div className="sf-empty">
-              <i className="fas fa-ship sf-empty-icon" />
-              <p style={{ fontWeight: 600, color: "var(--text-color)", marginBottom: "0.25rem" }}>No hay compras cargadas</p>
-            </div>
           ) : (
-            <>
-              <div style={{ display: "flex", gap: "1.25rem", flexWrap: "wrap", marginBottom: "0.6rem", fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "rgba(34,197,94,0.5)", border: "1px solid rgba(34,197,94,0.8)", marginRight: "0.4rem", verticalAlign: "middle" }} />Llegó a tiempo (con tracking)</span>
-                <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "rgba(234,179,8,0.5)", border: "1px solid rgba(234,179,8,0.8)", marginRight: "0.4rem", verticalAlign: "middle" }} />Pendiente, sin tracking, o fecha a revisar</span>
-              </div>
-              <div className="sf-table-wrap">
-                <table className="sf-table">
-                  <thead>
+            <div
+              ref={gridRef}
+              tabIndex={0}
+              onKeyDown={onGridKeyDown}
+              onPaste={onGridPaste}
+              style={{
+                maxHeight: "calc(100vh - 270px)", overflow: "auto", outline: "none",
+                border: "1px solid var(--border-color)", borderRadius: "var(--radius)",
+              }}
+            >
+              <table style={{ borderCollapse: "collapse", tableLayout: "fixed", width: ANCHO_TABLA }}>
+                <colgroup>
+                  {COLS.map(c => <col key={c.key} style={{ width: c.width }} />)}
+                  <col style={{ width: ANCHO_ACCIONES }} />
+                  <col style={{ width: ANCHO_ACCIONES }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    {COLS.map(c => (
+                      <th key={c.key} style={{
+                        position: "sticky", top: 0, zIndex: 5, background: "var(--surface-color)",
+                        border: "1px solid var(--border-color)", padding: "0.45rem 6px",
+                        fontSize: "0.75rem", fontWeight: 800, textAlign: "center", letterSpacing: "0.3px",
+                      }}>
+                        {c.label}
+                      </th>
+                    ))}
+                    <th style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--surface-color)", border: "1px solid var(--border-color)", fontSize: "0.65rem", color: "var(--text-muted)" }}>Prod.</th>
+                    <th style={{ position: "sticky", top: 0, zIndex: 5, background: "var(--surface-color)", border: "1px solid var(--border-color)", fontSize: "0.65rem", color: "var(--text-muted)" }}>Compra</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.length === 0 ? (
                     <tr>
-                      <th>Compra</th>
-                      <th>Tracking</th>
-                      <th style={{ textAlign: "right" }}>Cant.</th>
-                      <th>Producto</th>
-                      <th style={{ textAlign: "right" }}>DAP</th>
-                      <th style={{ textAlign: "right" }}>Pagué</th>
-                      <th style={{ textAlign: "right" }}>Precio USD</th>
-                      <th style={{ textAlign: "right" }}>Declaro</th>
-                      <th style={{ textAlign: "right" }}>Impuestos</th>
-                      <th style={{ textAlign: "right" }}>Total ARS</th>
-                      <th>Llegada</th>
-                      <th style={{ textAlign: "right" }}>Días</th>
-                      <th>Estado</th>
-                      <th style={{ width: "1px" }} />
+                      <td colSpan={COLS.length + 2} style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>
+                        {busqueda ? "No hay compras que coincidan con la búsqueda." : "Todavía no hay compras. Agregá la primera con \"Nueva compra\"."}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {compras.map(c => {
-                      const completa = c.lineas.every(l => l.cantidad_recibida >= l.cantidad_esperada);
-                      const dias = calcDias(c);
-                      const color = getRowColor(c);
-                      const rowSpan = c.lineas.length;
-                      const tdBase: React.CSSProperties = { backgroundColor: color.bg, borderLeft: `3px solid ${color.border}` };
-                      return c.lineas.map((l, j) => (
-                        <tr key={l.id}>
-                          {j === 0 && (
-                            <>
-                              <td style={{ ...tdBase, whiteSpace: "nowrap" }} rowSpan={rowSpan}>{fmtFecha(c.fecha_compra)}</td>
-                              <td style={{ ...tdBase, fontFamily: "monospace" }} rowSpan={rowSpan}>
-                                {c.tracking_number ?? <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Sin tracking</span>}
-                              </td>
-                            </>
+                  ) : filas.map((f, i) => (
+                    <tr key={`${f.compra.id}-${f.linea.id}`}>
+                      {COLS.map((_, colIdx) => renderCelda(f, i, colIdx))}
+                      <td style={{ ...celdaBase, cursor: "default", textAlign: "center", padding: 0 }}>
+                        <button style={botonIcono} title="Agregar otro producto a esta compra" onClick={() => agregarProducto(f)}>
+                          <i className="fas fa-plus" />
+                        </button>
+                        {f.linea.id !== 0 && f.compra.lineas.length > 1 && (
+                          <button style={botonIcono} title="Borrar este producto" onClick={() => borrarProducto(f)}>
+                            <i className="fas fa-minus" />
+                          </button>
+                        )}
+                      </td>
+                      {i === f.primeraDeCompra && (
+                        <td rowSpan={f.ultimaDeCompra - f.primeraDeCompra + 1} style={{ ...celdaBase, cursor: "default", textAlign: "center", padding: 0 }}>
+                          {f.envio.length > 1 && (
+                            <button style={botonIcono} title="Sacar esta compra del envío (queda sin seguimiento)" onClick={() => sacarDelEnvio(f)}>
+                              <i className="fas fa-link-slash" />
+                            </button>
                           )}
-                          <td style={{ backgroundColor: color.bg, textAlign: "right", fontWeight: 600 }}>{l.cantidad_esperada}</td>
-                          <td style={{ backgroundColor: color.bg }}>
-                            <span style={{ fontFamily: "monospace", fontWeight: 600 }}>{l.sku}</span>
-                            {l.nombre && <span style={{ color: "var(--text-muted)", marginLeft: "0.4rem" }}>{l.nombre}</span>}
-                            <span style={{ marginLeft: "0.5rem", fontSize: "0.75rem", color: l.cantidad_recibida >= l.cantidad_esperada ? "var(--success-color)" : "#f59e0b" }}>
-                              ({l.cantidad_recibida}/{l.cantidad_esperada} recibido)
-                            </span>
-                          </td>
-                          {j === 0 && (
-                            <>
-                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.dap)}</td>
-                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.pague)}</td>
-                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.precio_usd)}</td>
-                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.declaro)}</td>
-                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{fmtMoneda(c.impuestos)}</td>
-                              <td style={{ ...tdBase, textAlign: "right", fontWeight: 600 }} rowSpan={rowSpan}>{fmtMoneda(c.total_ars)}</td>
-                              <td style={{ ...tdBase, fontSize: "0.8rem" }} rowSpan={rowSpan}>
-                                {c.fecha_llegada_real
-                                  ? <span style={{ color: "var(--success-color)" }}>{fmtFecha(c.fecha_llegada_real)}</span>
-                                  : <span style={{ color: "var(--text-muted)" }}>Est. {fmtFecha(c.fecha_llegada_estimada)}</span>}
-                              </td>
-                              <td style={{ ...tdBase, textAlign: "right" }} rowSpan={rowSpan}>{dias ?? "—"}</td>
-                              <td style={tdBase} rowSpan={rowSpan}>
-                                {completa
-                                  ? <span className="sf-badge sf-badge-ok">Completa</span>
-                                  : <span className="sf-badge" style={{ background: "rgba(245,158,11,0.15)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>Pendiente</span>}
-                              </td>
-                              <td style={tdBase} rowSpan={rowSpan}>
-                                <button className="sf-btn-edit" onClick={() => setDeleteConfirm(c.id)} title="Borrar">
-                                  <i className="fas fa-trash" />
-                                </button>
-                              </td>
-                            </>
-                          )}
-                        </tr>
-                      ));
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </>
+                          <button style={botonIcono} title="Borrar la compra entera" onClick={() => borrarCompra(f)}>
+                            <i className="fas fa-trash" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </main>
@@ -349,139 +1024,6 @@ export default function ImportacionesPage() {
         <i className="fas fa-rocket" style={{ color: "var(--primary-color)", marginRight: "0.4rem" }} />
         ShipFlow
       </footer>
-
-      {/* ── MODAL: NUEVA COMPRA ── */}
-      {modalOpen && (
-        <>
-          <div className="sf-modal-backdrop" onClick={() => setModalOpen(false)} />
-          <div className="sf-modal" role="dialog" style={{ width: "min(640px, calc(100vw - 2rem))" }}>
-            <div className="sf-modal-header">
-              <h3 className="sf-modal-title"><i className="fas fa-ship" /> Nueva compra</h3>
-              <button className="sf-close-btn" onClick={() => setModalOpen(false)}><i className="fas fa-times" /></button>
-            </div>
-            <div className="sf-modal-body">
-              {formError && (
-                <div className="sf-alert sf-alert-warning" style={{ marginBottom: "1rem" }}>
-                  <i className="fas fa-circle-exclamation" style={{ flexShrink: 0 }} />
-                  <span>{formError}</span>
-                </div>
-              )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                <Field label="Fecha de compra *">
-                  <input type="date" className="sf-input" value={form.fechaCompra} onChange={e => setForm({ ...form, fechaCompra: e.target.value })} />
-                </Field>
-                <Field label="Tracking">
-                  <input type="text" className="sf-input" value={form.trackingNumber} onChange={e => setForm({ ...form, trackingNumber: e.target.value })} placeholder="N° de seguimiento (opcional)" />
-                </Field>
-                <Field label="Llegada estimada">
-                  <input type="date" className="sf-input" value={form.fechaLlegadaEstimada} onChange={e => setForm({ ...form, fechaLlegadaEstimada: e.target.value })} />
-                </Field>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "0.6rem", marginBottom: "1rem" }}>
-                <Field label="DAP $"><input type="text" className="sf-input" value={form.dap} onChange={e => setForm({ ...form, dap: e.target.value })} /></Field>
-                <Field label="Pagué"><input type="text" className="sf-input" value={form.pague} onChange={e => setForm({ ...form, pague: e.target.value })} /></Field>
-                <Field label="Precio USD"><input type="text" className="sf-input" value={form.precioUsd} onChange={e => setForm({ ...form, precioUsd: e.target.value })} /></Field>
-                <Field label="Declaro"><input type="text" className="sf-input" value={form.declaro} onChange={e => setForm({ ...form, declaro: e.target.value })} /></Field>
-                <Field label="Impuestos"><input type="text" className="sf-input" value={form.impuestos} onChange={e => setForm({ ...form, impuestos: e.target.value })} /></Field>
-                <Field label="Total ARS"><input type="text" className="sf-input" value={form.totalArs} onChange={e => setForm({ ...form, totalArs: e.target.value })} /></Field>
-              </div>
-
-              <Field label="Nota">
-                <input type="text" className="sf-input" value={form.nota} onChange={e => setForm({ ...form, nota: e.target.value })} placeholder="Opcional" />
-              </Field>
-
-              <h4 style={{ fontSize: "0.85rem", fontWeight: 700, margin: "1rem 0 0.5rem" }}>Productos esperados</h4>
-              <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {lineas.map((linea, i) => {
-                  const suggestions = getSkuSuggestions(linea.sku);
-                  return (
-                    <div key={i} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
-                      <div style={{ flex: 2, position: "relative" }}>
-                        <input
-                          type="text" className="sf-input" placeholder="SKU"
-                          value={linea.sku}
-                          onChange={e => { updateLinea(i, "sku", e.target.value); setActiveSkuRow(i); }}
-                          onFocus={() => setActiveSkuRow(i)}
-                          onBlur={() => setTimeout(() => setActiveSkuRow(null), 160)}
-                          autoComplete="off"
-                          style={{ width: "100%" }}
-                        />
-                        {activeSkuRow === i && suggestions.length > 0 && (
-                          <div style={{
-                            position: "absolute", top: "calc(100% + 2px)", left: 0, right: 0, zIndex: 200,
-                            background: "var(--card-bg, #1e293b)", border: "1px solid var(--border-color)",
-                            borderRadius: "var(--radius)", maxHeight: 180, overflowY: "auto", boxShadow: "0 6px 18px rgba(0,0,0,0.4)",
-                          }}>
-                            {suggestions.map(it => (
-                              <button key={it.sku} type="button"
-                                onMouseDown={() => { updateLinea(i, "sku", it.sku); updateLinea(i, "nombre", it.nombre); setActiveSkuRow(null); }}
-                                style={{ display: "flex", width: "100%", textAlign: "left", padding: "0.4rem 0.7rem", background: "none", border: "none", color: "var(--text-color)", cursor: "pointer", fontSize: "0.8rem", gap: "0.5rem" }}
-                              >
-                                <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{it.sku}</span>
-                                <span style={{ color: "var(--text-muted)" }}>{it.nombre}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <input type="text" className="sf-input" placeholder="Nombre (si es nuevo)" value={linea.nombre}
-                        onChange={e => updateLinea(i, "nombre", e.target.value)} style={{ flex: 2 }} />
-                      <input type="number" className="sf-input" placeholder="Cant." value={linea.cantidadEsperada}
-                        onChange={e => updateLinea(i, "cantidadEsperada", e.target.value)} style={{ flex: 1, minWidth: 70 }} />
-                      <input type="number" className="sf-input" placeholder="U/caja" value={linea.unidadesPorCaja}
-                        onChange={e => updateLinea(i, "unidadesPorCaja", e.target.value)} style={{ flex: 1, minWidth: 70 }} title="Unidades por caja (opcional)" />
-                      <button onClick={() => removeLineaRow(i)} style={{ background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "var(--radius)", padding: "0.4rem 0.6rem", color: "var(--error-color)", cursor: "pointer" }}>
-                        <i className="fas fa-xmark" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <button onClick={addLineaRow} style={{ marginTop: "0.6rem", background: "none", border: "1px dashed var(--border-color)", borderRadius: "var(--radius)", padding: "0.4rem 0.75rem", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.8rem", width: "100%" }}>
-                <i className="fas fa-plus" style={{ marginRight: "0.35rem" }} /> Agregar producto
-              </button>
-            </div>
-            <div className="sf-modal-footer">
-              <button className="sf-btn sf-btn-secondary" onClick={() => setModalOpen(false)}>Cancelar</button>
-              <button className="sf-btn" onClick={handleSave} disabled={saving}>
-                {saving ? <><i className="fas fa-spinner fa-spin" /> Guardando...</> : <><i className="fas fa-floppy-disk" /> Guardar</>}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── CONFIRMAR BORRADO ── */}
-      {deleteConfirm !== null && (
-        <>
-          <div className="sf-modal-backdrop" onClick={() => setDeleteConfirm(null)} />
-          <div className="sf-modal" role="dialog" style={{ width: "min(380px, calc(100vw - 2rem))" }}>
-            <div className="sf-modal-header">
-              <h3 className="sf-modal-title">¿Borrar esta compra?</h3>
-              <button className="sf-close-btn" onClick={() => setDeleteConfirm(null)}><i className="fas fa-times" /></button>
-            </div>
-            <div className="sf-modal-body">
-              <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>No se puede deshacer. Si ya tiene cajas recibidas, no se va a poder borrar.</p>
-            </div>
-            <div className="sf-modal-footer">
-              <button className="sf-btn sf-btn-secondary" onClick={() => setDeleteConfirm(null)}>Cancelar</button>
-              <button className="sf-btn" style={{ background: "var(--error-color)" }} onClick={() => handleDelete(deleteConfirm)}>Borrar</button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.25rem", textTransform: "uppercase", letterSpacing: "0.3px" }}>
-        {label}
-      </label>
-      {children}
     </div>
   );
 }

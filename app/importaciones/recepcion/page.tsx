@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 
 interface LineaCompra {
   id: number;
+  compra_id: number;
   sku: string;
   nombre: string;
   cantidad_esperada: number;
@@ -19,9 +20,14 @@ interface Compra {
   fecha_compra: string;
 }
 
+// Un tracking puede ser un envío consolidado con varias compras adentro.
 interface Desglose {
-  compra: Compra;
-  lineas: LineaCompra[];
+  trackingNumber: string;
+  compras: { compra: Compra; lineas: LineaCompra[] }[];
+}
+
+function fmtFecha(iso: string) {
+  return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "UTC" });
 }
 
 interface ConfirmarResult {
@@ -157,13 +163,15 @@ export default function RecepcionPage() {
 
   async function handleConfirmarCaja() {
     if (!desglose || !lineaSeleccionada || !cantidadCaja || Number(cantidadCaja) <= 0) return;
+    const linea = desglose.compras.flatMap(c => c.lineas).find(l => l.id === lineaSeleccionada);
+    if (!linea) return;
     setConfirmando(true);
     try {
       const res = await fetch("/api/importaciones/recepcion/confirmar", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          compraId: desglose.compra.id, lineaId: lineaSeleccionada,
-          cantidad: Number(cantidadCaja), codigo: desglose.compra.tracking_number,
+          compraId: linea.compra_id, lineaId: linea.id,
+          cantidad: Number(cantidadCaja), codigo: desglose.trackingNumber,
         }),
       });
       const data = await res.json();
@@ -293,7 +301,10 @@ export default function RecepcionPage() {
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
                 <div>
                   <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Tracking</div>
-                  <div style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.1rem" }}>{desglose.compra.tracking_number}</div>
+                  <div style={{ fontFamily: "monospace", fontWeight: 700, fontSize: "1.1rem" }}>{desglose.trackingNumber}</div>
+                  {desglose.compras.length > 1 && (
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Envío consolidado: {desglose.compras.length} compras</div>
+                  )}
                 </div>
                 <button className="sf-btn sf-btn-secondary" onClick={() => { setDesglose(null); setLineaSeleccionada(null); enfocar(); }}>
                   <i className="fas fa-xmark" /> Cancelar
@@ -302,28 +313,37 @@ export default function RecepcionPage() {
 
               <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>¿Qué producto es esta caja?</p>
               <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1.25rem" }}>
-                {desglose.lineas.map(linea => {
-                  const completa = linea.cantidad_recibida >= linea.cantidad_esperada;
-                  const seleccionada = lineaSeleccionada === linea.id;
-                  return (
-                    <button
-                      key={linea.id}
-                      onClick={() => elegirLinea(linea)}
-                      style={{
-                        display: "flex", alignItems: "center", gap: "0.75rem", textAlign: "left",
-                        padding: "0.75rem 1rem", borderRadius: "var(--radius)", cursor: "pointer",
-                        border: seleccionada ? "2px solid var(--primary-color)" : "1px solid var(--border-color)",
-                        background: seleccionada ? "rgba(59,130,246,0.1)" : "transparent",
-                      }}
-                    >
-                      <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{linea.sku}</span>
-                      <span style={{ color: "var(--text-muted)", flex: 1 }}>{linea.nombre}</span>
-                      <span style={{ fontWeight: 700, color: completa ? "var(--success-color)" : "#f59e0b" }}>
-                        {linea.cantidad_recibida} / {linea.cantidad_esperada}
-                      </span>
-                    </button>
-                  );
-                })}
+                {desglose.compras.map(({ compra, lineas }) => (
+                  <div key={compra.id} style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                    {desglose.compras.length > 1 && (
+                      <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginTop: "0.25rem" }}>
+                        Compra del {fmtFecha(compra.fecha_compra)}
+                      </div>
+                    )}
+                    {lineas.map(linea => {
+                      const completa = linea.cantidad_recibida >= linea.cantidad_esperada;
+                      const seleccionada = lineaSeleccionada === linea.id;
+                      return (
+                        <button
+                          key={linea.id}
+                          onClick={() => elegirLinea(linea)}
+                          style={{
+                            display: "flex", alignItems: "center", gap: "0.75rem", textAlign: "left",
+                            padding: "0.75rem 1rem", borderRadius: "var(--radius)", cursor: "pointer",
+                            border: seleccionada ? "2px solid var(--primary-color)" : "1px solid var(--border-color)",
+                            background: seleccionada ? "rgba(59,130,246,0.1)" : "transparent",
+                          }}
+                        >
+                          <span style={{ fontFamily: "monospace", fontWeight: 700 }}>{linea.sku}</span>
+                          <span style={{ color: "var(--text-muted)", flex: 1 }}>{linea.nombre}</span>
+                          <span style={{ fontWeight: 700, color: completa ? "var(--success-color)" : "#f59e0b" }}>
+                            {linea.cantidad_recibida} / {linea.cantidad_esperada}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
 
               {lineaSeleccionada && (

@@ -35,6 +35,10 @@ export interface LineaCompraImportacion {
   cantidad_esperada: number;
   cantidad_recibida: number;
   unidades_por_caja: number | null;
+  // Estado por línea (como el color de cada fila del Excel): "impuestos
+  // pagados" se marca a mano; "llegó" no se guarda, se deduce de
+  // cantidad_recibida >= cantidad_esperada (o sea, del escaneo en Recepción).
+  impuestos_pagados: boolean;
   created_at: string;
 }
 
@@ -107,9 +111,12 @@ export async function initImportacionesTables(): Promise<void> {
       created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
-  // Un tracking de courier internacional no se reutiliza.
+  // Varias compras pueden viajar en un mismo envío consolidado (mismo
+  // tracking, como la celda combinada del Excel) — por eso el índice ya NO es
+  // único. Antes lo era, y eso dejaba los envíos consolidados partidos.
+  await sql`DROP INDEX IF EXISTS compras_importacion_tracking_uidx`;
   await sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS compras_importacion_tracking_uidx
+    CREATE INDEX IF NOT EXISTS compras_importacion_tracking_idx
     ON compras_importacion (tracking_number)
   `;
   await sql`
@@ -132,6 +139,10 @@ export async function initImportacionesTables(): Promise<void> {
   await sql`
     CREATE INDEX IF NOT EXISTS compras_importacion_lineas_compra_idx
     ON compras_importacion_lineas (compra_id)
+  `;
+  await sql`
+    ALTER TABLE compras_importacion_lineas
+    ADD COLUMN IF NOT EXISTS impuestos_pagados BOOLEAN NOT NULL DEFAULT false
   `;
 
   // Log de cada caja física confirmada. A propósito SIN índice único en
@@ -192,8 +203,14 @@ export async function crearCompra(input: NuevaCompraInput): Promise<CompraConLin
   ` as CompraImportacion[];
   const compra = rows[0];
 
+  // Desde la grilla, "agregar compra" crea una fila en blanco para completar
+  // celda por celda, igual que agregar una fila en el Excel.
+  const lineasACrear: NuevaLineaInput[] = input.lineas.length > 0
+    ? input.lineas
+    : [{ sku: "", nombre: "", cantidadEsperada: 0 }];
+
   const lineas: LineaCompraImportacion[] = [];
-  for (const linea of input.lineas) {
+  for (const linea of lineasACrear) {
     const cantidadRecibida = input.yaRecibidoCompleto ? linea.cantidadEsperada : 0;
     const lineaRows = await sql`
       INSERT INTO compras_importacion_lineas (compra_id, sku, nombre, cantidad_esperada, cantidad_recibida, unidades_por_caja)
@@ -255,7 +272,7 @@ export async function getCompraById(id: number): Promise<CompraConLineas | null>
 }
 
 export type EdicionCompraInput = Partial<Pick<NuevaCompraInput,
-  "fechaCompra" | "fechaLlegadaEstimada" | "dap" | "pague" | "precioUsd" | "declaro" | "impuestos" | "totalArs" | "nota"
+  "fechaCompra" | "trackingNumber" | "fechaLlegadaEstimada" | "dap" | "pague" | "precioUsd" | "declaro" | "impuestos" | "totalArs" | "nota"
 >> & { lineas?: NuevaLineaInput[] };
 
 // Reemplaza cabecera + (opcionalmente) líneas. No permite bajar cantidad_esperada
@@ -266,17 +283,23 @@ export async function editarCompra(id: number, input: EdicionCompraInput): Promi
   const actual = await getCompraById(id);
   if (!actual) throw new Error("Compra no encontrada");
 
+  // Solo se tocan los campos que vinieron en el input (CASE WHEN por campo),
+  // nunca se reescribe el resto con lo leído antes: la grilla guarda celda
+  // por celda, y dos guardados casi simultáneos de la misma compra (ej. DAP
+  // + Tab + PAGUÉ) se pisarían entre sí si cada uno reescribiera todo.
+  const viene = (k: keyof EdicionCompraInput) => input[k] !== undefined;
   await sql`
     UPDATE compras_importacion SET
-      fecha_compra = ${input.fechaCompra ?? actual.fecha_compra}::date,
-      fecha_llegada_estimada = ${input.fechaLlegadaEstimada !== undefined ? input.fechaLlegadaEstimada : actual.fecha_llegada_estimada}::date,
-      dap = ${input.dap !== undefined ? input.dap : actual.dap},
-      pague = ${input.pague !== undefined ? input.pague : actual.pague},
-      precio_usd = ${input.precioUsd !== undefined ? input.precioUsd : actual.precio_usd},
-      declaro = ${input.declaro !== undefined ? input.declaro : actual.declaro},
-      impuestos = ${input.impuestos !== undefined ? input.impuestos : actual.impuestos},
-      total_ars = ${input.totalArs !== undefined ? input.totalArs : actual.total_ars},
-      nota = ${input.nota ?? actual.nota}
+      fecha_compra = CASE WHEN ${viene("fechaCompra")} THEN ${input.fechaCompra ?? null}::date ELSE fecha_compra END,
+      tracking_number = CASE WHEN ${viene("trackingNumber")} THEN ${input.trackingNumber ?? null} ELSE tracking_number END,
+      fecha_llegada_estimada = CASE WHEN ${viene("fechaLlegadaEstimada")} THEN ${input.fechaLlegadaEstimada ?? null}::date ELSE fecha_llegada_estimada END,
+      dap = CASE WHEN ${viene("dap")} THEN ${input.dap ?? null}::numeric ELSE dap END,
+      pague = CASE WHEN ${viene("pague")} THEN ${input.pague ?? null}::numeric ELSE pague END,
+      precio_usd = CASE WHEN ${viene("precioUsd")} THEN ${input.precioUsd ?? null}::numeric ELSE precio_usd END,
+      declaro = CASE WHEN ${viene("declaro")} THEN ${input.declaro ?? null}::numeric ELSE declaro END,
+      impuestos = CASE WHEN ${viene("impuestos")} THEN ${input.impuestos ?? null}::numeric ELSE impuestos END,
+      total_ars = CASE WHEN ${viene("totalArs")} THEN ${input.totalArs ?? null}::numeric ELSE total_ars END,
+      nota = CASE WHEN ${viene("nota")} THEN ${input.nota ?? ""} ELSE nota END
     WHERE id = ${id}
   `;
 
@@ -326,6 +349,76 @@ export async function borrarCompra(id: number): Promise<void> {
   await sql`DELETE FROM compras_importacion WHERE id = ${id}`;
 }
 
+// ─── CRUD líneas (edición celda por celda desde la grilla) ──────────────────
+
+async function getLineaById(id: number): Promise<LineaCompraImportacion | null> {
+  const sql = getDb();
+  const rows = await sql`SELECT * FROM compras_importacion_lineas WHERE id = ${id}` as LineaCompraImportacion[];
+  return rows[0] ?? null;
+}
+
+export async function agregarLinea(compraId: number, input: Partial<NuevaLineaInput> = {}): Promise<LineaCompraImportacion> {
+  const sql = getDb();
+  const compra = await sql`SELECT id FROM compras_importacion WHERE id = ${compraId}` as { id: number }[];
+  if (!compra[0]) throw new Error("Compra no encontrada");
+  const rows = await sql`
+    INSERT INTO compras_importacion_lineas (compra_id, sku, nombre, cantidad_esperada, cantidad_recibida)
+    VALUES (${compraId}, ${input.sku ?? ""}, ${input.nombre ?? input.sku ?? ""}, ${input.cantidadEsperada ?? 0}, 0)
+    RETURNING *
+  ` as LineaCompraImportacion[];
+  return rows[0];
+}
+
+export interface EdicionLineaInput {
+  sku?: string;
+  nombre?: string;
+  cantidadEsperada?: number;
+  impuestosPagados?: boolean;
+}
+
+// Mismas reglas de trazabilidad que editarCompra(): lo que ya se recibió
+// (y por lo tanto ya sumó stock real) no se puede contradecir.
+export async function editarLinea(id: number, input: EdicionLineaInput): Promise<LineaCompraImportacion> {
+  const actual = await getLineaById(id);
+  if (!actual) throw new Error("Línea no encontrada");
+
+  if (input.cantidadEsperada !== undefined && input.cantidadEsperada < actual.cantidad_recibida) {
+    throw new Error(`No se puede bajar la cantidad por debajo de lo ya recibido (${actual.cantidad_recibida})`);
+  }
+  if (input.sku !== undefined && input.sku !== actual.sku && actual.cantidad_recibida > 0) {
+    throw new Error(`No se puede cambiar el producto: ya se recibieron ${actual.cantidad_recibida} unidades como ${actual.sku}`);
+  }
+
+  // Igual que editarCompra(): solo los campos que vinieron, para que dos
+  // guardados seguidos de la misma fila no se pisen.
+  const viene = (k: keyof EdicionLineaInput) => input[k] !== undefined;
+  const sql = getDb();
+  const rows = await sql`
+    UPDATE compras_importacion_lineas SET
+      sku = CASE WHEN ${viene("sku")} THEN ${input.sku ?? ""} ELSE sku END,
+      nombre = CASE WHEN ${viene("nombre")} THEN ${input.nombre ?? ""} ELSE nombre END,
+      cantidad_esperada = CASE WHEN ${viene("cantidadEsperada")} THEN ${input.cantidadEsperada ?? 0}::int ELSE cantidad_esperada END,
+      impuestos_pagados = CASE WHEN ${viene("impuestosPagados")} THEN ${input.impuestosPagados ?? false}::boolean ELSE impuestos_pagados END
+    WHERE id = ${id}
+    RETURNING *
+  ` as LineaCompraImportacion[];
+  return rows[0];
+}
+
+export async function borrarLinea(id: number): Promise<void> {
+  const actual = await getLineaById(id);
+  if (!actual) return;
+  if (actual.cantidad_recibida > 0) {
+    throw new Error(`No se puede borrar: ya se recibieron ${actual.cantidad_recibida} unidades de esta línea`);
+  }
+  const sql = getDb();
+  const cuantas = await sql`SELECT COUNT(*)::int AS n FROM compras_importacion_lineas WHERE compra_id = ${actual.compra_id}` as { n: number }[];
+  if ((cuantas[0]?.n ?? 0) <= 1) {
+    throw new Error("Es el único producto de la compra — para sacarlo, borrá la compra entera");
+  }
+  await sql`DELETE FROM compras_importacion_lineas WHERE id = ${id}`;
+}
+
 // ─── Recepción: paso 1, solo lectura ─────────────────────────────────────────
 
 export interface DesgloseCompra {
@@ -333,12 +426,31 @@ export interface DesgloseCompra {
   lineas: LineaCompraImportacion[];
 }
 
-export async function resolverEscaneoRecepcion(trackingNumber: string): Promise<DesgloseCompra | null> {
+export interface DesgloseEnvio {
+  trackingNumber: string;
+  compras: DesgloseCompra[];
+}
+
+// Un tracking puede ser un envío consolidado con varias compras adentro —
+// se devuelven todas, para que el operario elija la línea correcta de
+// cualquiera de ellas.
+export async function resolverEscaneoRecepcion(trackingNumber: string): Promise<DesgloseEnvio | null> {
   const sql = getDb();
-  const rows = await sql`SELECT * FROM compras_importacion WHERE tracking_number = ${trackingNumber}` as CompraImportacion[];
-  if (!rows[0]) return null;
-  const lineas = await getLineasDeCompra(rows[0].id);
-  return { compra: rows[0], lineas };
+  const compras = await sql`
+    SELECT * FROM compras_importacion WHERE tracking_number = ${trackingNumber}
+    ORDER BY fecha_compra, id
+  ` as CompraImportacion[];
+  if (compras.length === 0) return null;
+
+  const ids = compras.map(c => c.id);
+  const lineas = await sql`
+    SELECT * FROM compras_importacion_lineas WHERE compra_id = ANY(${ids}) ORDER BY id
+  ` as LineaCompraImportacion[];
+
+  return {
+    trackingNumber,
+    compras: compras.map(c => ({ compra: c, lineas: lineas.filter(l => l.compra_id === c.id) })),
+  };
 }
 
 // ─── Recepción: paso 2, confirma una caja física puntual ─────────────────────

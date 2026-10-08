@@ -25,11 +25,14 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   await initImportacionesTables();
+  // La grilla muestra el ledger completo, como el Excel — sin el tope de
+  // 200 que tenía la vista de tabla vieja.
   const compras = await listarCompras(storeId, {
     q: sp.get("q") ?? undefined,
     desde: sp.get("desde") ?? undefined,
     hasta: sp.get("hasta") ?? undefined,
     soloPendientes: sp.get("soloPendientes") === "true",
+    limit: 5000,
   });
   return NextResponse.json({ compras });
 }
@@ -55,12 +58,11 @@ export async function POST(req: NextRequest) {
   if (!body.fechaCompra) {
     return NextResponse.json({ error: "Falta fecha de compra" }, { status: 400 });
   }
+  // Sin líneas válidas se crea con una fila en blanco para completar desde
+  // la grilla (ver crearCompra).
   const lineasValidas = (body.lineas ?? []).filter((l): l is NuevaLineaInput =>
     !!l.sku?.trim() && typeof l.cantidadEsperada === "number" && l.cantidadEsperada > 0,
   );
-  if (lineasValidas.length === 0) {
-    return NextResponse.json({ error: "Agregá al menos un producto con cantidad" }, { status: 400 });
-  }
 
   await initImportacionesTables();
   try {
@@ -75,9 +77,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ compra });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes("duplicate key") || msg.includes("tracking_uidx")) {
-      return NextResponse.json({ error: "Ya existe una compra con ese número de tracking" }, { status: 409 });
-    }
     console.error("[importaciones] error al crear compra:", e);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

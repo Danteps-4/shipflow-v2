@@ -15,7 +15,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 interface EdicionBody {
-  fechaCompra?: string; fechaLlegadaEstimada?: string | null;
+  fechaCompra?: string; trackingNumber?: string | null; fechaLlegadaEstimada?: string | null;
   dap?: number | null; pague?: number | null; precioUsd?: number | null;
   declaro?: number | null; impuestos?: number | null; totalArs?: number | null;
   nota?: string;
@@ -29,6 +29,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const body = await req.json() as EdicionBody;
   const input: EdicionCompraInput = {
     fechaCompra: body.fechaCompra, fechaLlegadaEstimada: body.fechaLlegadaEstimada,
+    trackingNumber: body.trackingNumber === undefined ? undefined : (body.trackingNumber?.trim() || null),
     dap: body.dap, pague: body.pague, precioUsd: body.precioUsd,
     declaro: body.declaro, impuestos: body.impuestos, totalArs: body.totalArs, nota: body.nota,
     lineas: body.lineas
