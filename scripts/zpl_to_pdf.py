@@ -102,18 +102,8 @@ def extract_quantity(zpl: str) -> int:
 def inject_sku(zpl: str, sku: str, qty: int = 1) -> str:
     if not sku:
         return zpl
-    if qty > 1:
-        # Cantidad bien grande (doble pasada con 1 punto de desfase para que
-        # quede en negrita) para que depósito vea de lejos que son varias.
-        qty_text = f"{qty}x"
-        sku_x = 30 + len(qty_text) * 48 + 20
-        fields = (
-            f"^FO30,785^A0N,80,80^FD{qty_text}^FS\n"
-            f"^FO31,785^A0N,80,80^FD{qty_text}^FS\n"
-            f"^FO{sku_x},805^A0N,36,36^FD{sku}^FS\n"
-        )
-    else:
-        fields = f"^FO30,800^A0N,36,36^FD{sku}^FS\n"
+    text = f"{qty}x {sku}" if qty > 1 else sku
+    fields = f"^FO30,800^A0N,36,36^FD{text}^FS\n"
     return zpl.replace("^XZ", fields + "^XZ", 1)
 
 
