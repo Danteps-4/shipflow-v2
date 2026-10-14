@@ -88,11 +88,33 @@ def strip_troquel(zpl: str) -> str:
     return f"^XA\n^CI28\n{shipping}"
 
 
-def inject_sku(zpl: str, sku: str) -> str:
+# La cantidad viene en la sección del troquel (el número grande arriba de
+# "Unidades" y el "| N u." del título) — que strip_troquel() descarta, así que
+# hay que leerla del ZPL original antes de recortarlo.
+def extract_quantity(zpl: str) -> int:
+    head = zpl.split("^LH0,410")[0]
+    m = re.search(r"\^FD(\d+)\^FS\s*\^FO[^\n]*?\^FDUnidad", head)
+    if not m:
+        m = re.search(r"\|\s*(\d+)\s*u\.\s*\^FS", head)
+    return int(m.group(1)) if m else 1
+
+
+def inject_sku(zpl: str, sku: str, qty: int = 1) -> str:
     if not sku:
         return zpl
-    sku_field = f"^FO30,800^A0N,30,30^FDSKU: {sku}^FS\n"
-    return zpl.replace("^XZ", sku_field + "^XZ", 1)
+    if qty > 1:
+        # Cantidad bien grande (doble pasada con 1 punto de desfase para que
+        # quede en negrita) para que depósito vea de lejos que son varias.
+        qty_text = f"{qty}x"
+        sku_x = 30 + len(qty_text) * 48 + 20
+        fields = (
+            f"^FO30,785^A0N,80,80^FD{qty_text}^FS\n"
+            f"^FO31,785^A0N,80,80^FD{qty_text}^FS\n"
+            f"^FO{sku_x},805^A0N,36,36^FD{sku}^FS\n"
+        )
+    else:
+        fields = f"^FO30,800^A0N,36,36^FD{sku}^FS\n"
+    return zpl.replace("^XZ", fields + "^XZ", 1)
 
 
 def render_zpl_to_png(zpl: str) -> bytes:
@@ -147,7 +169,8 @@ def main():
         if i > 0:
             time.sleep(RENDER_DELAY_S)
         sku = extract_sku(zpl)
-        zpl_final = inject_sku(strip_troquel(zpl), sku)
+        qty = extract_quantity(zpl)
+        zpl_final = inject_sku(strip_troquel(zpl), sku, qty)
         png_images.append(render_zpl_to_png(zpl_final))
         shipment = extract_shipment_data(zpl)
         if shipment:
