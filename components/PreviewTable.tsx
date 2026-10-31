@@ -121,6 +121,11 @@ export default function PreviewTable({ data, errores, tipo, groupedOrders, onEdi
                 {/* Orden */}
                 <td style={{ fontFamily: "monospace", fontWeight: 600, whiteSpace: "nowrap" }}>
                   {numeroInterno}
+                  {grouped?.combinadas?.map((c) => (
+                    <div key={c.numeroOrden} style={{ fontSize: "0.72rem", fontWeight: 600, color: "var(--success-color)" }}>
+                      + {c.numeroOrden}
+                    </div>
+                  ))}
                 </td>
 
                 {/* Cliente */}

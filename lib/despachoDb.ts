@@ -6,6 +6,7 @@ import { convertTnOrders } from "./convertTnOrders";
 import { getValidMlAccessToken } from "./mlTokens";
 import { fetchMlOrder, extractDeducirItems } from "./mlClient";
 import { deducirStock, getStockPorSkus, initStockTables, DeducirItem } from "./stockDb";
+import { initPedidosCombinadosTables, getSecundarias } from "./pedidosCombinadosDb";
 import type { TnOrder, ProductoOrden } from "@/types/orders";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -461,6 +462,25 @@ export async function resolvePedidoPorNumeroOrden(
     const tnOrder = await fetchTnOrderByNumero(conexion.access_token, storeId, numeroOrden);
     if (tnOrder) {
       const [grouped] = convertTnOrders([tnOrder]);
+      let productos: ProductoOrden[] = grouped.productos ?? [];
+      let pagoConfirmado = tnOrder.payment_status === "paid";
+
+      // Envío combinado (varios pedidos del mismo cliente en un solo
+      // paquete, ver /procesar): el paquete lleva los productos de todos, así
+      // que se suman acá — también para descontar su stock — y el pago tiene
+      // que estar confirmado en todos. Un pedido combinado que se canceló
+      // después no viaja: se deja afuera en vez de trabar el despacho.
+      await initPedidosCombinadosTables();
+      const secundarias = await getSecundarias(storeId, numeroOrden);
+      for (const sec of secundarias) {
+        const secOrder = await fetchTnOrderByNumero(conexion.access_token, storeId, sec.numeroOrden);
+        if (!secOrder) return null;
+        if (secOrder.status === "cancelled") continue;
+        if (secOrder.payment_status !== "paid") pagoConfirmado = false;
+        const [secGrouped] = convertTnOrders([secOrder]);
+        productos = [...productos, ...(secGrouped.productos ?? []).map(p => ({ ...p, ordenOrigen: sec.numeroOrden }))];
+      }
+
       return {
         origenTipo: "tienda_nube",
         storeId,
@@ -468,9 +488,9 @@ export async function resolvePedidoPorNumeroOrden(
         numeroOrden,
         clienteNombre: grouped.nombreEnvio,
         medioEnvio: grouped.medioEnvio,
-        productos: grouped.productos ?? [],
+        productos,
         cancelado: tnOrder.status === "cancelled",
-        pagoConfirmado: tnOrder.payment_status === "paid",
+        pagoConfirmado,
       };
     }
   }
@@ -693,10 +713,16 @@ export async function procesarEscaneo(codigoRaw: string, scannedBy: string): Pro
       }));
       await deducirStock(envio.store_id, items, "mercadolibre", "venta");
     } else {
-      const items: DeducirItem[] = pedido.productos.map(p => ({
-        sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
-        motivo: `Venta TN #${envio.numero_orden} (despacho)`, numeroOrden: envio.numero_orden,
-      }));
+      // En un envío combinado cada producto se descuenta contra el pedido del
+      // que sale (ordenOrigen), no contra el principal: así el control
+      // anti-doble-descuento sigue siendo por pedido.
+      const items: DeducirItem[] = pedido.productos.map(p => {
+        const orden = p.ordenOrigen ?? envio.numero_orden;
+        return {
+          sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
+          motivo: `Venta TN #${orden} (despacho)`, numeroOrden: orden,
+        };
+      });
       await deducirStock(envio.store_id, items, "tiendanube", "venta");
     }
   } catch (e) {

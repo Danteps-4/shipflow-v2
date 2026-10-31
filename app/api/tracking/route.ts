@@ -8,6 +8,7 @@ import fs from "fs";
 import { initCambiosTables, getCambioById, setTrackingCambio } from "@/lib/cambiosDb";
 import { initTicketsTables, getTicketsByNumeroPedido, setPedidoTracking, addHistorial } from "@/lib/ticketsDb";
 import { initDespachoTables, upsertEnvioTracking } from "@/lib/despachoDb";
+import { initPedidosCombinadosTables, getSecundarias } from "@/lib/pedidosCombinadosDb";
 import type { ProductoOrden, TnProduct } from "@/types/orders";
 
 export const runtime = "nodejs";
@@ -225,8 +226,44 @@ export async function POST(req: NextRequest) {
       const { status, body } = await patchTracking(tokens.user_id, tokens.access_token, realId, fulfillmentId, entry.tracking);
 
       if (status === 200 || status === 201) {
-        await registrarEnDespacho(entry.order, entry.tracking, productos);
-        results.push({ ...entry, status: "success" });
+        // Envío combinado (varios pedidos del mismo cliente en un solo
+        // paquete): el mismo tracking va a cada pedido para que todos queden
+        // despachados y avisen al cliente, y Despacho registra un solo
+        // paquete con los productos de todos.
+        const productosPaquete: ProductoOrden[] = [...productos];
+        const resultadosSecundarios: TrackingResult[] = [];
+        try {
+          await initPedidosCombinadosTables();
+          const secundarias = await getSecundarias(storeIdStr, entry.order);
+          for (const sec of secundarias) {
+            await sleep(DELAY_MS);
+            let productosSec: ProductoOrden[] = sec.productos;
+            try {
+              const secRealId = await lookupRealId(tokens.user_id, tokens.access_token, sec.numeroOrden);
+              await sleep(DELAY_MS);
+              const fSec = await getFulfillmentId(tokens.user_id, tokens.access_token, secRealId);
+              productosSec = fSec.productos;
+              await sleep(DELAY_MS);
+              const r = await patchTracking(tokens.user_id, tokens.access_token, secRealId, fSec.fulfillmentId, entry.tracking);
+              if (r.status === 200 || r.status === 201) {
+                resultadosSecundarios.push({ order: sec.numeroOrden, tracking: entry.tracking, status: "success", detail: `Combinado con #${entry.order}` });
+              } else {
+                resultadosSecundarios.push({ order: sec.numeroOrden, tracking: entry.tracking, status: "error", detail: `Combinado con #${entry.order} — HTTP ${r.status}: ${r.body}` });
+              }
+            } catch (err: unknown) {
+              resultadosSecundarios.push({
+                order: sec.numeroOrden, tracking: entry.tracking, status: "error",
+                detail: `Combinado con #${entry.order} — ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
+            productosPaquete.push(...productosSec.map(p => ({ ...p, ordenOrigen: sec.numeroOrden })));
+          }
+        } catch (err) {
+          console.error("[tracking] no se pudieron procesar los pedidos combinados:", err);
+        }
+
+        await registrarEnDespacho(entry.order, entry.tracking, productosPaquete);
+        results.push({ ...entry, status: "success" }, ...resultadosSecundarios);
       } else {
         results.push({ ...entry, status: "error", detail: `HTTP ${status}: ${body}` });
       }

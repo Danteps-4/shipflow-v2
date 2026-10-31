@@ -38,12 +38,18 @@ export interface GroupedOrder {
   productos?: ProductoOrden[];
   // Marcado manualmente como retiro presencial: se excluye del Excel de Andreani
   retiroPresencial?: boolean;
+  // Otros pedidos del mismo cliente combinados en este mismo envío (se paga
+  // un solo envío). Salen del Excel como filas propias: solo queda este.
+  combinadas?: GroupedOrder[];
 }
 
 export interface ProductoOrden {
   sku: string;
   nombre: string;
   cantidad: number;
+  // Solo en envíos combinados: número del pedido de Tienda Nube del que sale
+  // este producto (ausente = el pedido principal del envío).
+  ordenOrigen?: string;
 }
 
 // -------------------------------------------------------------------

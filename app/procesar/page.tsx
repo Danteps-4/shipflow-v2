@@ -8,6 +8,8 @@ import ErrorTable from "@/components/ErrorTable";
 import EditOrderModal from "@/components/EditOrderModal";
 import ExportSummaryModal from "@/components/ExportSummaryModal";
 import TnOrderPicker from "@/components/TnOrderPicker";
+import PedidosDuplicadosPanel from "@/components/PedidosDuplicadosPanel";
+import { combinarPedidos, deshacerCombinacion } from "@/lib/pedidosCombinados";
 import { convertTnOrders } from "@/lib/convertTnOrders";
 import { parseCsv } from "@/lib/parseCsv";
 import { groupOrders } from "@/lib/groupOrders";
@@ -191,7 +193,7 @@ export default function ProcesarPage() {
   async function handleTnImport(imported: GroupedOrder[]) {
     setShowPicker(false);
     const existing = result?.groupedOrders ?? [];
-    const existingNums = new Set(existing.map((o) => o.numeroOrden));
+    const existingNums = new Set(existing.flatMap((o) => [o.numeroOrden, ...(o.combinadas ?? []).map(c => c.numeroOrden)]));
     const newOrders = imported.filter((o) => !existingNums.has(o.numeroOrden));
     const overrides = await fetchEnvioOverrides(newOrders.map(o => o.numeroOrden));
     const merged = [...existing, ...applyEnvioOverrides(newOrders, overrides)];
@@ -239,9 +241,55 @@ export default function ProcesarPage() {
     }
   }
 
+  // Aplica un cambio sobre la lista de pedidos (combinar/deshacer) y vuelve a
+  // armar las hojas del Excel con el resultado.
+  function aplicarCambioPedidos(cambiar: (orders: GroupedOrder[]) => GroupedOrder[]) {
+    if (!result) return;
+    const newGrouped = cambiar(result.groupedOrders);
+    const { domicilio, sucursal, errores, retiroPresencial } = transformOrders(newGrouped);
+    setResult({ ...result, domicilio, sucursal, errores, retiroPresencial, groupedOrders: newGrouped, ordenesUnicas: newGrouped.length });
+  }
+
+  function handleCombinar(principal: string, secundarias: string[]) {
+    aplicarCambioPedidos(orders => combinarPedidos(orders, principal, secundarias));
+  }
+
+  function handleDeshacerCombinacion(principal: string) {
+    aplicarCambioPedidos(orders => deshacerCombinacion(orders, principal));
+  }
+
+  // Guarda qué pedidos viajan juntos para que las etiquetas (SKU), el tracking
+  // y el escaneo de Despacho consideren todos los productos y pedidos del
+  // paquete. Si hay combinaciones y no se puede guardar, no se descarga el
+  // Excel: sin esto, los pedidos secundarios quedarían sin tracking.
+  async function guardarCombinaciones(snap: ProcessingResult): Promise<boolean> {
+    const exportados = [...snap.domicilio, ...snap.sucursal].map(r => r["Numero Interno"]);
+    const enExcel = new Set(exportados);
+    const grupos = snap.groupedOrders
+      .filter(o => o.combinadas?.length && enExcel.has(o.numeroOrden))
+      .map(o => ({
+        principal: o.numeroOrden,
+        secundarias: o.combinadas!.map(c => ({ numeroOrden: c.numeroOrden, productos: c.productos ?? [] })),
+      }));
+    try {
+      const res = await fetch("/api/pedidos/combinados", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exportados, grupos }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
+      return true;
+    } catch (e) {
+      if (grupos.length === 0) return true;
+      alert(`No se descargó el Excel: no se pudo guardar la combinación de pedidos (${e instanceof Error ? e.message : "error"}). Probá de nuevo.`);
+      return false;
+    }
+  }
+
   async function handleExport() {
     if (!result) return;
     const snap = result;
+    if (!(await guardarCombinaciones(snap))) return;
     await exportAndreaniWorkbook(snap.domicilio, snap.sucursal);
     setExportSummary({ domicilio: snap.domicilio.length, sucursal: snap.sucursal.length });
   }
@@ -448,6 +496,12 @@ export default function ProcesarPage() {
                 totalDomicilio={result.domicilio.length}
                 totalSucursal={result.sucursal.length}
                 totalErrores={result.errores.length}
+              />
+
+              <PedidosDuplicadosPanel
+                orders={result.groupedOrders}
+                onCombinar={handleCombinar}
+                onDeshacer={handleDeshacerCombinacion}
               />
 
               <hr className="sf-divider" />

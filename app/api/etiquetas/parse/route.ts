@@ -4,6 +4,8 @@ import path from "path";
 import { readTokens } from "@/lib/tnTokens";
 import { requireModule } from "@/lib/permissions";
 import { initPedidoExtrasTables, getExtrasPorOrdenes } from "@/lib/pedidoExtrasDb";
+import { initPedidosCombinadosTables, getSecundariasPorPrincipales } from "@/lib/pedidosCombinadosDb";
+import { sumarSkus } from "@/lib/pedidosCombinados";
 
 export const runtime = "nodejs";
 
@@ -54,6 +56,22 @@ export async function POST(req: NextRequest) {
       for (const extra of extras) {
         orders[orden].skus.push({ sku: extra.sku, cantidad: extra.cantidad });
       }
+    }
+
+    // Envíos combinados (varios pedidos del mismo cliente en un solo
+    // paquete, ver /procesar): la etiqueta lleva el número del pedido
+    // principal, así que se le suman los productos de los demás.
+    await initPedidosCombinadosTables();
+    const combinadosPorOrden = await getSecundariasPorPrincipales(storeId, Object.keys(orders));
+    for (const [principal, secundarias] of Object.entries(combinadosPorOrden)) {
+      if (!orders[principal]) continue;
+      for (const sec of secundarias) {
+        for (const p of sec.productos) {
+          const sku = (p.sku || p.nombre || "").trim();
+          if (sku) orders[principal].skus.push({ sku, cantidad: p.cantidad });
+        }
+      }
+      orders[principal].skus = sumarSkus(orders[principal].skus);
     }
 
     return NextResponse.json({ orders });
