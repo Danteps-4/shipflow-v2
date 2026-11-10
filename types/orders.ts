@@ -114,6 +114,7 @@ export interface TnProduct {
   sku: string | null;
   quantity: number;
   variant_name: string | null;
+  price?: string | null;
 }
 
 export interface TnShippingAddress {
@@ -148,6 +149,10 @@ export interface TnOrder {
   shipping_address: TnShippingAddress | null;
   shipping_option:  string | { id?: number; name?: string; code?: string } | null;
   shipping_carrier_name?: string | null;
+  // "pickup" = el cliente retira (en el depósito propio o en un punto de
+  // retiro de un correo); "ship" = se envía a domicilio.
+  shipping_pickup_type?: string | null;
+  shipping_pickup_details?: { name?: string | null } | null;
   fulfillments: unknown[];
   // Identifican el medio de pago — "offline"/"Transferencia Bancaria" para
   // pagos manuales (transferencia/depósito). Usado por la conciliación de

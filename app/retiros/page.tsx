@@ -107,6 +107,8 @@ export default function RetirosPage() {
   const [creando, setCreando] = useState(false);
   const [errorCreacion, setErrorCreacion] = useState<string | null>(null);
   const [eliminandoId, setEliminandoId] = useState<number | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
+  const [mensajeSync, setMensajeSync] = useState<string | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(busqueda), 400);
@@ -129,10 +131,31 @@ export default function RetirosPage() {
       if (filtroFecha) params.set("fecha", filtroFecha);
       const r = await fetch(`/api/retiros?${params}`);
       if (r.ok) setRetiros((await r.json()).retiros ?? []);
+      // El listado sincroniza con Tienda Nube antes de responder: si cargó
+      // retiros nuevos, los contadores de arriba tienen que reflejarlos.
+      fetchCounts();
     } finally {
       setLoading(false);
     }
-  }, [debounced, filtroEstadoRetiro, filtroEstadoPago, filtroCanal, filtroFecha]);
+  }, [debounced, filtroEstadoRetiro, filtroEstadoPago, filtroCanal, filtroFecha, fetchCounts]);
+
+  async function sincronizarConTn() {
+    setSincronizando(true);
+    setMensajeSync(null);
+    try {
+      const r = await fetch("/api/retiros/sincronizar", { method: "POST" });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error ?? "No se pudo sincronizar");
+      setMensajeSync(data.creados > 0
+        ? `Se cargaron ${data.creados} retiro${data.creados !== 1 ? "s" : ""} nuevo${data.creados !== 1 ? "s" : ""} desde Tienda Nube.`
+        : "Ya está todo al día: no hay retiros nuevos en Tienda Nube.");
+      await fetchRetiros();
+    } catch (e) {
+      setMensajeSync(e instanceof Error ? e.message : "No se pudo sincronizar");
+    } finally {
+      setSincronizando(false);
+    }
+  }
 
   useEffect(() => { fetchCounts(); }, [fetchCounts]);
   useEffect(() => { fetchRetiros(); }, [fetchRetiros]);
@@ -274,10 +297,22 @@ export default function RetirosPage() {
                 Pedidos que el cliente retira en el local — cargalos acá para que depósito sepa qué tener preparado.
               </p>
             </div>
-            <button className="sf-btn" onClick={abrirCrear}>
-              <i className="fas fa-plus" /> Crear retiro presencial
-            </button>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button className="sf-btn sf-btn-secondary" onClick={sincronizarConTn} disabled={sincronizando}>
+                <i className={`fas fa-rotate ${sincronizando ? "fa-spin" : ""}`} /> Sincronizar con Tienda Nube
+              </button>
+              <button className="sf-btn" onClick={abrirCrear}>
+                <i className="fas fa-plus" /> Crear retiro presencial
+              </button>
+            </div>
           </div>
+
+          {mensajeSync && (
+            <div className="sf-alert" style={{ marginBottom: "1rem" }}>
+              <i className="fas fa-circle-info" style={{ flexShrink: 0 }} />
+              <span>{mensajeSync}</span>
+            </div>
+          )}
 
           <div style={{ marginBottom: "1.5rem" }}>
             <RetiroStatCards counts={counts} />

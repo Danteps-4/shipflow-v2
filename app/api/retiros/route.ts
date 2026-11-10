@@ -7,6 +7,7 @@ import {
   ProductoRetiro, CanalPedidoRetiro, EstadoPagoRetiro, MedioPagoRetiro,
 } from "@/lib/retirosDb";
 import { initPedidoEnvioTables, getEnvioOverridesPorOrdenes, setEnvioOverride } from "@/lib/pedidoEnvioDb";
+import { sincronizarRetirosDesdeTn } from "@/lib/retirosAuto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,20 @@ export async function GET(req: NextRequest) {
 
   const sp = req.nextUrl.searchParams;
   await initRetirosTables();
+
+  // Antes de listar, se cargan los pedidos de Tienda Nube que se retiran por
+  // el depósito y todavía no están acá (con freno de 2 min, ver
+  // sincronizarRetirosDesdeTn). Si Tienda Nube falla, se lista igual lo que
+  // ya hay: la sincronización nunca debe romper la pantalla.
+  const tokens = readTokens(guard.user.id);
+  if (tokens) {
+    try {
+      await sincronizarRetirosDesdeTn(storeId, tokens.access_token);
+    } catch (e) {
+      console.error("[retiros] no se pudo sincronizar con Tienda Nube:", e);
+    }
+  }
+
   const retiros = await getRetiros(storeId, {
     q: sp.get("q") ?? undefined,
     estadoRetiro: sp.get("estado_retiro") ?? undefined,
