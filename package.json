@@ -10,7 +10,9 @@
     "test:conciliacion": "tsx scripts/test-conciliacion-matching.ts",
     "test:inventario": "tsx tests/inventario.test.ts",
     "test:inventario:staging": "tsx tests/inventario.staging.ts",
-    "test:inventario:paridad": "tsx tests/inventario.paridad.staging.ts"
+    "test:inventario:paridad": "tsx tests/inventario.paridad.staging.ts",
+    "test:importaciones:staging": "tsx tests/importaciones.staging.ts",
+    "dev:staging": "node scripts/dev-staging.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

@@ -6,6 +6,7 @@ import { PGlite } from "@electric-sql/pglite";
 import {
   Queryable, migrarInventario, aplicar, reservarPedido, liberarReserva, despacharPedido,
   registrarRecepcion, ingresarDevolucion, moverEntreEstados, getDisponibilidad, expandirAComponentes,
+  crearRecuento, resolverRecuento, listarRecuentos,
 } from "../lib/inventario";
 
 const S = "TIENDA-TEST";
@@ -217,5 +218,70 @@ describe("Reservas y combos", () => {
     assert.deepEqual(f.rows[0], { nombre: "Producto nuevo", cantidad: -3 });
     const m = await pg.query<{ motivo: string; tipo: string }>(`SELECT motivo, tipo FROM movimientos WHERE sku = 'NUEVO'`);
     assert.deepEqual(m.rows[0], { motivo: "Venta TN #N (despacho)", tipo: "venta" });
+  });
+});
+
+describe("Recuentos y auditoría", () => {
+  beforeEach(preparar);
+
+  it("Caso 20: un recuento con diferencia queda PENDIENTE y no toca el stock hasta que se aprueba", async () => {
+    const r = await tx(db => crearRecuento(db, { storeId: S, sku: "ABDOMEN", cantidadContada: 97, motivo: "Conteo semanal", usuario: "valentina" }));
+    assert.deepEqual([r.estado, r.cantidadTeorica, r.cantidadContada, r.diferencia], ["pendiente", 100, 97, -3]);
+    assert.equal((await estado("ABDOMEN")).fisico, 100, "todavía no se ajustó");
+
+    const ok = await tx(db => resolverRecuento(db, { storeId: S, id: r.id, resolucion: "aprobar", usuario: "dante" }));
+    assert.equal(ok.estado, "aprobado");
+    assert.equal((await estado("ABDOMEN")).fisico, 97);
+
+    const mov = await pg.query(`SELECT evento, cantidad, usuario, referencia, event_id, motivo FROM movimientos WHERE evento = 'recuento'`);
+    assert.deepEqual(mov.rows[0], { evento: "recuento", cantidad: -3, usuario: "dante", referencia: `recuento:${r.id}`, event_id: `recuento:${r.id}`, motivo: `Recuento #${r.id}: Conteo semanal` });
+
+    const aud = await pg.query(`SELECT accion, usuario FROM auditoria WHERE entidad = 'recuento' AND entidad_id = $1 ORDER BY id`, [String(r.id)]);
+    assert.deepEqual(aud.rows, [{ accion: "creado", usuario: "valentina" }, { accion: "aprobado", usuario: "dante" }]);
+  });
+
+  it("aprobar dos veces ajusta UNA sola vez", async () => {
+    const r = await tx(db => crearRecuento(db, { storeId: S, sku: "ABDOMEN", cantidadContada: 90 }));
+    await tx(db => resolverRecuento(db, { storeId: S, id: r.id, resolucion: "aprobar", usuario: "a" }));
+    await assert.rejects(tx(db => resolverRecuento(db, { storeId: S, id: r.id, resolucion: "aprobar", usuario: "b" })), /ya estaba resuelto/);
+    assert.equal((await estado("ABDOMEN")).fisico, 90);
+  });
+
+  it("rechazar no toca el stock y queda registrado", async () => {
+    const r = await tx(db => crearRecuento(db, { storeId: S, sku: "GLUTEOS", cantidadContada: 120 }));
+    await tx(db => resolverRecuento(db, { storeId: S, id: r.id, resolucion: "rechazar", usuario: "dante", motivo: "Contaron mal" }));
+    assert.equal((await estado("GLUTEOS")).fisico, 100);
+    assert.deepEqual((await tx(db => listarRecuentos(db, S, "rechazado"))).map(x => x.id), [r.id]);
+  });
+
+  it("si lo contado coincide con el sistema, queda resuelto solo y no genera ajuste", async () => {
+    const r = await tx(db => crearRecuento(db, { storeId: S, sku: "ABDOMEN", cantidadContada: 100 }));
+    assert.deepEqual([r.estado, r.diferencia], ["aprobado", 0]);
+    const n = await pg.query<{ n: number }>(`SELECT COUNT(*)::int AS n FROM movimientos WHERE evento = 'recuento'`);
+    assert.equal(Number(n.rows[0].n), 0);
+    assert.equal((await tx(db => listarRecuentos(db, S, "pendiente"))).length, 0);
+  });
+
+  it("el ajuste usa la diferencia medida al contar, aunque haya ventas mientras tanto", async () => {
+    const r = await tx(db => crearRecuento(db, { storeId: S, sku: "ABDOMEN", cantidadContada: 95 })); // sistema decía 100 → -5
+    await tx(db => despacharPedido(db, { ...pedido("V1"), items: [{ sku: "ABDOMEN", cantidad: 10 }] })); // se venden 10 después
+    await tx(db => resolverRecuento(db, { storeId: S, id: r.id, resolucion: "aprobar", usuario: "dante" }));
+    assert.equal((await estado("ABDOMEN")).fisico, 85, "100 - 10 de la venta - 5 del recuento");
+  });
+
+  it("valida SKU inexistente y cantidades inválidas", async () => {
+    await assert.rejects(tx(db => crearRecuento(db, { storeId: S, sku: "NO-EXISTE", cantidadContada: 1 })), /no existe/);
+    await assert.rejects(tx(db => crearRecuento(db, { storeId: S, sku: "ABDOMEN", cantidadContada: -1 })), /entero/);
+  });
+
+  it("devoluciones y reclasificaciones quedan en la auditoría con valor anterior y nuevo", async () => {
+    await tx(db => ingresarDevolucion(db, { storeId: S, sku: "ABDOMEN", cantidad: 2, referencia: "DEV-9", eventId: "dev:9", usuario: "valentina" }));
+    await tx(db => moverEntreEstados(db, { storeId: S, sku: "ABDOMEN", cantidad: 1, de: "revision", a: "defectuoso", motivo: "Caja rota", usuario: "valentina" }));
+    const a = await pg.query<{ accion: string; antes: unknown; despues: unknown; motivo: string }>(`SELECT accion, usuario, antes, despues, motivo FROM auditoria WHERE entidad = 'stock' ORDER BY id`);
+    assert.equal(a.rows.length, 2);
+    assert.deepEqual(a.rows[1].antes, { apto: 100, reservado: 0, defectuoso: 0, enRevision: 2 });
+    assert.deepEqual(a.rows[1].despues, { apto: 100, reservado: 0, defectuoso: 1, enRevision: 1 });
+    assert.equal(a.rows[1].accion, "revision->defectuoso");
+    assert.equal(a.rows[1].motivo, "Caja rota");
   });
 });

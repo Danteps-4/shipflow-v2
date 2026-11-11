@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readTokens } from "@/lib/tnTokens";
 import { getSessionUserId } from "@/lib/getSessionUser";
 import { requireModule } from "@/lib/permissions";
+import { inventarioV2Activo } from "@/lib/inventarioTx";
 import { initStockTables, getStock, upsertStockItem, deleteStockItem, setDestacado, setImportado } from "@/lib/stockDb";
 
 export const runtime = "nodejs";
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
 
   await initStockTables();
   const items = await getStock(storeId);
-  return NextResponse.json({ items });
+  return NextResponse.json({ items, inventarioV2: inventarioV2Activo() });
 }
 
 export async function POST(req: NextRequest) {

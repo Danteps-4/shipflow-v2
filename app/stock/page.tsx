@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import StoreSwitcher from "@/components/StoreSwitcher";
 import UserMenu from "@/components/UserMenu";
 import Sidebar from "@/components/Sidebar";
+import InventarioPanel from "@/components/InventarioPanel";
 
 function fechaHoy(): string {
   return new Date().toISOString().slice(0, 10);
@@ -66,13 +67,15 @@ interface Reposicion {
   created_at: string;
 }
 
-type Tab = "stock" | "movimientos" | "ventas";
+type Tab = "stock" | "movimientos" | "ventas" | "inventario";
 
 export default function StockPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tab, setTab]                 = useState<Tab>("stock");
 
   const [items, setItems]       = useState<StockItem[]>([]);
+  // true solo con el motor de inventario nuevo prendido (INVENTARIO_V2): muestra la pestaña "Inventario".
+  const [inventarioV2, setInventarioV2] = useState(false);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState<string | null>(null);
   const [search, setSearch]     = useState("");
@@ -191,8 +194,9 @@ export default function StockPage() {
       ]);
       if (rStock.status === 401) { setError("Conectate a Tienda Nube para usar el stock."); return; }
       if (!rStock.ok) throw new Error("Error al cargar stock");
-      const { items: data } = await rStock.json();
+      const { items: data, inventarioV2: v2 } = await rStock.json();
       setItems(data);
+      setInventarioV2(!!v2);
       if (rKits.ok) {
         const { kits: kData } = await rKits.json();
         setKits(kData ?? {});
@@ -485,7 +489,14 @@ export default function StockPage() {
             <button className={`sf-tab ${tab === "ventas" ? "active" : ""}`} onClick={() => setTab("ventas")}>
               <i className="fas fa-chart-line" /> Ventas
             </button>
+            {inventarioV2 && (
+              <button className={`sf-tab ${tab === "inventario" ? "active" : ""}`} onClick={() => setTab("inventario")}>
+                <i className="fas fa-clipboard-check" /> Inventario
+              </button>
+            )}
           </div>
+
+          {tab === "inventario" && inventarioV2 && <InventarioPanel />}
 
           {/* ── TAB STOCK ── */}
           {tab === "stock" && (

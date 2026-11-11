@@ -83,12 +83,20 @@ Despacho conectado al motor nuevo (2026-11-10), detrás de un interruptor:
 
 Para prender en producción: definir `INVENTARIO_V2=1` en Railway. Para apagar: quitarla (vuelve al comportamiento anterior al próximo despliegue; las columnas agregadas quedan y no molestan).
 
+Recepción de Importaciones, Stock y recuentos conectados (2026-11-11), detrás del mismo interruptor `INVENTARIO_V2`:
+
+- **Recepción de Importaciones** (`confirmarCajaAtomica` en `lib/importacionesDb.ts`): la línea, el escaneo, el stock (con `event_id`) y el cierre de la compra se confirman en UNA transacción real. Antes, si fallaba el último paso, la caja figuraba recibida pero el stock no subía. Apagado, o si el motor falla sin rastro, usa la confirmación de siempre. Validado en staging (`npm run test:importaciones:staging`): mismo resultado que el camino anterior en 2 cajas y 6 cajas simultáneas suman exacto.
+- **Pestaña "Inventario" en /stock** (solo visible con el interruptor prendido; `components/InventarioPanel.tsx`, `app/api/stock/inventario/route.ts`): columnas Vendible / Reservado / Disponible / Defectuoso / En revisión, ingreso de devoluciones (entran a "En revisión"), movimientos entre estados con motivo obligatorio y recuentos.
+- **Recuentos con aprobación**: quien cuenta registra la cantidad; si coincide con el sistema queda resuelto solo, si no queda PENDIENTE y no toca el stock. Solo un administrador aprueba (genera un movimiento auditable con `event_id`, aprobar dos veces ajusta una sola) o rechaza. La diferencia se mide contra el stock del momento del conteo.
+- **Auditoría general** (tabla `auditoria`): devoluciones, reclasificaciones y recuentos guardan usuario, valor anterior y nuevo, y motivo.
+- Probado en el navegador contra staging (`npm run dev:staging`, puerto 3001): un usuario común no puede aprobar (403), el administrador sí, y todo quedó registrado en el libro y la auditoría.
+- Pruebas: `npm run test:inventario` (28 casos, PGlite), `:staging`, `:paridad`, `test:importaciones:staging`.
+
 Pendiente de la Etapa 1:
 
-- Base de staging en Neon (una *branch* de la base actual) y adaptador de transacciones con el `Pool` de `@neondatabase/serverless` (requiere el paquete `ws` en Node). No se escribió todavía: no se puede probar sin esa base.
-- Correr `migrarInventario()` en staging, y recién después en producción (solo agrega columnas y una tabla).
-- Conectar: Despacho (`despacharPedido`), recepción de Importaciones (`registrarRecepcion`) y la pantalla de Stock (mostrar reservado/disponible), con un período de convivencia y conciliación contra el stock actual.
-- Recuentos con aprobación y registro de auditoría genérico.
+- Producción todavía no tiene el esquema nuevo (se crea solo, una vez por proceso, la primera vez que se usa con el interruptor prendido) ni el interruptor activado: ver "Para prender en producción" más arriba.
+- La edición manual de cantidad en /stock ("Ajustar" y "Editar") todavía no pasa por el libro de movimientos; con el motor nuevo conviene que lo haga.
+- Etapa 2 (siguiente): reservar cuando el pedido se paga (webhooks de Tienda Nube y Mercado Libre), liberar al cancelar, devoluciones desde pedidos y Full como ubicación separada.
 
 ## 5. Plan por etapas (adaptado a lo existente)
 

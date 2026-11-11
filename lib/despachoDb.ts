@@ -7,8 +7,8 @@ import { getValidMlAccessToken } from "./mlTokens";
 import { fetchMlOrder, extractDeducirItems } from "./mlClient";
 import { deducirStock, getStockPorSkus, initStockTables, DeducirItem } from "./stockDb";
 import { initPedidosCombinadosTables, getSecundarias } from "./pedidosCombinadosDb";
-import { conTransaccion } from "./inventarioTx";
-import { migrarInventario, despacharPedido, ItemPedido } from "./inventario";
+import { conTransaccion, inventarioV2Activo, asegurarEsquemaInventario } from "./inventarioTx";
+import { despacharPedido, ItemPedido } from "./inventario";
 import type { TnOrder, ProductoOrden } from "@/types/orders";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -589,15 +589,6 @@ export async function registrarEscaneoError(data: {
 
 // ─── Descuento de stock al escanear ──────────────────────────────────────────
 
-// Interruptor del motor de inventario nuevo (lib/inventario.ts). Apagado por
-// defecto: con INVENTARIO_V2 distinto de "1" todo funciona exactamente como
-// antes. Se prende en Railway recién después de validarlo en staging.
-function inventarioV2Activo(): boolean {
-  return process.env.INVENTARIO_V2 === "1";
-}
-
-let inventarioV2Migrado = false;
-
 // Descuenta con el motor nuevo: una transacción real por escaneo, con libro
 // de movimientos idempotente. Devuelve true si el stock quedó descontado.
 // Devuelve false (y entonces se usa el camino de siempre) solo si falló SIN
@@ -625,7 +616,7 @@ export async function descontarStockV2(
 
   try {
     await conTransaccion(async db => {
-      if (!inventarioV2Migrado) { await migrarInventario(db); inventarioV2Migrado = true; }
+      await asegurarEsquemaInventario(db);
       for (const [orden, items] of porOrden) {
         await despacharPedido(db, {
           storeId: envio.store_id, canal, numeroOrden: orden, items, esVenta, usuario: scannedBy, motivo: motivoDe(orden),

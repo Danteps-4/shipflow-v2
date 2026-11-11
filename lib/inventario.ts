@@ -23,7 +23,7 @@ export interface Queryable {
 
 export type Evento =
   | "reserva" | "liberacion" | "despacho" | "recepcion"
-  | "devolucion" | "reclasificacion";
+  | "devolucion" | "reclasificacion" | "recuento";
 
 export type EstadoStock = "apto" | "defectuoso" | "revision";
 
@@ -58,6 +58,36 @@ export async function migrarInventario(db: Queryable): Promise<void> {
        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
        UNIQUE (store_id, canal, numero_orden, sku)
      )`,
+    // Recuentos físicos: el ajuste solo se aplica cuando un supervisor lo aprueba.
+    `CREATE TABLE IF NOT EXISTS recuentos (
+       id               SERIAL PRIMARY KEY,
+       store_id         TEXT NOT NULL,
+       sku              TEXT NOT NULL,
+       cantidad_teorica INTEGER NOT NULL,
+       cantidad_contada INTEGER NOT NULL CHECK (cantidad_contada >= 0),
+       diferencia       INTEGER NOT NULL,
+       motivo           TEXT NOT NULL DEFAULT '',
+       estado           TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente','aprobado','rechazado')),
+       contado_por      TEXT NOT NULL DEFAULT '',
+       resuelto_por     TEXT,
+       resuelto_at      TIMESTAMPTZ,
+       created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS recuentos_store_estado ON recuentos (store_id, estado, created_at DESC)`,
+    // Registro de auditoría general: quién cambió qué, con valor anterior y nuevo.
+    `CREATE TABLE IF NOT EXISTS auditoria (
+       id          SERIAL PRIMARY KEY,
+       store_id    TEXT NOT NULL,
+       entidad     TEXT NOT NULL,
+       entidad_id  TEXT NOT NULL,
+       accion      TEXT NOT NULL,
+       usuario     TEXT NOT NULL DEFAULT '',
+       antes       JSONB,
+       despues     JSONB,
+       motivo      TEXT NOT NULL DEFAULT '',
+       created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+     )`,
+    `CREATE INDEX IF NOT EXISTS auditoria_store_entidad ON auditoria (store_id, entidad, entidad_id, created_at DESC)`,
   ];
   for (const sentencia of ddl) await db.query(sentencia);
 }
@@ -94,6 +124,30 @@ export async function expandirAComponentes(
     }
   }
   return fisicos;
+}
+
+// ─── Auditoría ───────────────────────────────────────────────────────────────
+
+export interface EntradaAuditoria {
+  storeId: string; entidad: string; entidadId: string; accion: string;
+  usuario?: string; antes?: unknown; despues?: unknown; motivo?: string;
+}
+
+export async function registrarAuditoria(db: Queryable, a: EntradaAuditoria): Promise<void> {
+  await db.query(
+    `INSERT INTO auditoria (store_id, entidad, entidad_id, accion, usuario, antes, despues, motivo)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8)`,
+    [a.storeId, a.entidad, a.entidadId, a.accion, a.usuario ?? "",
+     a.antes === undefined ? null : JSON.stringify(a.antes),
+     a.despues === undefined ? null : JSON.stringify(a.despues), a.motivo ?? ""],
+  );
+}
+
+async function fotoStock(db: Queryable, storeId: string, sku: string) {
+  const r = await db.query(
+    `SELECT cantidad, reservado, defectuoso, en_revision FROM stock WHERE store_id = $1 AND sku = $2`, [storeId, sku]);
+  const x = r.rows[0];
+  return x ? { apto: Number(x.cantidad), reservado: Number(x.reservado), defectuoso: Number(x.defectuoso), enRevision: Number(x.en_revision) } : null;
 }
 
 // ─── Movimiento base ─────────────────────────────────────────────────────────
@@ -275,10 +329,18 @@ export async function ingresarDevolucion(db: Queryable, p: {
   storeId: string; sku: string; cantidad: number; referencia: string; eventId: string; usuario?: string;
 }): Promise<{ aplicado: boolean }> {
   exigirEnteroPositivo(p.cantidad, "La cantidad devuelta");
-  return aplicar(db, {
+  const antes = await fotoStock(db, p.storeId, p.sku);
+  const r = await aplicar(db, {
     storeId: p.storeId, sku: p.sku, dRevision: p.cantidad, evento: "devolucion",
     referencia: p.referencia, motivo: `Devolución ${p.referencia}`, usuario: p.usuario, eventId: p.eventId,
   });
+  if (r.aplicado) {
+    await registrarAuditoria(db, {
+      storeId: p.storeId, entidad: "stock", entidadId: p.sku, accion: "devolucion", usuario: p.usuario,
+      antes, despues: await fotoStock(db, p.storeId, p.sku), motivo: p.referencia,
+    });
+  }
+  return r;
 }
 
 const CAMPO_ESTADO: Record<EstadoStock, "dApto" | "dDefectuoso" | "dRevision"> = {
@@ -292,11 +354,101 @@ export async function moverEntreEstados(db: Queryable, p: {
 }): Promise<{ aplicado: boolean }> {
   exigirEnteroPositivo(p.cantidad, "La cantidad a mover");
   if (p.de === p.a) throw new Error("El estado de origen y el de destino son el mismo");
-  return aplicar(db, {
+  const antes = await fotoStock(db, p.storeId, p.sku);
+  const r = await aplicar(db, {
     storeId: p.storeId, sku: p.sku, evento: "reclasificacion", motivo: p.motivo,
     usuario: p.usuario, eventId: p.eventId,
     [CAMPO_ESTADO[p.de]]: -p.cantidad, [CAMPO_ESTADO[p.a]]: p.cantidad,
   });
+  if (r.aplicado) {
+    await registrarAuditoria(db, {
+      storeId: p.storeId, entidad: "stock", entidadId: p.sku, accion: `${p.de}->${p.a}`, usuario: p.usuario,
+      antes, despues: await fotoStock(db, p.storeId, p.sku), motivo: p.motivo,
+    });
+  }
+  return r;
+}
+
+// ─── Recuentos físicos ───────────────────────────────────────────────────────
+
+export interface Recuento {
+  id: number; sku: string; cantidadTeorica: number; cantidadContada: number; diferencia: number;
+  motivo: string; estado: "pendiente" | "aprobado" | "rechazado"; contadoPor: string;
+  resueltoPor: string | null; resueltoAt: string | null; createdAt: string;
+}
+
+function aRecuento(r: Record<string, unknown>): Recuento {
+  return {
+    id: Number(r.id), sku: r.sku as string, cantidadTeorica: Number(r.cantidad_teorica),
+    cantidadContada: Number(r.cantidad_contada), diferencia: Number(r.diferencia), motivo: r.motivo as string,
+    estado: r.estado as Recuento["estado"], contadoPor: r.contado_por as string,
+    resueltoPor: (r.resuelto_por as string | null) ?? null,
+    resueltoAt: r.resuelto_at ? new Date(r.resuelto_at as string).toISOString() : null,
+    createdAt: new Date(r.created_at as string).toISOString(),
+  };
+}
+
+// Registra lo que se contó contra lo que el sistema decía. Si coincide, queda
+// resuelto solo; si no, queda PENDIENTE y NO toca el stock hasta que un
+// supervisor lo apruebe. La diferencia se mide contra el stock del momento del
+// conteo, así las ventas que ocurran hasta la aprobación no distorsionan el ajuste.
+export async function crearRecuento(db: Queryable, p: {
+  storeId: string; sku: string; cantidadContada: number; motivo?: string; usuario?: string;
+}): Promise<Recuento> {
+  if (!Number.isInteger(p.cantidadContada) || p.cantidadContada < 0) {
+    throw new Error("La cantidad contada tiene que ser un entero mayor o igual a 0");
+  }
+  const actual = await fotoStock(db, p.storeId, p.sku);
+  if (!actual) throw new Error(`El SKU ${p.sku} no existe en el stock`);
+  const diferencia = p.cantidadContada - actual.apto;
+  const estado = diferencia === 0 ? "aprobado" : "pendiente";
+
+  const r = await db.query(
+    `INSERT INTO recuentos (store_id, sku, cantidad_teorica, cantidad_contada, diferencia, motivo, estado, contado_por, resuelto_por, resuelto_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+    [p.storeId, p.sku, actual.apto, p.cantidadContada, diferencia, p.motivo ?? "", estado, p.usuario ?? "",
+     diferencia === 0 ? "(coincide)" : null, diferencia === 0 ? new Date().toISOString() : null],
+  );
+  const rec = aRecuento(r.rows[0]);
+  await registrarAuditoria(db, {
+    storeId: p.storeId, entidad: "recuento", entidadId: String(rec.id), accion: "creado", usuario: p.usuario,
+    despues: rec, motivo: p.motivo,
+  });
+  return rec;
+}
+
+// Aprobar aplica el ajuste (un movimiento auditable con event_id: aprobar dos
+// veces, incluso a la vez, ajusta una sola). Rechazar no toca el stock.
+export async function resolverRecuento(db: Queryable, p: {
+  storeId: string; id: number; resolucion: "aprobar" | "rechazar"; usuario: string; motivo?: string;
+}): Promise<Recuento> {
+  const upd = await db.query(
+    `UPDATE recuentos SET estado = $3, resuelto_por = $4, resuelto_at = NOW()
+      WHERE store_id = $1 AND id = $2 AND estado = 'pendiente' RETURNING *`,
+    [p.storeId, p.id, p.resolucion === "aprobar" ? "aprobado" : "rechazado", p.usuario],
+  );
+  if (!upd.rows.length) throw new Error("El recuento no existe o ya estaba resuelto");
+  const rec = aRecuento(upd.rows[0]);
+
+  if (p.resolucion === "aprobar") {
+    await aplicar(db, {
+      storeId: p.storeId, sku: rec.sku, dApto: rec.diferencia, evento: "recuento", referencia: `recuento:${rec.id}`,
+      motivo: `Recuento #${rec.id}${rec.motivo ? `: ${rec.motivo}` : ""}`, usuario: p.usuario, eventId: `recuento:${rec.id}`,
+    });
+  }
+  await registrarAuditoria(db, {
+    storeId: p.storeId, entidad: "recuento", entidadId: String(rec.id), accion: p.resolucion === "aprobar" ? "aprobado" : "rechazado",
+    usuario: p.usuario, antes: { estado: "pendiente", diferencia: rec.diferencia }, despues: rec, motivo: p.motivo,
+  });
+  return rec;
+}
+
+export async function listarRecuentos(db: Queryable, storeId: string, estado?: Recuento["estado"]): Promise<Recuento[]> {
+  const r = await db.query(
+    `SELECT * FROM recuentos WHERE store_id = $1 AND ($2::text IS NULL OR estado = $2) ORDER BY created_at DESC LIMIT 100`,
+    [storeId, estado ?? null],
+  );
+  return r.rows.map(aRecuento);
 }
 
 // ─── Lectura ─────────────────────────────────────────────────────────────────
@@ -314,5 +466,19 @@ export async function getDisponibilidad(db: Queryable, storeId: string): Promise
     sku: x.sku as string, fisico: Number(x.cantidad), reservado: Number(x.reservado),
     disponible: Number(x.cantidad) - Number(x.reservado),
     defectuoso: Number(x.defectuoso), enRevision: Number(x.en_revision),
+  }));
+}
+
+export interface FilaInventario extends DisponibilidadSku { nombre: string }
+
+// Igual que getDisponibilidad pero con el nombre del producto, para mostrar en pantalla.
+export async function getInventario(db: Queryable, storeId: string): Promise<FilaInventario[]> {
+  const r = await db.query(
+    `SELECT sku, nombre, cantidad, reservado, defectuoso, en_revision FROM stock WHERE store_id = $1 ORDER BY sku`,
+    [storeId],
+  );
+  return r.rows.map(x => ({
+    sku: x.sku as string, nombre: (x.nombre as string) ?? "", fisico: Number(x.cantidad), reservado: Number(x.reservado),
+    disponible: Number(x.cantidad) - Number(x.reservado), defectuoso: Number(x.defectuoso), enRevision: Number(x.en_revision),
   }));
 }

@@ -1,5 +1,8 @@
 import { getDb } from "./db";
+import { randomUUID } from "crypto";
 import { ajustarStock } from "./stockDb";
+import { conTransaccion, inventarioV2Activo, asegurarEsquemaInventario } from "./inventarioTx";
+import { registrarRecepcion } from "./inventario";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -475,7 +478,7 @@ export interface ConfirmarCajaResult {
 // recibió, un solo UPDATE ya atómico), después la auditoría, después el
 // efecto secundario best-effort (sumar stock) — si lo último fallara, la
 // caja ya se abrió y se contó físicamente, no tiene sentido revertir nada.
-export async function confirmarCaja(input: ConfirmarCajaInput): Promise<ConfirmarCajaResult> {
+async function confirmarCajaActual(input: ConfirmarCajaInput): Promise<ConfirmarCajaResult> {
   const sql = getDb();
 
   const lineaRows = await sql`
@@ -521,6 +524,81 @@ export async function confirmarCaja(input: ConfirmarCajaInput): Promise<Confirma
   }
 
   return { escaneo, linea, compraCompleta };
+}
+
+// Con el motor de inventario nuevo (INVENTARIO_V2=1) la caja se confirma en UNA
+// sola transacción real: la línea, el escaneo, el stock (con event_id en el
+// libro de movimientos) y el cierre de la compra quedan juntos o no queda
+// nada. Antes, si fallaba el último paso, la caja figuraba recibida pero el
+// stock no subía.
+export async function confirmarCajaAtomica(input: ConfirmarCajaInput): Promise<ConfirmarCajaResult> {
+  const eventId = `recepcion:importacion:${randomUUID()}`;
+  return conTransaccion(async db => {
+    await asegurarEsquemaInventario(db);
+
+    const l = await db.query(
+      `UPDATE compras_importacion_lineas SET cantidad_recibida = cantidad_recibida + $1
+        WHERE id = $2 AND compra_id = $3 RETURNING *`,
+      [input.cantidad, input.lineaId, input.compraId],
+    );
+    const linea = l.rows[0] as unknown as LineaCompraImportacion | undefined;
+    if (!linea) throw new Error("Línea de compra no encontrada");
+
+    const e = await db.query(
+      `INSERT INTO recepcion_escaneos (compra_id, linea_id, tracking_number, sku, cantidad, scanned_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [input.compraId, input.lineaId, input.trackingNumberEscaneado, linea.sku, input.cantidad, input.scannedBy],
+    );
+    const escaneo = e.rows[0] as unknown as RecepcionEscaneo;
+
+    const c = await db.query(`SELECT store_id FROM compras_importacion WHERE id = $1`, [input.compraId]);
+    const storeId = c.rows[0]?.store_id as string | undefined;
+    if (storeId) {
+      await registrarRecepcion(db, {
+        storeId, sku: linea.sku, nombre: linea.nombre, cantidad: input.cantidad,
+        referencia: `compra #${input.compraId} (tracking ${input.trackingNumberEscaneado})`,
+        eventId, usuario: input.scannedBy,
+      });
+    }
+
+    const todas = await db.query(`SELECT cantidad_recibida, cantidad_esperada FROM compras_importacion_lineas WHERE compra_id = $1`, [input.compraId]);
+    const compraCompleta = todas.rows.every(r => Number(r.cantidad_recibida) >= Number(r.cantidad_esperada));
+    if (compraCompleta) {
+      await db.query(`UPDATE compras_importacion SET fecha_llegada_real = COALESCE(fecha_llegada_real, CURRENT_DATE) WHERE id = $1`, [input.compraId]);
+    }
+    return { escaneo, linea, compraCompleta };
+  }).catch(async (err: unknown) => {
+    // Si la transacción llegó a confirmarse y recién después se cortó la
+    // conexión, el movimiento quedó registrado: se devuelve ese resultado en
+    // vez de reintentar (que sumaría la caja dos veces).
+    const sql = getDb();
+    try {
+      const rastro = await sql`SELECT 1 AS ya FROM movimientos WHERE event_id = ${eventId} LIMIT 1` as { ya: number }[];
+      if (rastro.length > 0) {
+        const esc = await sql`SELECT * FROM recepcion_escaneos WHERE compra_id = ${input.compraId} AND linea_id = ${input.lineaId} ORDER BY id DESC LIMIT 1` as RecepcionEscaneo[];
+        const lineas = await getLineasDeCompra(input.compraId);
+        const linea = lineas.find(x => x.id === input.lineaId);
+        if (esc[0] && linea) {
+          return { escaneo: esc[0], linea, compraCompleta: lineas.every(x => x.cantidad_recibida >= x.cantidad_esperada) };
+        }
+      }
+    } catch { /* no se pudo comprobar: se propaga el error original */ }
+    throw err;
+  });
+}
+
+export async function confirmarCaja(input: ConfirmarCajaInput): Promise<ConfirmarCajaResult> {
+  if (inventarioV2Activo()) {
+    try {
+      return await confirmarCajaAtomica(input);
+    } catch (e) {
+      // La transacción se revirtió entera (o ya se resolvió arriba): no hay
+      // riesgo de contar dos veces. Los errores de negocio (ej. línea
+      // inexistente) se repiten idénticos en el camino de siempre.
+      console.error("[importaciones] el motor de inventario nuevo falló, se usa la confirmación de siempre:", e);
+    }
+  }
+  return confirmarCajaActual(input);
 }
 
 // ─── Contadores / historial ───────────────────────────────────────────────────

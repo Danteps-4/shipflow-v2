@@ -1,6 +1,6 @@
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import ws from "ws";
-import type { Queryable } from "./inventario";
+import { migrarInventario, type Queryable } from "./inventario";
 
 // Transacciones reales (BEGIN/COMMIT) sobre Neon. El driver `neon()` por HTTP
 // que usa el resto de la app no las soporta entre consultas separadas; esto
@@ -43,4 +43,21 @@ export async function conTransaccion<T>(
 export async function cerrarConexiones(): Promise<void> {
   await Promise.all([...pools.values()].map(p => p.end()));
   pools.clear();
+}
+
+// Interruptor del motor de inventario nuevo. Apagado por defecto: con
+// INVENTARIO_V2 distinto de "1" todo funciona exactamente como antes. Se
+// prende en Railway recién después de validarlo.
+export function inventarioV2Activo(): boolean {
+  return process.env.INVENTARIO_V2 === "1";
+}
+
+let esquemaInventarioListo = false;
+
+// Crea (si faltan) las columnas y la tabla del motor nuevo. Solo agrega, es
+// idempotente, y se corre una vez por proceso la primera vez que se lo usa.
+export async function asegurarEsquemaInventario(db: Queryable): Promise<void> {
+  if (esquemaInventarioListo) return;
+  await migrarInventario(db);
+  esquemaInventarioListo = true;
 }
