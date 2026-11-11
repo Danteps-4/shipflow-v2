@@ -73,6 +73,16 @@ Hecho (sin cambios en producción, todavía no conectado a nada):
 - `lib/inventario.ts`: libro de movimientos con `event_id` único (idempotente), estados de stock (apto, reservado, defectuoso, en revisión), reservas por pedido y componente físico, despacho que convierte la reserva en egreso sin descontar dos veces, liberación, recepciones, devoluciones y reclasificaciones. Compatible con las ventas semanales (solo el despacho cuenta como `venta`).
 - `tests/inventario.test.ts` (`npm run test:inventario`): 20 casos sobre un Postgres real en memoria (PGlite), incluidos los casos 1–8 y 16 de la especificación y la atomicidad. No toca ninguna base de Neon.
 
+Despacho conectado al motor nuevo (2026-11-10), detrás de un interruptor:
+
+- `INVENTARIO_V2` (variable de entorno). Apagado (por defecto) el escaneo descuenta exactamente como antes. Con `INVENTARIO_V2=1` el escaneo descuenta con una transacción real por paquete (`descontarStockV2` en `lib/despachoDb.ts`) y registra cada movimiento con `event_id`.
+- Si el motor nuevo falla sin dejar rastro, el escaneo cae solo al descuento de siempre. Si sí dejó rastro (se confirmó), no descuenta de nuevo.
+- Validado en staging (`npm run test:inventario:paridad`): mismo stock final e historial que `deducirStock` en 8 situaciones (SKU simple, combos, combos que comparten componente, SKU inexistente, stock insuficiente, Cambio, Mercado Libre, envío combinado), más un escaneo completo de Despacho con un pedido real de Tienda Nube y el rechazo del segundo escaneo.
+- Única diferencia deliberada: en un envío combinado el historial rotula cada movimiento con el pedido del que sale el producto (antes todos figuraban con el pedido principal).
+- La migración de esquema se corre sola, una vez por proceso, la primera vez que se escanea con el interruptor prendido. Hasta entonces producción no tiene ninguna columna ni tabla nueva.
+
+Para prender en producción: definir `INVENTARIO_V2=1` en Railway. Para apagar: quitarla (vuelve al comportamiento anterior al próximo despliegue; las columnas agregadas quedan y no molestan).
+
 Pendiente de la Etapa 1:
 
 - Base de staging en Neon (una *branch* de la base actual) y adaptador de transacciones con el `Pool` de `@neondatabase/serverless` (requiere el paquete `ws` en Node). No se escribió todavía: no se puede probar sin esa base.

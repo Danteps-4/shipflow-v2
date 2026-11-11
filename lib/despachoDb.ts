@@ -7,6 +7,8 @@ import { getValidMlAccessToken } from "./mlTokens";
 import { fetchMlOrder, extractDeducirItems } from "./mlClient";
 import { deducirStock, getStockPorSkus, initStockTables, DeducirItem } from "./stockDb";
 import { initPedidosCombinadosTables, getSecundarias } from "./pedidosCombinadosDb";
+import { conTransaccion } from "./inventarioTx";
+import { migrarInventario, despacharPedido, ItemPedido } from "./inventario";
 import type { TnOrder, ProductoOrden } from "@/types/orders";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
@@ -585,6 +587,96 @@ export async function registrarEscaneoError(data: {
   return rows[0];
 }
 
+// ─── Descuento de stock al escanear ──────────────────────────────────────────
+
+// Interruptor del motor de inventario nuevo (lib/inventario.ts). Apagado por
+// defecto: con INVENTARIO_V2 distinto de "1" todo funciona exactamente como
+// antes. Se prende en Railway recién después de validarlo en staging.
+function inventarioV2Activo(): boolean {
+  return process.env.INVENTARIO_V2 === "1";
+}
+
+let inventarioV2Migrado = false;
+
+// Descuenta con el motor nuevo: una transacción real por escaneo, con libro
+// de movimientos idempotente. Devuelve true si el stock quedó descontado.
+// Devuelve false (y entonces se usa el camino de siempre) solo si falló SIN
+// dejar nada registrado: si la transacción se revirtió no hay riesgo de
+// descontar dos veces. Si hay rastro de que sí se confirmó, devuelve true.
+export async function descontarStockV2(
+  envio: EnvioTracking, pedido: PedidoParaEscaneo, scannedBy: string,
+): Promise<boolean> {
+  const canal = pedido.origenTipo === "mercado_libre" ? "mercadolibre" : "tiendanube";
+  const esVenta = pedido.origenTipo !== "cambio";
+
+  // En un envío combinado cada producto se descuenta contra el pedido del que
+  // sale (ordenOrigen). Un Cambio solo lleva su primer producto, como siempre.
+  const productos = pedido.origenTipo === "cambio" ? pedido.productos.slice(0, 1) : pedido.productos;
+  const porOrden = new Map<string, ItemPedido[]>();
+  for (const p of productos) {
+    const orden = p.ordenOrigen ?? envio.numero_orden;
+    porOrden.set(orden, [...(porOrden.get(orden) ?? []), { sku: p.sku, nombre: p.nombre, cantidad: p.cantidad }]);
+  }
+
+  const motivoDe = (orden: string) =>
+    pedido.origenTipo === "cambio" ? `Despacho Cambio ${envio.numero_orden}`
+      : pedido.origenTipo === "mercado_libre" ? `Venta ML #${orden} (despacho)`
+      : `Venta TN #${orden} (despacho)`;
+
+  try {
+    await conTransaccion(async db => {
+      if (!inventarioV2Migrado) { await migrarInventario(db); inventarioV2Migrado = true; }
+      for (const [orden, items] of porOrden) {
+        await despacharPedido(db, {
+          storeId: envio.store_id, canal, numeroOrden: orden, items, esVenta, usuario: scannedBy, motivo: motivoDe(orden),
+        });
+      }
+    });
+    return true;
+  } catch (e) {
+    console.error("[despacho] el motor de inventario nuevo falló, se usa el descuento de siempre:", e);
+    try {
+      const sql = getDb();
+      const rastro = await sql`
+        SELECT 1 AS ya FROM movimientos
+        WHERE store_id = ${envio.store_id} AND event_id LIKE ${`despacho:${canal}:${envio.numero_orden}:%`} LIMIT 1
+      ` as { ya: number }[];
+      if (rastro.length > 0) return true;
+    } catch { /* si no se puede comprobar, se sigue con el camino de siempre */ }
+    return false;
+  }
+}
+
+// El descuento de siempre (deducirStock, driver HTTP, sin transacción).
+async function descontarStockActual(envio: EnvioTracking, pedido: PedidoParaEscaneo): Promise<void> {
+  await initStockTables();
+  if (pedido.origenTipo === "cambio") {
+    const item: DeducirItem = {
+      sku: pedido.productos[0].sku, nombre: pedido.productos[0].nombre, cantidad: pedido.productos[0].cantidad,
+      motivo: `Despacho Cambio ${envio.numero_orden}`, numeroOrden: envio.numero_orden,
+    };
+    await deducirStock(envio.store_id, [item], "tiendanube", "ajuste");
+  } else if (pedido.origenTipo === "mercado_libre") {
+    const items: DeducirItem[] = pedido.productos.map(p => ({
+      sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
+      motivo: `Venta ML #${envio.numero_orden} (despacho)`, numeroOrden: envio.numero_orden,
+    }));
+    await deducirStock(envio.store_id, items, "mercadolibre", "venta");
+  } else {
+    // En un envío combinado cada producto se descuenta contra el pedido del
+    // que sale (ordenOrigen), no contra el principal: así el control
+    // anti-doble-descuento sigue siendo por pedido.
+    const items: DeducirItem[] = pedido.productos.map(p => {
+      const orden = p.ordenOrigen ?? envio.numero_orden;
+      return {
+        sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
+        motivo: `Venta TN #${orden} (despacho)`, numeroOrden: orden,
+      };
+    });
+    await deducirStock(envio.store_id, items, "tiendanube", "venta");
+  }
+}
+
 // Orquestador único, llamado desde app/api/despacho/scan/route.ts. Encapsula
 // toda la validación, resolución del pedido, y el claim atómico anti-doble-
 // despacho.
@@ -699,32 +791,8 @@ export async function procesarEscaneo(codigoRaw: string, scannedBy: string): Pro
   // paquete ya salió físicamente, es un hecho), solo se loguea el error para
   // revisar el stock a mano.
   try {
-    await initStockTables();
-    if (pedido.origenTipo === "cambio") {
-      const item: DeducirItem = {
-        sku: pedido.productos[0].sku, nombre: pedido.productos[0].nombre, cantidad: pedido.productos[0].cantidad,
-        motivo: `Despacho Cambio ${envio.numero_orden}`, numeroOrden: envio.numero_orden,
-      };
-      await deducirStock(envio.store_id, [item], "tiendanube", "ajuste");
-    } else if (pedido.origenTipo === "mercado_libre") {
-      const items: DeducirItem[] = pedido.productos.map(p => ({
-        sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
-        motivo: `Venta ML #${envio.numero_orden} (despacho)`, numeroOrden: envio.numero_orden,
-      }));
-      await deducirStock(envio.store_id, items, "mercadolibre", "venta");
-    } else {
-      // En un envío combinado cada producto se descuenta contra el pedido del
-      // que sale (ordenOrigen), no contra el principal: así el control
-      // anti-doble-descuento sigue siendo por pedido.
-      const items: DeducirItem[] = pedido.productos.map(p => {
-        const orden = p.ordenOrigen ?? envio.numero_orden;
-        return {
-          sku: p.sku, nombre: p.nombre, cantidad: p.cantidad,
-          motivo: `Venta TN #${orden} (despacho)`, numeroOrden: orden,
-        };
-      });
-      await deducirStock(envio.store_id, items, "tiendanube", "venta");
-    }
+    const descontado = inventarioV2Activo() && await descontarStockV2(envio, pedido, scannedBy);
+    if (!descontado) await descontarStockActual(envio, pedido);
   } catch (e) {
     console.error("[despacho] error al descontar stock en el escaneo:", e);
   }

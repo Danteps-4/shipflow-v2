@@ -27,7 +27,7 @@ export type Evento =
 
 export type EstadoStock = "apto" | "defectuoso" | "revision";
 
-export interface ItemPedido { sku: string; cantidad: number }
+export interface ItemPedido { sku: string; cantidad: number; nombre?: string }
 
 // ─── Esquema (solo agrega: no rompe nada de lo que ya usa la app) ────────────
 
@@ -218,9 +218,12 @@ export async function liberarReserva(db: Queryable, p: PedidoRef): Promise<strin
 // Si después de despachar queda alguna reserva activa de ese pedido (ej. se
 // cambió la composición de un combo entre reservar y despachar), se libera.
 export async function despacharPedido(
-  db: Queryable, p: PedidoRef & { items: ItemPedido[]; esVenta?: boolean },
+  db: Queryable, p: PedidoRef & { items: ItemPedido[]; esVenta?: boolean; motivo?: string },
 ): Promise<{ despachados: string[]; omitidos: string[] }> {
   const componentes = await expandirAComponentes(db, p.storeId, p.items);
+  // Nombre para crear la fila de stock de un SKU que todavía no existe (igual
+  // que hoy: sale del producto del pedido; los componentes de un combo usan su SKU).
+  const nombres = new Map(p.items.filter(i => i.nombre).map(i => [i.sku, i.nombre as string]));
   const out = { despachados: [] as string[], omitidos: [] as string[] };
 
   for (const [sku, cantidad] of componentes) {
@@ -237,9 +240,9 @@ export async function despacharPedido(
     const reservada = consumida.rows[0] ? Number(consumida.rows[0].cantidad) : 0;
 
     const { aplicado } = await aplicar(db, {
-      storeId: p.storeId, sku, dApto: -cantidad, dReservado: -reservada, evento: "despacho",
+      storeId: p.storeId, sku, nombre: nombres.get(sku), dApto: -cantidad, dReservado: -reservada, evento: "despacho",
       tipo: p.esVenta === false ? "ajuste" : "venta", canal: p.canal, referencia: p.numeroOrden,
-      motivo: `Despacho pedido #${p.numeroOrden}`, usuario: p.usuario, eventId,
+      motivo: p.motivo ?? `Despacho pedido #${p.numeroOrden}`, usuario: p.usuario, eventId,
     });
     if (!aplicado) {
       // Otro despacho del mismo pedido ganó la carrera y ya lo registró. Si

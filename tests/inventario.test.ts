@@ -211,4 +211,11 @@ describe("Reservas y combos", () => {
     ]);
     assert.deepEqual(Object.fromEntries(m), { "ABDOMEN-BRAZOS": 1, GLUTEOS: 3, ABDOMEN: 1 });
   });
+  it("despachar respeta el motivo y el nombre del producto recibidos (SKU nuevo queda negativo con ese nombre)", async () => {
+    await tx(db => despacharPedido(db, { ...pedido("N"), items: [{ sku: "NUEVO", nombre: "Producto nuevo", cantidad: 3 }], motivo: "Venta TN #N (despacho)" }));
+    const f = await pg.query<{ nombre: string; cantidad: number }>(`SELECT nombre, cantidad FROM stock WHERE store_id = $1 AND sku = 'NUEVO'`, [S]);
+    assert.deepEqual(f.rows[0], { nombre: "Producto nuevo", cantidad: -3 });
+    const m = await pg.query<{ motivo: string; tipo: string }>(`SELECT motivo, tipo FROM movimientos WHERE sku = 'NUEVO'`);
+    assert.deepEqual(m.rows[0], { motivo: "Venta TN #N (despacho)", tipo: "venta" });
+  });
 });
