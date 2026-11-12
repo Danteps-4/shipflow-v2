@@ -88,6 +88,46 @@ def strip_troquel(zpl: str) -> str:
     return f"^XA\n^CI28\n{shipping}"
 
 
+def _decodificar(texto: str) -> str:
+    return re.sub(r"_([0-9A-Fa-f]{2})", lambda x: chr(int(x.group(1), 16)), texto)
+
+
+# Un pedido de ML puede traer varios productos distintos. En el troquel cada
+# producto son dos campos seguidos: el título ("... Negro", con "| N u." al
+# final cuando son N unidades) y el detalle ("Color: Negro SKU: ABDOMEN"). El
+# número grande de arriba ("2 Unidades") es el TOTAL del paquete, no la
+# cantidad de un producto: no se puede aplicar a un SKU suelto.
+def extract_products(zpl: str) -> list:
+    head = zpl.split("^LH0,410")[0]
+    campos = [m.group(1) for m in re.finditer(r"\^FD([^\^]*)\^FS", head)]
+    productos = []
+    for i, campo in enumerate(campos):
+        m = re.search(r"SKU:\s*([^\^|]+)", campo)
+        if not m:
+            continue
+        sku = _decodificar(m.group(1).strip())
+        titulo = campos[i - 1] if i > 0 else ""
+        mq = re.search(r"\|\s*(\d+)\s*u\.", titulo)
+        productos.append({"sku": sku, "cantidad": int(mq.group(1)) if mq else None})
+
+    if len(productos) == 1 and productos[0]["cantidad"] is None:
+        # Un solo producto: acá sí el número grande es su cantidad.
+        productos[0]["cantidad"] = extract_quantity(zpl)
+    for pr in productos:
+        if pr["cantidad"] is None:
+            pr["cantidad"] = 1
+
+    # Mismo SKU repetido: se suma.
+    unidos = []
+    for pr in productos:
+        previo = next((u for u in unidos if u["sku"] == pr["sku"]), None)
+        if previo:
+            previo["cantidad"] += pr["cantidad"]
+        else:
+            unidos.append(dict(pr))
+    return unidos
+
+
 # La cantidad viene en la sección del troquel (el número grande arriba de
 # "Unidades" y el "| N u." del título) — que strip_troquel() descarta, así que
 # hay que leerla del ZPL original antes de recortarlo.
@@ -99,12 +139,29 @@ def extract_quantity(zpl: str) -> int:
     return int(m.group(1)) if m else 1
 
 
+def _linea_producto(sku: str, cantidad: int) -> str:
+    return f"{cantidad}x {sku}" if cantidad > 1 else sku
+
+
+# Un producto por línea ("2x GLUTEOS" si son varias unidades, "ABDOMEN" si es
+# una), así depósito ve de un vistazo qué y cuánto lleva el paquete. Hasta 4
+# líneas entran entre el código de barras y la dirección; si hubiera más, las
+# últimas se juntan en la cuarta.
+def inject_productos(zpl: str, productos: list) -> str:
+    if not productos:
+        return zpl
+    lineas = [_linea_producto(p["sku"], p["cantidad"]) for p in productos]
+    if len(lineas) > 4:
+        lineas = lineas[:3] + [" + ".join(lineas[3:])]
+    paso = 40 if len(lineas) <= 3 else 36  # con 4 líneas hay que apretar para no tocar la raya de abajo
+    campos = "".join(f"^FO30,{800 + paso * k}^A0N,36,36^FD{texto}^FS\n" for k, texto in enumerate(lineas))
+    return zpl.replace("^XZ", campos + "^XZ", 1)
+
+
 def inject_sku(zpl: str, sku: str, qty: int = 1) -> str:
     if not sku:
         return zpl
-    text = f"{qty}x {sku}" if qty > 1 else sku
-    fields = f"^FO30,800^A0N,36,36^FD{text}^FS\n"
-    return zpl.replace("^XZ", fields + "^XZ", 1)
+    return inject_productos(zpl, [{"sku": sku, "cantidad": qty}])
 
 
 def render_zpl_to_png(zpl: str) -> bytes:
@@ -158,9 +215,8 @@ def main():
     for i, zpl in enumerate(labels):
         if i > 0:
             time.sleep(RENDER_DELAY_S)
-        sku = extract_sku(zpl)
-        qty = extract_quantity(zpl)
-        zpl_final = inject_sku(strip_troquel(zpl), sku, qty)
+        productos = extract_products(zpl)
+        zpl_final = inject_productos(strip_troquel(zpl), productos)
         png_images.append(render_zpl_to_png(zpl_final))
         shipment = extract_shipment_data(zpl)
         if shipment:
